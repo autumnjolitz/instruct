@@ -1,0 +1,9 @@
+*.egg-info/
+.idea/*
+*.idx
+*.sublime-*
+*.pyc
+dist/
+.cache/
+*.dat
+.DS_Store
