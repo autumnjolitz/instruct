@@ -7,15 +7,7 @@ from setuptools import (setup, find_packages)
 
 here = path.abspath(path.dirname(__file__))
 install_requirements = [
-    # Place your project requirements here.
-
-    # One way to keep up-to-date while still keeping a stable API is to
-    # use semantic versioning. If the requirement has a major.minor.[bugfix] format,
-    # then you can restrict versions by range. Suggest you read
-    # `PEP 440<https://www.python.org/dev/peps/pep-0440/>`_ for more information.
-
-    # Example where we ask for a ``fake`` library and block a specific version.
-    # 'fake>=1.0.0, !1.1.0, <2.0.0a0'
+  'Jinja2~=2.9.6',
 ]
 
 # The following are meant to avoid accidental upload/registration of this
@@ -24,12 +16,6 @@ pypi_operations = frozenset(['register', 'upload']) & frozenset([x.lower() for x
 if pypi_operations:
     raise ValueError('Command(s) {} disabled in this example.'.format(', '.join(pypi_operations)))
 
-# Python favors using README.rst files (as opposed to README.md files)
-# If you wish to use README.md, you must add the following line to your MANIFEST.in file::
-#
-#     include README.md
-#
-# then you can change the README.rst to README.md below.
 with open(path.join(here, 'README.rst'), encoding='utf-8') as fh:
     long_description = fh.read()
 
