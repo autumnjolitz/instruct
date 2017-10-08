@@ -49,7 +49,7 @@ def make_setter(type_def, fast, derived=None):
 '''.strip()
 
 HISTORY_SETTER_BLOCK = '''
-if not self.flags:
+if not self._flags:
     %%SET_VARIABLE%%
     return
 old_value = self.{key}
@@ -208,6 +208,7 @@ class Atomic(type):
         attrs['_columns'] = ReadOnly(columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
+
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'Union': Union, 'NoneType': type(None), 'Flags': Flags}
         for key, value in attrs['__slots__'].items():
@@ -261,16 +262,16 @@ class History(object):
 
     def __setattr__(self, key, value):
         super().__setattr__(key, value)
-        if self.flags & Flags.IN_CONSTRUCTOR and key in self._columns:
+        if self._flags & Flags.IN_CONSTRUCTOR and key in self._columns:
             self._changed_index += 1
 
     def _record_change(self, key, old_value, new_value):
         if old_value == new_value:
             return
-        if self.flags & Flags.DISABLE_HISTORY:
+        if self._flags & Flags.DISABLE_HISTORY:
             return
         msg = 'update'
-        if self.flags & 2 == 2:
+        if self._flags & 2 == 2:
             msg = 'initialized'
         else:
             _, old_val_prior, _, index = self._changes[key][-1]
@@ -290,7 +291,7 @@ class History(object):
     def reset_changes(self, *keys):
         if not keys:
             keys = self._columns.keys()
-        self.flags |= Flags.DISABLE_HISTORY
+        self._flags |= Flags.DISABLE_HISTORY
         for key in keys:
             first_changes = self._changes[key][:2]
             self._changes[key][:2] = first_changes
@@ -300,7 +301,7 @@ class History(object):
                 assert first_changes[1].state == 'initialized'
                 val = first_changes[1].new  # Use the initialized default
             setattr(self, key, val)
-        self.flags &= (self.flags ^ Flags.DISABLE_HISTORY)
+        self._flags &= (self._flags ^ Flags.DISABLE_HISTORY)
 
     def list_changes(self):
         key_counter = {}
@@ -323,31 +324,23 @@ class Flags(IntEnum):
     DISABLE_HISTORY = 8
 
 
-class ClassDefault:
-    def __init__(self, default):
-        self.default = default
-
-    def __get__(self, obj, obj_type=None):
-        if obj and not hasattr(obj, '_flags'):
-            obj._flags = self.default
-        return getattr(obj, '_flags', self.default)
-
-    def __set__(self, obj, val):
-        obj._flags = val
-
-
 class Base(metaclass=Atomic):
     __slots__ = ('_changes', '_changed_keys', '_flags', '_changed_index',)
-    flags = ClassDefault(0)
+
+    def __new__(cls, *args, **kwargs):
+        result = super().__new__(cls)
+        result._flags = 0
+        return result
 
     def __init__(self, **kwargs):
-        self.flags |= Flags.IN_CONSTRUCTOR
+        self._flags |= Flags.IN_CONSTRUCTOR
         fields = []
+        # about 400ms/1k
         for key in self._columns:
             if getattr(self, key, UNDEFINED) is UNDEFINED:
                 fields.append(key)
-        self.clear(fields)
-        self.flags |= Flags.DEFAULTS_SET
+        self.clear(fields)  # 400ms/1k
+        self._flags |= Flags.DEFAULTS_SET
         for key in self._columns.keys() & kwargs.keys():
             value = kwargs[key]
             setattr(self, key, value)
@@ -355,7 +348,7 @@ class Base(metaclass=Atomic):
         if kwargs.keys() - self._columns.keys():
             fields = ', '.join(kwargs.keys() - self._columns.keys())
             raise ValueError(f'Unrecognized fields {fields}')
-        self.flags = Flags.INITIALIZED
+        self._flags = Flags.INITIALIZED
 
     def clear(self, fields):
         pass
