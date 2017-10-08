@@ -6,6 +6,15 @@ test_statement = '''
 t.name_or_id = 1
 '''
 
+class TestH(Base, history=True):
+    __slots__ = {
+        'name_or_id': Union[int, str]
+    }
+
+    def __init__(self, **kwargs):
+        self.name_or_id = 1
+        super().__init__(**kwargs)
+
 
 class Test(Base):
     __slots__ = {
