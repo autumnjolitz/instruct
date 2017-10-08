@@ -9,7 +9,7 @@ class Data(Base, history=True):
     }
 
     def __init__(self, **kwargs):
-        self._field = 0
+        self.field = 0
         super().__init__(**kwargs)
 
 
