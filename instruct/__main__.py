@@ -57,6 +57,5 @@ def main():
     print('Test without safeties: {:.2f} us'.format(per_round_ms))
 
 
-
 if __name__ == '__main__':
     main()
