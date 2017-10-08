@@ -11,20 +11,6 @@ NoneType = type(None)
 env = Environment(loader=PackageLoader(__name__, 'templates'))
 
 
-def make_redirector(variables):
-    def __getattr__(self, key):
-        if key in variables:
-            key = f'_{key}'
-        return super(self.__class__, self).__getattr__(key)
-
-    def __setattr__(self, key, value):
-        if key in variables:
-            key = f'_{key}'
-        return super(self.__class__, self).__setattr__(key, value)
-
-    return __getattr__, __setattr__
-
-
 class AttrsDict(UserDict):
     def __getattr__(self, key):
         try:
