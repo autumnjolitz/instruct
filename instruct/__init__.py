@@ -126,6 +126,9 @@ class Atomic(type):
         cls.MIXINS[name] = klass
 
     def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
+        if '__coerce__' in attrs and not isinstance(attrs['__coerce__'], ReadOnly):
+            attrs['__coerce__'] = ReadOnly(attrs['__coerce__'])
+
         if skip:
             return super().__new__(klass, class_name, bases, attrs)
         if '__slots__' not in attrs:
@@ -250,11 +253,14 @@ class Atomic(type):
             attrs['__slots__'][f'_{key}'] = value
             del attrs['__slots__'][key]
             ns = {}
+            coerce_types = coerce_func = None
+            if '__coerce__' in attrs and key in attrs['__coerce__'].value:
+                coerce_types, coerce_func = attrs['__coerce__'].value[key]
             getter_code = getter_template.render(
                 field_name=key, get_variable_template=local_getter_var_template)
             setter_code = setter_template.render(
                 field_name=key, setter_variable_template=local_setter_var_template,
-                on_sets=listeners.get(key))
+                on_sets=listeners.get(key), has_coercion=coerce_types is not None)
             filename = '<getter-setter>'
             if os.environ.get('INSTRUCT_DEBUG_CODEGEN', '').lower().startswith(
                     ('1', 'true', 'yes', 'y')):
@@ -273,7 +279,8 @@ class Atomic(type):
             attrs[key] = property(
                 ns['make_getter'](value),
                 ns['make_setter'](
-                    value, fast, derived_classes.get(key), handle_typedef(value)))
+                    value, fast, derived_classes.get(key), handle_typedef(value),
+                    coerce_types, coerce_func))
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
         ns_globals[class_name] = ReadOnly(None)
@@ -426,6 +433,10 @@ def add_event_listener(*fields):
     return wrapper
 
 
+def load_cls(cls, args, kwargs):
+    return cls(*args, **kwargs)
+
+
 class Base(metaclass=Atomic):
     __slots__ = ('_flags',)
     __setter_template__ = ReadOnly('self._{key} = val')
@@ -437,7 +448,28 @@ class Base(metaclass=Atomic):
         cls = cls._data_class
         result = super().__new__(cls)
         result._flags = 0
+        assert '__dict__' not in dir(result)
         return result
+
+    def to_json(self) -> dict:
+        '''
+        Returns a dictionary compatible with json.dumps(...)
+        '''
+        result = {}
+        for key, value in self:
+            # Support nested daos
+            if hasattr(value, 'to_json'):
+                value = value.to_json()
+            # Date/datetimes
+            if hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            result[key] = value
+        return result
+
+    def __reduce__(self):
+        values = dict(self)
+        this_cls, support_cls, *_ = self.__class__.__mro__
+        return load_cls, (support_cls, (), values)
 
     def __init__(self, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR

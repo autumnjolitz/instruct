@@ -6,6 +6,7 @@ test_statement = '''
 t.name_or_id = 1
 '''
 
+
 class TestH(Base, history=True):
     __slots__ = {
         'name_or_id': Union[int, str]
@@ -25,7 +26,6 @@ class Test(Base):
         self.name_or_id = 1
         super().__init__(**kwargs)
 
-Test(name_or_id=1).clear()
 
 class TestOptimized(Base, fast=True):
     __slots__ = {
@@ -45,17 +45,13 @@ class ComplexTest(Base):
         'value': float
     }
 
-
-    @add_event_listener('id')
-    def _handle_id(self, old, new):
-        pass
-
     def __init__(self, **kwargs):
         self.id = 0
         self.name = ''
         self.type = -1
         self.value = 0.1
         super().__init__(**kwargs)
+
 
 def main():
     ttl = timeit.timeit('t = Test(name_or_id="ben")', setup='from __main__ import Test')
