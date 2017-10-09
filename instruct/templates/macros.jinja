@@ -12,33 +12,35 @@ def make_getter(type_def):
     return {{field_name}}
 {% endmacro %}
 
-{% macro setter_func_template(field_name, setter_variable_template) %}
-def make_setter(type_def, fast, derived=None):
-    type_restriction = type_def
-    if hasattr(type_def, '__origin__') and type_def.__origin__ is Union:
-        type_restriction = type_def._subs_tree()
-        if type_restriction is Union:
-            type_restriction = (object,)
-        elif isinstance(type_restriction, tuple):
-            # Trim off the preceding Union datatype
-            type_restriction = type_restriction[1:]
+{% macro setter_func_template(field_name, setter_variable_template, on_sets=None) %}
+def make_setter(type_def, fast, derived, type_restriction):
     if isinstance(type_restriction, type):
         type_restriction = (type_restriction,)
 
     assert isinstance(type_restriction, tuple) and all(
         isinstance(cls, type) for cls in type_restriction), \
         'Not all types {!r} are cls'.format(type_restriction)
-    if not fast:
+
+    if fast:
+        def {{field_name}}(self, val: type_def) -> NoneType:
+            {{setter_variable_template|format(key=field_name)|indent(12)}}
+    else:
         def {{field_name}}(self, val: type_def) -> NoneType:
             if not isinstance(val, type_restriction):
                 if isinstance(val, dict) and derived is not None:
                     val = derived(**val)
                 if not isinstance(val, type_restriction):
                     raise TypeError('{!r} must be a {}'.format(val, type_restriction))
+            {%- if on_sets %}
+            _old_value = self.{{field_name}}
+            {%- endif %}
             {{setter_variable_template|format(key=field_name)|indent(12)}}
-    else:
-        def {{field_name}}(self, val: type_def) -> NoneType:
-            {{setter_variable_template|format(key=field_name)|indent(12)}}
+            {%- if on_sets %}
+            {%- for on_func_name in on_sets %}
+            self.{{on_func_name}}(_old_value, val)
+            {%- endfor %}
+            {%- endif %}
+
     return {{field_name}}
 {% endmacro %}
 

@@ -1,5 +1,5 @@
 from typing import Union
-from instruct import Base
+from instruct import Base, add_event_listener
 import timeit
 
 test_statement = '''
@@ -38,12 +38,17 @@ class TestOptimized(Base, fast=True):
 
 
 class ComplexTest(Base):
-    __slots__  = {
+    __slots__ = {
         'id': int,
         'name': str,
         'type': int,
         'value': float
     }
+
+
+    @add_event_listener('id')
+    def _handle_id(self, old, new):
+        pass
 
     def __init__(self, **kwargs):
         self.id = 0
