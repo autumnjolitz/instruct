@@ -36,10 +36,10 @@ class ReadOnly:
         return self.value
 
 
-def make_fast_clear(fields, set_block):
+def make_fast_clear(fields, set_block, class_name):
     set_block = set_block.format(key='%(key)s')
     code_template = env.get_template('fast_clear.jinja').render(
-        fields=fields, setter_variable_template=set_block)
+        fields=fields, setter_variable_template=set_block, class_name=class_name)
     return code_template
 
 
@@ -80,20 +80,32 @@ class Atomic(type):
     def register_mixin(cls, name, klass):
         cls.MIXINS[name] = klass
 
-    def __new__(klass, class_name, bases, attrs, fast=None, **mixins):
-        if fast is None:
-            fast = not __debug__
+    def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
+        if skip:
+            return super().__new__(klass, class_name, bases, attrs)
         if '__slots__' not in attrs:
             raise TypeError(
                 f'You must define __slots__ for {class_name} to constrain the typespace')
         if not isinstance(attrs['__slots__'], Mapping):
             if isinstance(attrs['__slots__'], tuple):
-                return super().__new__(klass, class_name, bases, attrs)
+                # Classes with tuples in them are assumed to be
+                # data class definitions (i.e. supporting things like a change log)
+                attrs['_data_class'] = data_class_cell = ReadOnly(None)
+                slots = attrs.pop('__slots__')
+                attrs['__slots__'] = ()
+                attrs['_support_columns'] = ReadOnly(tuple(slots))
+                new_cls = super().__new__(klass, class_name, bases, attrs)
+                data_class_cell.value = type(
+                    f'{class_name}Support', (new_cls,), {'__slots__': slots}, skip=True)
+                return new_cls
             raise TypeError(
                 f'The __slots__ definition for {class_name} must be a mapping or empty tuple!')
 
         if 'fast' in attrs:
             fast = attrs.pop('fast')
+        if fast is None:
+            fast = not __debug__
+
         columns = {}
         derived_classes = {}
         for key, value in attrs['__slots__'].items():
@@ -117,11 +129,28 @@ class Atomic(type):
         getter_templates = []
         setter_templates = []
         defaults_templates = []
+        support_columns = []
 
         for cls in bases:
-            if hasattr(cls, '__slots__') and isinstance(cls.__slots__, dict):
-                for key, value in cls.__slots__.items():
+            if hasattr(cls, '__slots__') and cls.__slots__ != () \
+                    and not issubclass(type(cls), Atomic):
+                # Because we cannot control the circumstances of a base class's construction
+                # and it has __slots__, which will destroy our multiple inheritance support,
+                # so we should just refuse to work.
+                #
+                # Please note that ``__slots__ = ()`` classes work perfectly and are not
+                # subject to this limitation.
+                raise TypeError(
+                    f'Multi-slot classes (like {cls.__name__}) must be defined '
+                    'with `metaclass=Atomic`. Mixins with empty __slots__ are not subject to '
+                    'this restriction.')
+            assert getattr(cls, '__slots__', None) == (), \
+                'You must define {cls.__name__}.__slots__ = ()'
+            if hasattr(cls, '_columns'):
+                for key, value in cls._columns.items():
                     columns[key] = value
+            if hasattr(cls, '_support_columns'):
+                support_columns.extend(cls._support_columns)
             if hasattr(cls, 'setter_wrapper'):
                 setter_wrapper.append(cls.setter_wrapper)
             if hasattr(cls, '__getter_template__'):
@@ -151,6 +180,7 @@ class Atomic(type):
         getter_template = env.get_template('getter.jinja')
 
         attrs['_columns'] = ReadOnly(columns)
+        attrs['_support_columns'] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
 
@@ -190,13 +220,16 @@ class Atomic(type):
             attrs[key] = property(
                 ns['make_getter'](value),
                 ns['make_setter'](value, fast, derived_classes.get(key)))
+        # Support columns are left as-is for slots
+        support_columns = tuple(support_columns)
+        ns_globals[class_name] = ReadOnly(None)
         exec(compile(
-            make_fast_eq(tuple(columns)), '<make_fast_eq>', mode='exec'), ns_globals, ns_globals)
+            make_fast_eq(columns), '<make_fast_eq>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
-            make_fast_clear(tuple(columns), local_setter_var_template),
+            make_fast_clear(columns, local_setter_var_template, class_name),
             '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
-            make_fast_iter(tuple(columns)),
+            make_fast_iter(columns),
             '<make_fast_iter>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
             make_defaults(tuple(columns), defaults_var_template),
@@ -212,7 +245,19 @@ class Atomic(type):
         attrs['_set_defaults'] = ns_globals['_set_defaults']
         attrs['clear'] = ns_globals['clear']
 
+        slots = attrs.pop('__slots__')
+
+        attrs['_data_class'] = dc = ReadOnly(None)
+        attrs['__slots__'] = ()
         new_cls = super().__new__(klass, class_name, bases, attrs)
+        ns_globals[class_name].value = new_cls
+        ns_globals[class_name] = new_cls
+        exec(compile(
+            env.get_template('data_class.jinja').render(
+                class_name=class_name,
+                slots=repr(tuple('_{}'.format(key) for key in columns) + support_columns)),
+            '<dcs>', mode='exec'), ns_globals, ns_globals)
+        dc.value = ns_globals[f'_{class_name}']
         klass.REGISTRY.add(new_cls)
         return new_cls
 
@@ -221,14 +266,22 @@ LoggedDelta = namedtuple('LoggedDelta', ['timestamp', 'key', 'delta'])
 
 
 class Undefined(object):
+    SINGLETON = None
+
+    def __new__(cls):
+        if Undefined.SINGLETON is not None:
+            return Undefined.SINGLETON
+        Undefined.SINGLETON = super().__new__(cls)
+        return Undefined.SINGLETON
+
     def __repr__(self):
         return 'Undefined'
 
 UNDEFINED = Undefined()
 
 
-class History(object):
-    __slots__ = ()
+class History(metaclass=Atomic):
+    __slots__ = ('_changes', '_changed_keys', '_changed_index',)
     setter_wrapper = 'history-setter-wrapper.jinja'
 
     def __init__(self, **kwargs):
@@ -311,18 +364,15 @@ result._{{field}} = None
 '''
 
 
-class IBase(object):
-    def clear(self, fields=None):
-        pass
-
-
-class Base(IBase, metaclass=Atomic):
-    __slots__ = ('_changes', '_changed_keys', '_flags', '_changed_index',)
+class Base(metaclass=Atomic):
+    __slots__ = ('_flags',)
     __setter_template__ = ReadOnly('self._{key} = val')
     __getter_template__ = ReadOnly('return self._{key}')
     __defaults_init__ = ReadOnly(DEFAULTS)
 
     def __new__(cls, *args, **kwargs):
+        # Get the edge class that has all the __slots__ defined
+        cls = cls._data_class
         result = super().__new__(cls)
         result._flags = 0
         return result
@@ -338,3 +388,6 @@ class Base(IBase, metaclass=Atomic):
             fields = ', '.join(kwargs.keys() - self._columns.keys())
             raise ValueError(f'Unrecognized fields {fields}')
         self._flags = Flags.INITIALIZED
+
+    def clear(self, fields=None):
+        pass

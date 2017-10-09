@@ -25,6 +25,7 @@ class Test(Base):
         self.name_or_id = 1
         super().__init__(**kwargs)
 
+Test(name_or_id=1).clear()
 
 class TestOptimized(Base, fast=True):
     __slots__ = {

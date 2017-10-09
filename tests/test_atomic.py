@@ -56,6 +56,7 @@ def test_derived_equivalence():
 
 def test_valid_types():
     t = Data(field=1)
+    assert '__dict__' not in dir(t)
     assert t.field == 1
     t.field = 't'
     assert t.field == 't'
