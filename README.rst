@@ -10,6 +10,7 @@ Attempt to serve multiple masters:
     - Track changes made to the object as well as reset [Done]
     - Fast ``__iter__`` [Done]
     - Native support of pickle [Done]/json [Partial]
+    - Support List[type] declarations and initializations
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
 
 Design Goal
@@ -20,6 +21,60 @@ This comes out of my experience of doing multiple object systems mean to represe
 Further complicating this model is that desire to "correct" data as it comes in. Done correctly, it is possible to feed an ``instruct.Base``-derived class fields that are not of the correct data type but are eligible for being coerced (converted) into the right type with a function. With some work, it'll be possible to inline a ``lambda val: ...`` expression directly into the setter function code.
 
 Finally, multiple inheritance is a must. Sooner or later, you end up making a single source implementation for a common behavior shared between objects. Being able to share business logic between related implementations is a wonderful thing.
+
+
+Wouldn't it be nice to define a heirachy like this:
+
+.. code-block:: python
+
+    class Organization(Base, history=True):
+        __slots__ = {
+            'name': str,
+            'id': int,
+            'members': List[Member],
+            'created_date': datetime.datetime,
+        }
+
+        __coerce__ = {
+            'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))
+        }
+
+        def __init__(self, **kwargs):
+            self.name = ''
+            self.id = -1
+            self.members = []
+            self.created_date = datetime.datetime.utcnow()
+            super().__init__(**kwargs)
+
+    class Member(Base):
+        __slots__ = {
+            'first_name': str,
+            'last_name': str,
+            'id': str,
+        }
+        def __init__(self, **kwargs):
+            self.first_name = self.last_name = ''
+            self.id = -1
+            super().__init__(**kwargs)
+
+And have it work like this?
+
+.. code-block:: python
+
+    data = {
+        "name": "An Org",
+        "id": 123,
+        "members": [
+            {
+                "id": 551,
+                "first_name": "Jinja",
+                "last_name": "Ninja",
+            }
+        ]
+    }
+    org = Organization(**data)
+    assert org.members[0].first_name == 'Jinja'
+
 
 Design
 ----------
