@@ -45,7 +45,7 @@ However, consider this case::
 
 Now this isn't possible if Class A has non-empty ``__slots__``.
 
-But what if we could change the rules. What if, somehow, when you ``__new__``ed a class, it really gave you a specialized form of the class with non-empty ``__slots__``?
+But what if we could change the rules. What if, somehow, when you ``__new__`` ed a class, it really gave you a specialized form of the class with non-empty ``__slots__``?
 
 Such a graph may look like this::
 
