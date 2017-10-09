@@ -1,6 +1,8 @@
+import json
 from typing import Union
 from instruct import Base, add_event_listener
 import pytest
+import pickle
 
 
 class Data(Base, history=True):
@@ -46,6 +48,10 @@ class LinkedFields(Base):
         'name': str,
     }
 
+    __coerce__ = {
+        'id': (str, lambda obj: int(obj, 10))
+    }
+
     def __init__(self, **kwargs):
         self.id = 0
         self.name = ''
@@ -55,6 +61,27 @@ class LinkedFields(Base):
     def _on_id_change(self, old, new):
         if new == -1:
             self.name = 'invalid'
+
+
+def test_pickle():
+    l = LinkedFields(id=2, name='Autumn')
+    data = pickle.dumps(l)
+    l2 = pickle.loads(data)
+    assert l == l2
+
+
+def test_json():
+    l = LinkedFields(id=2, name='Autumn')
+    data = json.dumps(l.to_json())
+    l2 = LinkedFields(**json.loads(data))
+    assert l == l2
+
+
+def test_coercion():
+    l = LinkedFields(id='2', name='Autumn')
+    assert l.id == 2
+    l.id = '5'
+    assert l.id == 5
 
 
 def test_event_listener():

@@ -3,10 +3,15 @@ Instruct
 
 Attempt to serve multiple masters:
 
-    - Strictly-typed ability to define fixed data objects
-    - Ability to drop all of the above type checks
-    - Track changes made to the object as well as reset
-    - Native support of pickle/json
+    - Support multiple inheritance, chained fields and ``__slots__`` [Done]
+    - Support type coercions (via ``_coerce__``) [Done]
+    - Strictly-typed ability to define fixed data objects [Done]
+    - Ability to drop all of the above type checks [Done]
+    - Track changes made to the object as well as reset [Done]
+    - Fast ``__iter__`` [Done]
+    - Native support of pickle [Done]/json [Partial]
+    - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
+
 
 Callgraph Performance
 -----------------------

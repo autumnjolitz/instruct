@@ -12,8 +12,8 @@ def make_getter(type_def):
     return {{field_name}}
 {% endmacro %}
 
-{% macro setter_func_template(field_name, setter_variable_template, on_sets=None) %}
-def make_setter(type_def, fast, derived, type_restriction):
+{% macro setter_func_template(field_name, setter_variable_template, on_sets=None, has_coercion=False) %}
+def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coerce_func=None):
     if isinstance(type_restriction, type):
         type_restriction = (type_restriction,)
 
@@ -23,12 +23,25 @@ def make_setter(type_def, fast, derived, type_restriction):
 
     if fast:
         def {{field_name}}(self, val: type_def) -> NoneType:
+            {%- if has_coercion %}
+            if isinstance(val, coerce_types):
+                val = coerce_func(val)
+            {%- endif %}
             {{setter_variable_template|format(key=field_name)|indent(12)}}
+            {%- if on_sets %}
+            {%- for on_func_name in on_sets %}
+            self.{{on_func_name}}(_old_value, val)
+            {%- endfor %}
+            {%- endif %}
     else:
         def {{field_name}}(self, val: type_def) -> NoneType:
             if not isinstance(val, type_restriction):
                 if isinstance(val, dict) and derived is not None:
                     val = derived(**val)
+                {%- if has_coercion %}
+                if isinstance(val, coerce_types):
+                    val = coerce_func(val)
+                {%- endif %}
                 if not isinstance(val, type_restriction):
                     raise TypeError('{!r} must be a {}'.format(val, type_restriction))
             {%- if on_sets %}
