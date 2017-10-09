@@ -6,6 +6,7 @@ import pytest
 class Data(Base, history=True):
     __slots__ = {
         'field': Union[str, int],
+        'other': str,
     }
 
     def __init__(self, **kwargs):
@@ -64,6 +65,12 @@ def test_invalid_types():
     with pytest.raises(TypeError):
         Data(field=None)
 
+def test_history():
+    t = Data(field='autumn')
+    t.field = 'not autumn'
+    for change in t.list_changes():
+        print('[{0.timestamp}] [{0.delta.state}] {0.key} -> {0.delta.old} -> {0.delta.new}'.format(change))
+
 
 def test_history_autoprune():
     '''
@@ -75,7 +82,7 @@ def test_history_autoprune():
     changes = tuple(t.list_changes())
     for change in changes:
         print('[{0.timestamp}] [{0.delta.state}] {0.key} -> {0.delta.old} -> {0.delta.new}'.format(change))
-    assert len(changes) == 2
+    assert len(changes) == 3
     assert not t.is_dirty, 'object was cleanly initialized and not effectively changed'
 
 

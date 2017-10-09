@@ -20,3 +20,18 @@ Callgraph Performance
 
 
 .. class:: no-web no-pdf
+
+Benchmark
+--------------
+
+::
+
+    $ python -m instruct benchmark
+    Overhead of allocation, one field, safeties on: 6.52us
+    Overhead of allocation, one field, safeties off: 6.13us
+    Overhead of setting a field:
+    Test with safeties: 0.40 us
+    Test without safeties: 0.22 us
+    Overhead of clearing/setting
+    Test with safeties: 1.34 us
+    Test without safeties: 1.25 us

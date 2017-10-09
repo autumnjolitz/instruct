@@ -1,13 +1,19 @@
+import os
+import time
+import tempfile
+import logging
 from collections import Mapping, namedtuple, UserDict
 from typing import Union
-import time
 from enum import IntEnum
+
 from jinja2 import Environment, PackageLoader
+
 from .about import __version__
 __version__  # Silence unused import warning.
 
 NoneType = type(None)
 
+logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, 'templates'))
 
 
@@ -21,14 +27,13 @@ class AttrsDict(UserDict):
 
 
 class ReadOnly:
+    __slots__ = ('value',)
+
     def __init__(self, value):
         self.value = value
 
     def __get__(self, obj, objtype=None):
         return self.value
-
-    def __set__(self, obj, val):
-        raise NotImplementedError
 
 
 def make_fast_clear(fields, set_block):
@@ -41,6 +46,29 @@ def make_fast_clear(fields, set_block):
 def make_fast_eq(fields):
     code_template = env.get_template('fast_eq.jinja').render(fields=fields)
     return code_template
+
+
+def make_fast_iter(fields):
+    code_template = env.get_template('fast_iter.jinja').render(fields=fields)
+    return code_template
+
+
+def make_fast_new(fields, defaults_var_template):
+    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
+    code_template = env.get_template('fast_new.jinja').render(
+        fields=fields, defaults_var_template=defaults_var_template)
+    return code_template
+
+
+def make_defaults(fields, defaults_var_template):
+    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
+    code = env.from_string('''
+def _set_defaults(self):
+    result = self
+    {{item|indent(4)}}
+    super(self.__class__, self)._set_defaults()
+    ''').render(item=defaults_var_template)
+    return code
 
 
 class Atomic(type):
@@ -88,6 +116,7 @@ class Atomic(type):
         setter_wrapper = []
         getter_templates = []
         setter_templates = []
+        defaults_templates = []
 
         for cls in bases:
             if hasattr(cls, '__slots__') and isinstance(cls.__slots__, dict):
@@ -99,9 +128,12 @@ class Atomic(type):
                 getter_templates.append(cls.__getter_template__)
             if hasattr(cls, '__setter_template__'):
                 setter_templates.append(cls.__setter_template__)
+            if hasattr(cls, '__defaults_init__'):
+                defaults_templates.append(cls.__defaults_init__)
         try:
             setter_var_template = attrs.get('__setter_template__', setter_templates[0])
             getter_var_template = attrs.get('__getter_template__', getter_templates[0])
+            defaults_var_template = attrs.get('__defaults_init__', defaults_templates[0])
         except IndexError:
             raise ValueError('You must define both __getter_template__ and __setter_template__')
 
@@ -124,11 +156,14 @@ class Atomic(type):
 
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'Union': Union, 'NoneType': type(None), 'Flags': Flags}
+        field_names = []
+
         for key, value in attrs['__slots__'].items():
             if value in klass.REGISTRY:
                 derived_classes[key] = value
             if key[0] == '_':
                 continue
+            field_names.append(key)
             attrs['__slots__'][f'_{key}'] = value
             del attrs['__slots__'][key]
             ns = {}
@@ -137,15 +172,44 @@ class Atomic(type):
                 field_name=key, get_variable_template=local_getter_var_template)
             setter_code = setter_template.render(
                 field_name=key, setter_variable_template=local_setter_var_template)
+            filename = '<getter-setter>'
+            if os.environ.get('INSTRUCT_DEBUG_CODEGEN', '').lower().startswith(
+                    ('1', 'true', 'yes', 'y')):
+                with tempfile.NamedTemporaryFile(
+                        delete=False, mode='w',
+                        prefix=f'{class_name}-{key}', suffix='.py', encoding='utf8') as fh:
+                    fh.write(getter_code)
+                    fh.write('\n')
+                    fh.write(setter_code)
+                    filename = fh.name
+                    logger.debug(f'{class_name}.{key} at {filename}')
 
-            exec(getter_code, ns_globals, ns)
-            exec(setter_code, ns_globals, ns)
+            code = compile('{}\n{}'.format(getter_code, setter_code), filename, mode='exec')
+            exec(code, ns_globals, ns)
+
             attrs[key] = property(
                 ns['make_getter'](value),
                 ns['make_setter'](value, fast, derived_classes.get(key)))
-        exec(make_fast_eq(tuple(columns)), ns_globals, ns_globals)
-        exec(make_fast_clear(tuple(columns), local_setter_var_template), ns_globals, ns_globals)
+        exec(compile(
+            make_fast_eq(tuple(columns)), '<make_fast_eq>', mode='exec'), ns_globals, ns_globals)
+        exec(compile(
+            make_fast_clear(tuple(columns), local_setter_var_template),
+            '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
+        exec(compile(
+            make_fast_iter(tuple(columns)),
+            '<make_fast_iter>', mode='exec'), ns_globals, ns_globals)
+        exec(compile(
+            make_defaults(tuple(columns), defaults_var_template),
+            '<make_defaults>', mode='exec'), ns_globals, ns_globals)
+        if '__new__' not in attrs:
+            exec(compile(
+                make_fast_new(field_names, defaults_var_template),
+                '<make_fast_new>', mode='exec'), ns_globals, ns_globals)
+            attrs['__new__'] = ns_globals['__new__']
+
+        attrs['__iter__'] = ns_globals['__iter__']
         attrs['__eq__'] = ns_globals['__eq__']
+        attrs['_set_defaults'] = ns_globals['_set_defaults']
         attrs['clear'] = ns_globals['clear']
 
         new_cls = super().__new__(klass, class_name, bases, attrs)
@@ -167,15 +231,15 @@ class History(object):
     __slots__ = ()
     setter_wrapper = 'history-setter-wrapper.jinja'
 
-    def clear(self, fields):
+    def __init__(self, **kwargs):
         self._changed_index = 0
         t_s = time.time()
         self._changes = {
-            key: [Delta('default', UNDEFINED, getattr(self, key), 0)] for key in self._columns
+            key: [Delta('default', UNDEFINED, value, 0)] for key, value in self
         }
         self._changed_keys = [(key, t_s) for key in self._columns]
         self._changed_index += len(self._changed_keys)
-        super().clear(fields)
+        super().__init__(**kwargs)
 
     def __setattr__(self, key, value):
         super().__setattr__(key, value)
@@ -217,7 +281,8 @@ class History(object):
             if len(first_changes) == 2:
                 assert first_changes[1].state == 'initialized'
                 val = first_changes[1].new  # Use the initialized default
-            setattr(self, key, val)
+            if getattr(self, key) != val:
+                setattr(self, key, val)
         self._flags &= (self._flags ^ Flags.DISABLE_HISTORY)
 
     def list_changes(self):
@@ -240,11 +305,22 @@ class Flags(IntEnum):
     INITIALIZED = 4
     DISABLE_HISTORY = 8
 
+DEFAULTS = '''{%- for field in fields %}
+result._{{field}} = None
+{%- endfor %}
+'''
 
-class Base(metaclass=Atomic):
+
+class IBase(object):
+    def clear(self, fields=None):
+        pass
+
+
+class Base(IBase, metaclass=Atomic):
     __slots__ = ('_changes', '_changed_keys', '_flags', '_changed_index',)
     __setter_template__ = ReadOnly('self._{key} = val')
     __getter_template__ = ReadOnly('return self._{key}')
+    __defaults_init__ = ReadOnly(DEFAULTS)
 
     def __new__(cls, *args, **kwargs):
         result = super().__new__(cls)
@@ -253,12 +329,6 @@ class Base(metaclass=Atomic):
 
     def __init__(self, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR
-        fields = []
-        # about 400ms/1k
-        for key in self._columns:
-            if getattr(self, key, UNDEFINED) is UNDEFINED:
-                fields.append(key)
-        self.clear(fields)  # 400ms/1k
         self._flags |= Flags.DEFAULTS_SET
         for key in self._columns.keys() & kwargs.keys():
             value = kwargs[key]
@@ -268,8 +338,3 @@ class Base(metaclass=Atomic):
             fields = ', '.join(kwargs.keys() - self._columns.keys())
             raise ValueError(f'Unrecognized fields {fields}')
         self._flags = Flags.INITIALIZED
-
-    def clear(self, fields):
-        pass
-
-
