@@ -1,5 +1,5 @@
 from typing import Union
-from instruct import Base
+from instruct import Base, add_event_listener
 import pytest
 
 
@@ -38,6 +38,29 @@ class NestedDataAlt(Base):
         'id': int,
         'nested': Field,
     }
+
+
+class LinkedFields(Base):
+    __slots__ = {
+        'id': int,
+        'name': str,
+    }
+
+    def __init__(self, **kwargs):
+        self.id = 0
+        self.name = ''
+        super().__init__(**kwargs)
+
+    @add_event_listener('id')
+    def _on_id_change(self, old, new):
+        if new == -1:
+            self.name = 'invalid'
+
+
+def test_event_listener():
+    l = LinkedFields(id=2, name='Ben')
+    l.id = -1
+    assert l.name == 'invalid'
 
 
 def test_derived_klass():

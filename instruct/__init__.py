@@ -3,7 +3,8 @@ import time
 import tempfile
 import logging
 from collections import Mapping, namedtuple, UserDict
-from typing import Union
+import typing
+import functools
 from enum import IntEnum
 
 from jinja2 import Environment, PackageLoader
@@ -34,6 +35,50 @@ class ReadOnly:
 
     def __get__(self, obj, objtype=None):
         return self.value
+
+type_lookaside = {
+    typing.AnyStr: (str, bytes),
+    typing.Any: object,
+}
+
+
+def flatten(iterable):
+    for item in iterable:
+        if isinstance(item, tuple):
+            yield from item
+            continue
+        yield item
+
+
+def handle_typedef(typedef):
+    if not isinstance(typedef, tuple):
+        typedef = (typedef,)
+    final_typedef = []
+    for type_cls in typedef:
+        if isinstance(type_cls, typing._TypingBase):
+            if hasattr(type_cls, '__origin__'):
+                if type_cls.__origin__ is typing.Union:
+                    type_class = type_cls._subs_tree()
+                    if type_class is typing.Union:
+                        raise ValueError('Invalid definition - bare Union')
+                    type_class = tuple(flatten(type_lookaside.get(x, x) for x in type_class[1:]))
+                    assert not any(isinstance(item, typing._TypingBase) for item in type_class), \
+                        'Union must have types'
+                    final_typedef.extend(type_class)
+                    continue
+                if type_cls.__origin__ is typing.Tuple:
+                    final_typedef.append(tuple)
+                    continue
+                if type_cls.__origin__ is typing.Dict:
+                    final_typedef.append(dict)
+                    continue
+            raise TypeError('Unhandled type {}'.format(type_cls))
+
+        if isinstance(type_cls, type):
+            final_typedef.append(type_cls)
+            continue
+        assert False, f'{type_cls!r} isn\'t a type'
+    return tuple(final_typedef)
 
 
 def make_fast_clear(fields, set_block, class_name):
@@ -185,8 +230,16 @@ class Atomic(type):
         conf['fast'] = fast
 
         attrs['_configuration'] = ReadOnly(conf)
-        ns_globals = {'Union': Union, 'NoneType': type(None), 'Flags': Flags}
+        ns_globals = {'NoneType': type(None), 'Flags': Flags, 'typing': typing}
         field_names = []
+        listeners = {}  # mapping of the setter -> function_name to be called with old, new vals
+        for key, value in attrs.items():
+            if callable(value) and hasattr(value, '_fields'):
+                for field in value._fields:
+                    try:
+                        listeners[field].append(key)
+                    except KeyError:
+                        listeners[field] = [key]
 
         for key, value in attrs['__slots__'].items():
             if value in klass.REGISTRY:
@@ -197,11 +250,11 @@ class Atomic(type):
             attrs['__slots__'][f'_{key}'] = value
             del attrs['__slots__'][key]
             ns = {}
-
             getter_code = getter_template.render(
                 field_name=key, get_variable_template=local_getter_var_template)
             setter_code = setter_template.render(
-                field_name=key, setter_variable_template=local_setter_var_template)
+                field_name=key, setter_variable_template=local_setter_var_template,
+                on_sets=listeners.get(key))
             filename = '<getter-setter>'
             if os.environ.get('INSTRUCT_DEBUG_CODEGEN', '').lower().startswith(
                     ('1', 'true', 'yes', 'y')):
@@ -219,7 +272,8 @@ class Atomic(type):
 
             attrs[key] = property(
                 ns['make_getter'](value),
-                ns['make_setter'](value, fast, derived_classes.get(key)))
+                ns['make_setter'](
+                    value, fast, derived_classes.get(key), handle_typedef(value)))
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
         ns_globals[class_name] = ReadOnly(None)
@@ -362,6 +416,14 @@ DEFAULTS = '''{%- for field in fields %}
 result._{{field}} = None
 {%- endfor %}
 '''
+
+
+def add_event_listener(*fields):
+    def wrapper(func):
+        func._fields = \
+            getattr(func, '_fields', ()) + fields
+        return func
+    return wrapper
 
 
 class Base(metaclass=Atomic):
