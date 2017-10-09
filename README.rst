@@ -80,6 +80,8 @@ Callgraph Performance
 Benchmark
 --------------
 
+Before additions of coercion, event-listeners, multiple-inheritance
+
 ::
 
     $ python -m instruct benchmark
@@ -91,3 +93,17 @@ Benchmark
     Overhead of clearing/setting
     Test with safeties: 1.34 us
     Test without safeties: 1.25 us
+
+After additions of those. Safety is expensive.
+
+::
+
+    $ python -m instruct benchmark
+    Overhead of allocation, one field, safeties on: 19.25us
+    Overhead of allocation, one field, safeties off: 18.98us
+    Overhead of setting a field:
+    Test with safeties: 0.36 us
+    Test without safeties: 0.22 us
+    Overhead of clearing/setting
+    Test with safeties: 1.29 us
+    Test without safeties: 1.14 us
