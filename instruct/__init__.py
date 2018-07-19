@@ -55,6 +55,10 @@ def handle_typedef(typedef):
         typedef = (typedef,)
     final_typedef = []
     for type_cls in typedef:
+        if isinstance(type_cls, typing.TypingMeta) and issubclass(type_cls, typing.Container):
+            # We only care about the outer container type (for now)
+            type_cls = type_cls.__orig_bases__[0]
+
         if isinstance(type_cls, typing._TypingBase):
             if hasattr(type_cls, '__origin__'):
                 if type_cls.__origin__ is typing.Union:
@@ -66,12 +70,9 @@ def handle_typedef(typedef):
                         'Union must have types'
                     final_typedef.extend(type_class)
                     continue
-                if type_cls.__origin__ is typing.Tuple:
-                    final_typedef.append(tuple)
-                    continue
-                if type_cls.__origin__ is typing.Dict:
-                    final_typedef.append(dict)
-                    continue
+            raise TypeError('Unhandled type {}'.format(type_cls))
+        elif type_cls.__module__ == 'typing':
+            print(type_cls, isinstance(type_cls, typing._TypingBase), dir(type_cls), type_cls.__mro__)
             raise TypeError('Unhandled type {}'.format(type_cls))
 
         if isinstance(type_cls, type):
@@ -244,7 +245,7 @@ class Atomic(type):
                     except KeyError:
                         listeners[field] = [key]
 
-        for key, value in attrs['__slots__'].items():
+        for key, value in tuple(attrs['__slots__'].items()):
             if value in klass.REGISTRY:
                 derived_classes[key] = value
             if key[0] == '_':
@@ -322,6 +323,7 @@ class Atomic(type):
         klass.REGISTRY.add(new_cls)
         return new_cls
 
+
 Delta = namedtuple('Delta', ['state', 'old', 'new', 'index'])
 LoggedDelta = namedtuple('LoggedDelta', ['timestamp', 'key', 'delta'])
 
@@ -337,6 +339,7 @@ class Undefined(object):
 
     def __repr__(self):
         return 'Undefined'
+
 
 UNDEFINED = Undefined()
 
@@ -410,6 +413,7 @@ class History(metaclass=Atomic):
             yield LoggedDelta(delta_time, key, delta)
             key_counter[key] += 1
 
+
 Atomic.register_mixin('history', History)
 
 
@@ -418,6 +422,7 @@ class Flags(IntEnum):
     DEFAULTS_SET = 2
     INITIALIZED = 4
     DISABLE_HISTORY = 8
+
 
 DEFAULTS = '''{%- for field in fields %}
 result._{{field}} = None
