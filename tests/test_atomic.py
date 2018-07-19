@@ -1,8 +1,11 @@
 import json
-from typing import Union
-from instruct import Base, add_event_listener
-import pytest
+from typing import Union, List
+import datetime
 import pickle
+
+import pytest
+
+from instruct import Base, add_event_listener
 
 
 class Data(Base, history=True):
@@ -116,10 +119,12 @@ def test_invalid_types():
     with pytest.raises(TypeError):
         Data(field=None)
 
+
 def test_history():
     t = Data(field='ben')
     t.field = 'not ben'
     for change in t.list_changes():
+        print(change)
         print('[{0.timestamp}] [{0.delta.state}] {0.key} -> {0.delta.old} -> {0.delta.new}'.format(change))
 
 
@@ -151,3 +156,52 @@ def test_reset():
     assert t.field == 'Ben'
     assert not t.is_dirty
 
+
+def test_readme():
+
+    class Member(Base):
+        __slots__ = {
+            'first_name': str,
+            'last_name': str,
+            'id': str,
+        }
+
+        def __init__(self, **kwargs):
+            self.first_name = self.last_name = ''
+            self.id = -1
+            super().__init__(**kwargs)
+
+    class Organization(Base, history=True):
+        __slots__ = {
+            'name': str,
+            'id': int,
+            'members': List[Member],
+            'created_date': datetime.datetime,
+        }
+
+        __coerce__ = {
+            'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))
+        }
+
+        def __init__(self, **kwargs):
+            self.name = ''
+            self.id = -1
+            self.members = []
+            self.created_date = datetime.datetime.utcnow()
+            super().__init__(**kwargs)
+
+    data = {
+        "name": "An Org",
+        "id": 123,
+        "members": [
+            {
+                "id": 551,
+                "first_name": "Jinja",
+                "last_name": "Ninja",
+            }
+        ]
+    }
+    org = Organization(**data)
+    assert org.members[0].first_name == 'Jinja'
+    org.name = "New Name"
+    org.history()
