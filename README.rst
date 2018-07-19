@@ -1,6 +1,11 @@
 Instruct
 ==========
 
+A compact, fast object system that can serve as the basis for a DAO model.
+
+To that end, instruct uses ``__slots__`` to prevent new attribute addition, properties to control types, event listeners and historical changes, and a Jinja2-driven codegen to keep a pure-Python implementation as fast and as light as possible.
+
+
 Attempt to serve multiple masters:
 
     - Support multiple inheritance, chained fields and ``__slots__`` [Done]
@@ -12,6 +17,8 @@ Attempt to serve multiple masters:
     - Native support of pickle [Done]/json [Partial]
     - Support List[type] declarations and initializations
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
+    - Cython compatibility
+
 
 Design Goal
 -------------
@@ -74,6 +81,8 @@ And have it work like this?
     }
     org = Organization(**data)
     assert org.members[0].first_name == 'Jinja'
+    org.name = "New Name"
+    org.history()
 
 
 Design
