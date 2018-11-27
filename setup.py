@@ -7,7 +7,7 @@ from setuptools import (setup, find_packages)
 
 here = path.abspath(path.dirname(__file__))
 install_requirements = [
-  'Jinja2~=2.9.6',
+    'Jinja2~=2.9.6',
 ]
 
 # The following are meant to avoid accidental upload/registration of this
@@ -35,10 +35,13 @@ setup(name='instruct', version=__version__,
       include_package_data=True,
       install_requires=install_requirements,
       keywords=[],
+      extras_require={
+          'test': ['pytest']
+      },
       python_requires='>=3',
       url="https://github.com/autumnjolitz/instruct",
       classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Topic :: Utilities",
-        "License :: OSI Approved :: BSD License",
+          "Development Status :: 3 - Alpha",
+          "Topic :: Utilities",
+          "License :: OSI Approved :: BSD License",
       ])
