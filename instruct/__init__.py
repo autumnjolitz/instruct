@@ -126,6 +126,9 @@ class Atomic(type):
     def register_mixin(cls, name, klass):
         cls.MIXINS[name] = klass
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args)
+
     def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
         if '__coerce__' in attrs and not isinstance(attrs['__coerce__'], ReadOnly):
             attrs['__coerce__'] = ReadOnly(attrs['__coerce__'])
@@ -139,13 +142,15 @@ class Atomic(type):
             if isinstance(attrs['__slots__'], tuple):
                 # Classes with tuples in them are assumed to be
                 # data class definitions (i.e. supporting things like a change log)
-                attrs['_data_class'] = data_class_cell = ReadOnly(None)
+                attrs['_data_class'] = ReadOnly(None)
                 slots = attrs.pop('__slots__')
                 attrs['__slots__'] = ()
                 attrs['_support_columns'] = ReadOnly(tuple(slots))
                 new_cls = super().__new__(klass, class_name, bases, attrs)
-                data_class_cell.value = type(
-                    f'{class_name}Support', (new_cls,), {'__slots__': slots}, skip=True)
+                # import inspect
+                # print(new_cls, slots, new_cls.__slots__, bases, class_name)
+                # data_class_cell.value = type(
+                #     f'{class_name}Support', (new_cls,), {'__slots__': slots})
                 return new_cls
             raise TypeError(
                 f'The __slots__ definition for {class_name} must be a mapping or empty tuple!')
@@ -314,10 +319,11 @@ class Atomic(type):
         new_cls = super().__new__(klass, class_name, bases, attrs)
         ns_globals[class_name].value = new_cls
         ns_globals[class_name] = new_cls
+        dataclass_template = env.get_template('data_class.jinja').render(
+            class_name=class_name,
+            slots=repr(tuple('_{}'.format(key) for key in columns) + support_columns))
         exec(compile(
-            env.get_template('data_class.jinja').render(
-                class_name=class_name,
-                slots=repr(tuple('_{}'.format(key) for key in columns) + support_columns)),
+            dataclass_template,
             '<dcs>', mode='exec'), ns_globals, ns_globals)
         dc.value = ns_globals[f'_{class_name}']
         klass.REGISTRY.add(new_cls)
