@@ -34,6 +34,17 @@ Wouldn't it be nice to define a heirachy like this:
 
 .. code-block:: python
 
+    class Member(Base):
+        __slots__ = {
+            'first_name': str,
+            'last_name': str,
+            'id': str,
+        }
+        def __init__(self, **kwargs):
+            self.first_name = self.last_name = ''
+            self.id = -1
+            super().__init__(**kwargs)
+
     class Organization(Base, history=True):
         __slots__ = {
             'name': str,
@@ -51,17 +62,6 @@ Wouldn't it be nice to define a heirachy like this:
             self.id = -1
             self.members = []
             self.created_date = datetime.datetime.utcnow()
-            super().__init__(**kwargs)
-
-    class Member(Base):
-        __slots__ = {
-            'first_name': str,
-            'last_name': str,
-            'id': str,
-        }
-        def __init__(self, **kwargs):
-            self.first_name = self.last_name = ''
-            self.id = -1
             super().__init__(**kwargs)
 
 And have it work like this?
