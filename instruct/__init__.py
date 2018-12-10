@@ -2,13 +2,15 @@ import os
 import time
 import tempfile
 import logging
-from collections import Mapping, namedtuple, UserDict
+from collections import namedtuple, UserDict
+from collections.abc import Mapping
 import typing
-import functools
+
 from enum import IntEnum
 
 from jinja2 import Environment, PackageLoader
 
+from .utils import flatten
 from .about import __version__
 __version__  # Silence unused import warning.
 
@@ -36,50 +38,28 @@ class ReadOnly:
     def __get__(self, obj, objtype=None):
         return self.value
 
-type_lookaside = {
-    typing.AnyStr: (str, bytes),
-    typing.Any: object,
-}
 
+def parse_typedef(typedef):
+    if typedef is typing.AnyStr:
+        return str, bytes,
+    elif typedef is typing.Any:
+        return object
+    elif typedef is typing.Union:
+        raise TypeError('A bare union means nothing!')
+    elif hasattr(typedef, '_name'):
+        if typedef._name is None:
+            # special cases!
+            if typedef.__origin__ is typing.Union:
+                return flatten(
+                    (parse_typedef(argument) for argument in typedef.__args__),
+                    eager=True)
+            raise TypeError(f'Unrecognized typedef of special case {typedef!r}')
+        if hasattr(typedef, '_special'):
+            if not typedef._special:  # this typedef is specific!
+                return typedef.__origin__,
+        return typedef.__origin__,
 
-def flatten(iterable):
-    for item in iterable:
-        if isinstance(item, tuple):
-            yield from item
-            continue
-        yield item
-
-
-def handle_typedef(typedef):
-    if not isinstance(typedef, tuple):
-        typedef = (typedef,)
-    final_typedef = []
-    for type_cls in typedef:
-        if isinstance(type_cls, typing.TypingMeta) and issubclass(type_cls, typing.Container):
-            # We only care about the outer container type (for now)
-            type_cls = type_cls.__orig_bases__[0]
-
-        if isinstance(type_cls, typing._TypingBase):
-            if hasattr(type_cls, '__origin__'):
-                if type_cls.__origin__ is typing.Union:
-                    type_class = type_cls._subs_tree()
-                    if type_class is typing.Union:
-                        raise ValueError('Invalid definition - bare Union')
-                    type_class = tuple(flatten(type_lookaside.get(x, x) for x in type_class[1:]))
-                    assert not any(isinstance(item, typing._TypingBase) for item in type_class), \
-                        'Union must have types'
-                    final_typedef.extend(type_class)
-                    continue
-            raise TypeError('Unhandled type {}'.format(type_cls))
-        elif type_cls.__module__ == 'typing':
-            print(type_cls, isinstance(type_cls, typing._TypingBase), dir(type_cls), type_cls.__mro__)
-            raise TypeError('Unhandled type {}'.format(type_cls))
-
-        if isinstance(type_cls, type):
-            final_typedef.append(type_cls)
-            continue
-        assert False, f'{type_cls!r} isn\'t a type'
-    return tuple(final_typedef)
+    return typedef
 
 
 def make_fast_clear(fields, set_block, class_name):
@@ -285,7 +265,7 @@ class Atomic(type):
             attrs[key] = property(
                 ns['make_getter'](value),
                 ns['make_setter'](
-                    value, fast, derived_classes.get(key), handle_typedef(value),
+                    value, fast, derived_classes.get(key), parse_typedef(value),
                     coerce_types, coerce_func))
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
