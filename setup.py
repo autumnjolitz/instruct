@@ -1,4 +1,3 @@
-import sys
 from codecs import open  # To use a consistent encoding
 from os import path
 
@@ -7,14 +6,8 @@ from setuptools import (setup, find_packages)
 
 here = path.abspath(path.dirname(__file__))
 install_requirements = [
-    'Jinja2~=2.9.6',
+    'Jinja2~=2.10.0',
 ]
-
-# The following are meant to avoid accidental upload/registration of this
-# package in the Python Package Index (PyPi)
-pypi_operations = frozenset(['register', 'upload']) & frozenset([x.lower() for x in sys.argv])
-if pypi_operations:
-    raise ValueError('Command(s) {} disabled in this example.'.format(', '.join(pypi_operations)))
 
 with open(path.join(here, 'README.rst'), encoding='utf-8') as fh:
     long_description = fh.read()
