@@ -114,7 +114,9 @@ class Atomic(type):
             attrs['__coerce__'] = ReadOnly(attrs['__coerce__'])
 
         if skip:
+            attrs['_metaclass_skip'] = ReadOnly(True)
             return super().__new__(klass, class_name, bases, attrs)
+        attrs['_metaclass_skip'] = ReadOnly(False)
         if '__slots__' not in attrs:
             raise TypeError(
                 f'You must define __slots__ for {class_name} to constrain the typespace')
@@ -178,8 +180,9 @@ class Atomic(type):
                     f'Multi-slot classes (like {cls.__name__}) must be defined '
                     'with `metaclass=Atomic`. Mixins with empty __slots__ are not subject to '
                     'this restriction.')
-            assert getattr(cls, '__slots__', None) == (), \
-                'You must define {cls.__name__}.__slots__ = ()'
+            if not getattr(cls, '_metaclass_skip', False):
+                assert getattr(cls, '__slots__', None) == (), \
+                    f'You must define {cls.__name__}.__slots__ = ()'
             if hasattr(cls, '_columns'):
                 for key, value in cls._columns.items():
                     columns[key] = value
@@ -428,7 +431,7 @@ def load_cls(cls, args, kwargs):
     return cls(*args, **kwargs)
 
 
-class Base(metaclass=Atomic):
+class Base(metaclass=Atomic, skip=True):
     __slots__ = ('_flags',)
     __setter_template__ = ReadOnly('self._{key} = val')
     __getter_template__ = ReadOnly('return self._{key}')
