@@ -8,3 +8,4 @@ def test_parse_typedef():
     assert parse_typedef(List[Union[int, str]]) == (list,)
     assert parse_typedef(List[Union[int, AnyStr]]) == (list,)
     assert parse_typedef(Union[Any, AnyStr]) == (object, str, bytes,)
+    assert parse_typedef(Union[str, int, float]) == (str, int, float)
