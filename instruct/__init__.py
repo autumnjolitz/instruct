@@ -2,7 +2,6 @@ import os
 import time
 import tempfile
 import logging
-import collections.abc
 from collections import namedtuple, UserDict
 from collections.abc import Mapping
 import typing
@@ -11,8 +10,8 @@ from enum import IntEnum
 
 from jinja2 import Environment, PackageLoader
 
-from .utils import flatten
 from .about import __version__
+from .typedef import parse_typedef
 __version__  # Silence unused import warning.
 
 NoneType = type(None)
@@ -54,82 +53,6 @@ class ReadOnly:
 
     def __get__(self, obj, objtype=None):
         return self.value
-
-
-def make_custom_typecheck(func):
-    '''Create a custom type that will turn `isinstance(item, klass)` into `func(item)`
-    '''
-    class WrappedType(type):
-        __slots__ = ()
-
-        def __instancecheck__(self, instance):
-            return func(instance)
-
-    class _WrappedType(metaclass=WrappedType):
-        __slots__ = ()
-    return _WrappedType
-
-
-def create_custom_type(container_type, *args):
-    if getattr(container_type, '__module__', None) == 'typing':
-        if hasattr(container_type, '_name') and container_type._name is None \
-                and container_type.__origin__ is typing.Union:
-            types = flatten(
-                (create_custom_type(arg) for arg in container_type.__args__), eager=True)
-
-            def test_func(value):
-                return isinstance(value, types)
-        elif container_type is typing.AnyStr:
-            return (bytes, str)
-        elif container_type is typing.Any:
-            return object
-        else:
-            raise NotImplementedError(container_type, args)
-    elif isinstance(container_type, type) and issubclass(container_type, collections.abc.Iterable):
-        test_types = []
-        for some_type in args:
-            test_types.append(create_custom_type(some_type))
-        test_types = tuple(test_types)
-        if test_types:
-            def test_func(value):
-                if not isinstance(value, container_type):
-                    return False
-                return all(isinstance(item, test_types) for item in value)
-        else:
-            def test_func(value):
-                return isinstance(value, container_type)
-    elif isinstance(container_type, type) and not args:
-        return container_type
-    else:
-        assert isinstance(container_type, tuple)
-
-        def test_func(value):
-            return isinstance(value, container_type)
-
-    return make_custom_typecheck(test_func)
-
-
-def parse_typedef(typedef):
-    if typedef is typing.AnyStr:
-        return str, bytes,
-    elif typedef is typing.Any:
-        return object
-    elif typedef is typing.Union:
-        raise TypeError('A bare union means nothing!')
-    elif hasattr(typedef, '_name'):
-        if typedef._name is None:
-            # special cases!
-            if typedef.__origin__ is typing.Union:
-                return flatten(
-                    (parse_typedef(argument) for argument in typedef.__args__),
-                    eager=True)
-            raise TypeError(f'Unrecognized typedef of special case {typedef!r}')
-        if hasattr(typedef, '_special'):
-            if not typedef._special:  # this typedef is specific!
-                return create_custom_type(typedef.__origin__, *typedef.__args__)
-        return typedef.__origin__,
-
-    return typedef
 
 
 def make_fast_clear(fields, set_block, class_name):

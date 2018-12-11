@@ -1,4 +1,4 @@
-from instruct import flatten
+from instruct.utils import flatten
 
 
 def test_flatten():
