@@ -157,6 +157,21 @@ def test_reset():
     assert not t.is_dirty
 
 
+def test_fast_setter():
+    class FastData(Base, fast=True):
+        __slots__ = {
+            'a': int,
+            'bar': str
+        }
+
+        @add_event_listener('a')
+        def on_a_set(self, old, new):
+            self.bar = str(new)
+
+    f = FastData(a=1)
+    assert f.bar == '1'
+
+
 def test_getitem():
     class Foo(Base):
         __slots__ = {
