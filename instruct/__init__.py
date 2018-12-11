@@ -299,6 +299,7 @@ class Atomic(type):
 
         attrs['_data_class'] = dc = ReadOnly(None)
         attrs['__slots__'] = ()
+        attrs['_parent'] = parent_cell = ReadOnly(None)
         new_cls = super().__new__(klass, class_name, bases, attrs)
         ns_globals[class_name].value = new_cls
         ns_globals[class_name] = new_cls
@@ -309,6 +310,7 @@ class Atomic(type):
             dataclass_template,
             '<dcs>', mode='exec'), ns_globals, ns_globals)
         dc.value = ns_globals[f'_{class_name}']
+        parent_cell.value = new_cls
         klass.REGISTRY.add(new_cls)
         return new_cls
 
