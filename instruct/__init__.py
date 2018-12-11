@@ -62,6 +62,12 @@ def make_fast_clear(fields, set_block, class_name):
     return code_template
 
 
+def make_fast_getitem(fields, class_name):
+    code_template = env.get_template('fast_getitem.jinja').render(
+        fields=fields, class_name=class_name)
+    return code_template
+
+
 def make_fast_eq(fields):
     code_template = env.get_template('fast_eq.jinja').render(fields=fields)
     return code_template
@@ -280,6 +286,9 @@ class Atomic(type):
             make_fast_clear(columns, local_setter_var_template, class_name),
             '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
+            make_fast_getitem(columns, class_name),
+            '<make_fast_getitem>', mode='exec'), ns_globals, ns_globals)
+        exec(compile(
             make_fast_iter(columns),
             '<make_fast_iter>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
@@ -295,6 +304,7 @@ class Atomic(type):
         attrs['__eq__'] = ns_globals['__eq__']
         attrs['_set_defaults'] = ns_globals['_set_defaults']
         attrs['clear'] = ns_globals['clear']
+        attrs['__getitem__'] = ns_globals['__getitem__']
 
         slots = attrs.pop('__slots__')
 
@@ -439,6 +449,9 @@ class Base(metaclass=Atomic, skip=True):
     __setter_template__ = ReadOnly('self._{key} = val')
     __getter_template__ = ReadOnly('return self._{key}')
     __defaults_init__ = ReadOnly(DEFAULTS)
+
+    def keys(self):
+        return self._columns.keys()
 
     def __new__(cls, *args, **kwargs):
         # Get the edge class that has all the __slots__ defined
