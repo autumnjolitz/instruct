@@ -2,6 +2,7 @@ import os
 import time
 import tempfile
 import logging
+import collections.abc
 from collections import namedtuple, UserDict
 from collections.abc import Mapping
 import typing
@@ -29,6 +30,22 @@ class AttrsDict(UserDict):
             return None
 
 
+class FrozenMapping:
+    __slots__ = ('_value',)
+
+    def __init__(self, value):
+        self._value = value
+
+    def __getitem__(self, key):
+        return self._value[key]
+
+    def __len__(self, key):
+        return len(self._value)
+
+    def __contains__(self, key):
+        return key in self._value
+
+
 class ReadOnly:
     __slots__ = ('value',)
 
@@ -37,6 +54,59 @@ class ReadOnly:
 
     def __get__(self, obj, objtype=None):
         return self.value
+
+
+def make_custom_typecheck(func):
+    '''Create a custom type that will turn `isinstance(item, klass)` into `func(item)`
+    '''
+    class WrappedType(type):
+        __slots__ = ()
+
+        def __instancecheck__(self, instance):
+            return func(instance)
+
+    class _WrappedType(metaclass=WrappedType):
+        __slots__ = ()
+    return _WrappedType
+
+
+def create_custom_type(container_type, *args):
+    if getattr(container_type, '__module__', None) == 'typing':
+        if hasattr(container_type, '_name') and container_type._name is None \
+                and container_type.__origin__ is typing.Union:
+            types = flatten(
+                (create_custom_type(arg) for arg in container_type.__args__), eager=True)
+
+            def test_func(value):
+                return isinstance(value, types)
+        elif container_type is typing.AnyStr:
+            return (bytes, str)
+        elif container_type is typing.Any:
+            return object
+        else:
+            raise NotImplementedError(container_type, args)
+    elif isinstance(container_type, type) and issubclass(container_type, collections.abc.Iterable):
+        test_types = []
+        for some_type in args:
+            test_types.append(create_custom_type(some_type))
+        test_types = tuple(test_types)
+        if test_types:
+            def test_func(value):
+                if not isinstance(value, container_type):
+                    return False
+                return all(isinstance(item, test_types) for item in value)
+        else:
+            def test_func(value):
+                return isinstance(value, container_type)
+    elif isinstance(container_type, type) and not args:
+        return container_type
+    else:
+        assert isinstance(container_type, tuple)
+
+        def test_func(value):
+            return isinstance(value, container_type)
+
+    return make_custom_typecheck(test_func)
 
 
 def parse_typedef(typedef):
@@ -56,7 +126,7 @@ def parse_typedef(typedef):
             raise TypeError(f'Unrecognized typedef of special case {typedef!r}')
         if hasattr(typedef, '_special'):
             if not typedef._special:  # this typedef is specific!
-                return typedef.__origin__,
+                return create_custom_type(typedef.__origin__, *typedef.__args__)
         return typedef.__origin__,
 
     return typedef
@@ -221,6 +291,8 @@ class Atomic(type):
         getter_template = env.get_template('getter.jinja')
 
         attrs['_columns'] = ReadOnly(columns)
+        column_types = {}
+        attrs['_column_types'] = ReadOnly(FrozenMapping(column_types))
         attrs['_support_columns'] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
@@ -269,10 +341,12 @@ class Atomic(type):
             code = compile('{}\n{}'.format(getter_code, setter_code), filename, mode='exec')
             exec(code, ns_globals, ns)
 
+            types_to_check = parse_typedef(value)
+            column_types[key] = types_to_check
             attrs[key] = property(
                 ns['make_getter'](value),
                 ns['make_setter'](
-                    value, fast, derived_classes.get(key), parse_typedef(value),
+                    value, fast, derived_classes.get(key), types_to_check,
                     coerce_types, coerce_func))
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
