@@ -27,6 +27,9 @@ def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coer
             if isinstance(val, coerce_types):
                 val = coerce_func(val)
             {%- endif %}
+            {%- if on_sets %}
+            _old_value = self.{{field_name}}
+            {%- endif %}
             {{setter_variable_template|format(key=field_name)|indent(12)}}
             {%- if on_sets %}
             {%- for on_func_name in on_sets %}
