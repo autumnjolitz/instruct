@@ -115,7 +115,11 @@ class Atomic(type):
 
         if skip:
             attrs['_metaclass_skip'] = ReadOnly(True)
-            return super().__new__(klass, class_name, bases, attrs)
+            cls = super().__new__(klass, class_name, bases, attrs)
+            if not getattr(cls, '__hash__', None):
+                cls.__hash__ = object.__hash__
+            assert cls.__hash__ is not None
+            return cls
         attrs['_metaclass_skip'] = ReadOnly(False)
         if '__slots__' not in attrs:
             raise TypeError(
