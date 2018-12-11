@@ -157,6 +157,23 @@ def test_reset():
     assert not t.is_dirty
 
 
+def test_getitem():
+    class Foo(Base):
+        __slots__ = {
+            'a': int,
+            'b': str
+        }
+
+        def some_func():
+            return 1
+
+    f = Foo(a=1, b='s')
+    assert f['a'] == 1
+    assert f['b'] == 's'
+
+    assert {**f} == {'a': 1, 'b': 's'}
+
+
 def test_readme():
 
     class Member(Base):
