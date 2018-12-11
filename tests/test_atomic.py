@@ -163,7 +163,7 @@ def test_readme():
         __slots__ = {
             'first_name': str,
             'last_name': str,
-            'id': str,
+            'id': int,
         }
 
         def __init__(self, **kwargs):
@@ -180,7 +180,8 @@ def test_readme():
         }
 
         __coerce__ = {
-            'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))
+            'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj)),
+            'members': (list, lambda val: [Member(**item) for item in val])
         }
 
         def __init__(self, **kwargs):
@@ -204,4 +205,4 @@ def test_readme():
     org = Organization(**data)
     assert org.members[0].first_name == 'Jinja'
     org.name = "New Name"
-    org.history()
+    print(tuple(org.list_changes()))

@@ -1,6 +1,5 @@
-from instruct import parse_typedef
+from instruct.typedef import parse_typedef, make_custom_typecheck
 from typing import List, Union, AnyStr, Any
-from instruct import make_custom_typecheck
 
 
 def test_parse_typedef():
