@@ -203,6 +203,8 @@ class Atomic(type):
         defaults_templates = []
         support_columns = []
 
+        properties = [name for name, val in attrs.items() if isinstance(val, property)]
+
         for cls in bases:
             if hasattr(cls, '__slots__') and cls.__slots__ != () \
                     and not issubclass(type(cls), Atomic):
@@ -232,6 +234,10 @@ class Atomic(type):
                 setter_templates.append(cls.__setter_template__)
             if hasattr(cls, '__defaults_init__'):
                 defaults_templates.append(cls.__defaults_init__)
+            for key in dir(cls):
+                value = getattr(cls, key)
+                if isinstance(value, property):
+                    properties.append(key)
         try:
             setter_var_template = attrs.get('__setter_template__', setter_templates[0])
             getter_var_template = attrs.get('__getter_template__', getter_templates[0])
@@ -258,6 +264,7 @@ class Atomic(type):
         attrs['_support_columns'] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
+        attrs['_properties'] = frozenset(properties)
 
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'NoneType': type(None), 'Flags': Flags, 'typing': typing}
@@ -539,7 +546,13 @@ class Base(metaclass=Atomic, skip=True):
                 setattr(self, key, value)
             except Exception as e:
                 errors.append(e)
-        if kwargs.keys() - self._columns.keys():
+        for key in self._properties & kwargs.keys():
+            value = kwargs[key]
+            try:
+                setattr(self, key, value)
+            except Exception as e:
+                errors.append(e)
+        if kwargs.keys() - (self._columns.keys() | self._properties):
             fields = ', '.join(kwargs.keys() - self._columns.keys())
             errors.append(ValueError(f'Unrecognized fields {fields}'))
         if errors:
