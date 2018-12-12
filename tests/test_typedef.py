@@ -1,5 +1,7 @@
 from instruct.typedef import parse_typedef, make_custom_typecheck
-from typing import List, Union, AnyStr, Any
+from typing import List, Union, AnyStr, Any, Optional
+
+NoneType = type(None)
 
 
 def test_parse_typedef():
@@ -23,3 +25,4 @@ def test_parse_typedef():
     assert isinstance(b'a', Anything)
     assert isinstance(type, Anything)
     assert parse_typedef(Union[str, int, float]) == (str, int, float)
+    assert parse_typedef(Optional[str]) == (str, NoneType)
