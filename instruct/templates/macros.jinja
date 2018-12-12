@@ -46,7 +46,9 @@ def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coer
                     val = coerce_func(val)
                 {%- endif %}
                 if not isinstance(val, type_restriction):
-                    raise TypeError('{!r} must be a {}'.format(val, type_restriction))
+                    raise self._create_invalid_type(
+                        '{{field_name}}',
+                        val, type(val), type_restriction)
             {%- if on_sets %}
             _old_value = self.{{field_name}}
             {%- endif %}
