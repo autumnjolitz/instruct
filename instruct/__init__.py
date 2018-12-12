@@ -5,9 +5,10 @@ import logging
 from collections import namedtuple, UserDict
 from collections.abc import Mapping
 import typing
-
 from enum import IntEnum
 
+
+import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
@@ -18,6 +19,38 @@ NoneType = type(None)
 
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, 'templates'))
+
+
+def _convert_exception_to_json(item: Exception):
+    assert isinstance(item, Exception)
+    if hasattr(item, 'to_json'):
+        return item.to_json()
+    return {
+        'type': inflection.titleize(type(item).__name__),
+        'message': str(item)
+    }
+
+
+class ClassCreationFailed(ValueError, TypeError):
+    def __init__(self, message, *errors):
+        assert len(errors) > 0, 'Must have varargs of errors!'
+        self.errors = errors
+        self.message = message
+        super().__init__(message, *errors)
+
+    def to_json(self):
+        stack = list(self.errors)
+        results = []
+        while stack:
+            item = stack.pop(0)
+            if hasattr(item, 'errors'):
+                stack.extend(item.to_json())
+                continue
+            item = _convert_exception_to_json(item)
+            item['parent_message'] = self.message
+            item['parent_type'] = inflection.titleize(type(self).__name__)
+            results.append(item)
+        return tuple(results)
 
 
 class AttrsDict(UserDict):
@@ -450,6 +483,21 @@ class Base(metaclass=Atomic, skip=True):
     __getter_template__ = ReadOnly('return self._{key}')
     __defaults_init__ = ReadOnly(DEFAULTS)
 
+    @classmethod
+    def _create_invalid_type(cls, field_name, val, val_type, types_required):
+        if len(types_required) > 1:
+            if len(types_required) == 2:
+                expects = 'either an {.__name__} or {.__name__}'.format(val_type)
+            else:
+                expects = f'either an {"".join(x.__name__) for x in types_required[:-1]} '\
+                          f'or a {types_required[-1].__name__}'
+        else:
+            expects = f'a {val_type.__name__}'
+        return TypeError(
+            f'Unable to set {field_name} to {val!r} ({val_type.__name__}). {field_name} expects '
+            f'{expects}'
+        )
+
     def keys(self):
         return self._columns.keys()
 
@@ -484,13 +532,20 @@ class Base(metaclass=Atomic, skip=True):
     def __init__(self, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR
         self._flags |= Flags.DEFAULTS_SET
+        errors = []
         for key in self._columns.keys() & kwargs.keys():
             value = kwargs[key]
-            setattr(self, key, value)
-
+            try:
+                setattr(self, key, value)
+            except Exception as e:
+                errors.append(e)
         if kwargs.keys() - self._columns.keys():
             fields = ', '.join(kwargs.keys() - self._columns.keys())
-            raise ValueError(f'Unrecognized fields {fields}')
+            errors.append(ValueError(f'Unrecognized fields {fields}'))
+        if errors:
+            raise ClassCreationFailed(
+                f'Unable to construct, encountered {len(errors)} '
+                f'error{"s" if len(errors) > 1 else ""}', *errors)
         self._flags = Flags.INITIALIZED
 
     def clear(self, fields=None):

@@ -5,7 +5,7 @@ import pickle
 
 import pytest
 
-from instruct import Base, add_event_listener
+from instruct import Base, add_event_listener, ClassCreationFailed
 
 
 class Data(Base, history=True):
@@ -238,3 +238,18 @@ def test_readme():
     assert org.members[0].first_name == 'Jinja'
     org.name = "New Name"
     print(tuple(org.list_changes()))
+
+
+def test_invalid_kwargs():
+
+    class Test(Base):
+        __slots__ = {
+            'foo': str,
+            'bar': float,
+            'blech': int,
+        }
+
+    with pytest.raises(ClassCreationFailed) as e:
+        Test(foo=1.2, bar=1, blech='2')
+    assert len(e.value.errors) == 3
+    print(e.value.to_json())
