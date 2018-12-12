@@ -253,3 +253,24 @@ def test_invalid_kwargs():
         Test(foo=1.2, bar=1, blech='2')
     assert len(e.value.errors) == 3
     print(e.value.to_json())
+
+
+def test_properties():
+    class Test(Base):
+        __slots__ = {
+            'foo': str,
+            'bar': float,
+            'blech': int,
+        }
+
+        @property
+        def yoo(self):
+            return self.foo
+
+        @yoo.setter
+        def yoo(self, val):
+            self.foo = val
+    assert Test._properties | Test._columns.keys() == frozenset(['foo', 'bar', 'blech', 'yoo'])
+
+    t = Test(yoo='New foo')
+    assert t.foo == 'New foo'
