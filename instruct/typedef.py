@@ -25,6 +25,8 @@ def make_custom_typecheck(func):
         def set_name(name):
             nonlocal typename
             typename = name
+            _WrappedType.__name__ = name
+            _WrappedType._name__ = name
             return name
 
     return _WrappedType
