@@ -496,7 +496,7 @@ class Base(metaclass=Atomic, skip=True):
             if len(types_required) == 2:
                 expects = 'either an {.__name__} or {.__name__}'.format(val_type)
             else:
-                expects = f'either an {"".join(x.__name__) for x in types_required[:-1]} '\
+                expects = f'either an {"".join(x.__name__ for x in types_required[:-1])} '\
                           f'or a {types_required[-1].__name__}'
         else:
             expects = f'a {val_type.__name__}'

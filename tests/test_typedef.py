@@ -26,3 +26,9 @@ def test_parse_typedef():
     assert isinstance(type, Anything)
     assert parse_typedef(Union[str, int, float]) == (str, int, float)
     assert parse_typedef(Optional[str]) == (str, NoneType)
+
+
+def test_custom_name():
+    types = parse_typedef(Union[List[str], List[float]])
+    assert not frozenset(x.__name__ for x in types) - \
+        frozenset(['List[str]', 'List[float]'])
