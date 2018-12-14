@@ -427,8 +427,8 @@ class History(metaclass=Atomic):
         if self._flags & 2 == 2:
             msg = 'initialized'
         else:
-            _, old_val_prior, _, index = self._changes[key][-1]
-            if new_value == old_val_prior:
+            old_msg, old_val_prior, _, index = self._changes[key][-1]
+            if new_value == old_val_prior and old_msg == msg:
                 self._changes[key].pop()
                 del self._changed_keys[index]
                 return
