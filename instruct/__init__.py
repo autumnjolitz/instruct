@@ -264,7 +264,7 @@ class Atomic(type):
         attrs['_support_columns'] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
-        attrs['_properties'] = frozenset(properties)
+        attrs['_properties'] = properties = frozenset(properties)
 
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'NoneType': type(None), 'Flags': Flags, 'typing': typing}
@@ -312,11 +312,22 @@ class Atomic(type):
 
             types_to_check = parse_typedef(value)
             column_types[key] = types_to_check
-            attrs[key] = property(
+            new_property = property(
                 ns['make_getter'](value),
                 ns['make_setter'](
                     value, fast, derived_classes.get(key), types_to_check,
                     coerce_types, coerce_func))
+
+            if key in properties:
+                current_prop = attrs[key]
+                if not all((current_prop.fget, current_prop.fset)):
+                    if not current_prop.fget:
+                        new_property = current_prop.getter(new_property.fget)
+                    if not current_prop.fset:
+                        new_property = current_prop.setter(new_property.fset)
+                else:
+                    new_property = current_prop
+            attrs[key] = new_property
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
         ns_globals[class_name] = ReadOnly(None)
@@ -391,19 +402,21 @@ class History(metaclass=Atomic):
     setter_wrapper = 'history-setter-wrapper.jinja'
 
     def __init__(self, **kwargs):
-        self._changed_index = 0
         t_s = time.time()
         self._changes = {
             key: [Delta('default', UNDEFINED, value, 0)] for key, value in self
         }
         self._changed_keys = [(key, t_s) for key in self._columns]
-        self._changed_index += len(self._changed_keys)
+        self._changed_index = len(self._changed_keys)
+
         super().__init__(**kwargs)
 
     def __setattr__(self, key, value):
+        if key != '_flags' and self._flags & Flags.IN_CONSTRUCTOR and key in self._columns:
+            before = len(self._changed_keys)
         super().__setattr__(key, value)
         if self._flags & Flags.IN_CONSTRUCTOR and key in self._columns:
-            self._changed_index += 1
+            self._changed_index += (len(self._changed_keys) - before)
 
     def _record_change(self, key, old_value, new_value):
         if old_value == new_value:
