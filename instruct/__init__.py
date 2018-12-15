@@ -507,12 +507,12 @@ class Base(metaclass=Atomic, skip=True):
     def _create_invalid_type(cls, field_name, val, val_type, types_required):
         if len(types_required) > 1:
             if len(types_required) == 2:
-                expects = 'either an {.__name__} or {.__name__}'.format(val_type)
+                expects = 'either an {.__name__} or {.__name__}'.format(*types_required)
             else:
-                expects = f'either an {"".join(x.__name__ for x in types_required[:-1])} '\
+                expects = f'either an {", ".join(x.__name__ for x in types_required[:-1])} '\
                           f'or a {types_required[-1].__name__}'
         else:
-            expects = f'a {val_type.__name__}'
+            expects = f'a {types_required[0].__name__}'
         return TypeError(
             f'Unable to set {field_name} to {val!r} ({val_type.__name__}). {field_name} expects '
             f'{expects}'
