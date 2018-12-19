@@ -290,6 +290,7 @@ class Atomic(type):
             coerce_types = coerce_func = None
             if '__coerce__' in attrs and key in attrs['__coerce__'].value:
                 coerce_types, coerce_func = attrs['__coerce__'].value[key]
+            coerce_types = parse_typedef(coerce_types)
             getter_code = getter_template.render(
                 field_name=key, get_variable_template=local_getter_var_template)
             setter_code = setter_template.render(
