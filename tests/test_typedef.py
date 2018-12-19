@@ -32,6 +32,10 @@ def test_parse_typedef():
     assert isinstance([['a', 1]], parse_typedef(List[List[Union[int, str]]]))
     assert isinstance([('a', 1), ('b', 2)], parse_typedef(List[Tuple[int, str]]))
     assert not isinstance([['a', 1]], parse_typedef(List[Tuple[int, str]]))
+    new_type = parse_typedef((List[int], List[List[dict]]))
+    assert isinstance([1, 2, 3], new_type)
+    assert isinstance([[{}]], new_type)
+    assert not isinstance([1.2], new_type)
 
 
 def test_custom_name():
