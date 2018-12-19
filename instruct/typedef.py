@@ -86,6 +86,8 @@ def is_typing_definition(item):
 
 
 def parse_typedef(typedef):
+    if type(typedef) is tuple or type(typedef) is list:
+        return tuple(parse_typedef(x) for x in typedef)
     if not is_typing_definition(typedef):
         return typedef
 
