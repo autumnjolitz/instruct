@@ -260,7 +260,9 @@ class Atomic(type):
 
         attrs['_columns'] = ReadOnly(columns)
         column_types = {}
+        all_coercions = {}
         attrs['_column_types'] = ReadOnly(FrozenMapping(column_types))
+        attrs['_all_coercions'] = ReadOnly(FrozenMapping(all_coercions))
         attrs['_support_columns'] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf['fast'] = fast
@@ -291,6 +293,7 @@ class Atomic(type):
             if '__coerce__' in attrs and key in attrs['__coerce__'].value:
                 coerce_types, coerce_func = attrs['__coerce__'].value[key]
             coerce_types = parse_typedef(coerce_types)
+            all_coercions[key] = (coerce_types, coerce_func)
             getter_code = getter_template.render(
                 field_name=key, get_variable_template=local_getter_var_template)
             setter_code = setter_template.render(
