@@ -293,6 +293,6 @@ def test_coerce_complex():
 
     f = Item(value=[{'value': 1}, {'value': 2}])
     assert tuple(item.value for item in f.value) == (1, 2)
-    with pytest.raises(TypeError, '^Unable to set value'):
+    with pytest.raises(TypeError, message='^Unable to set value'):
         Item(value=[1, 2])
 
