@@ -274,3 +274,25 @@ def test_properties():
 
     t = Test(yoo='New foo')
     assert t.foo == 'New foo'
+
+
+def test_coerce_complex():
+    class ItemItem(Base):
+        __slots__ = {
+            'value': int
+        }
+
+    class Item(Base):
+        __slots__ = {
+            'value': List[ItemItem]
+        }
+
+        __coerce__ = {
+            'value': (List[dict], lambda items: [ItemItem(**item) for item in items])
+        }
+
+    f = Item(value=[{'value': 1}, {'value': 2}])
+    assert tuple(item.value for item in f.value) == (1, 2)
+    with pytest.raises(TypeError, '^Unable to set value'):
+        Item(value=[1, 2])
+
