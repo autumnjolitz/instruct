@@ -45,9 +45,15 @@ def create_custom_type(container_type, *args):
             return (bytes, str)
         elif container_type is Any:
             return object
+        elif isinstance(getattr(container_type, '__origin__', None), type) and (
+                issubclass(container_type.__origin__, collections.abc.Iterable) and
+                issubclass(container_type.__origin__, collections.abc.Container)):
+            return parse_typedef(container_type)
         else:
-            raise NotImplementedError(container_type, args)
-    elif isinstance(container_type, type) and issubclass(container_type, collections.abc.Iterable):
+            raise NotImplementedError(container_type, container_type._name)
+    elif isinstance(container_type, type) and (
+            issubclass(container_type, collections.abc.Iterable) and
+            issubclass(container_type, collections.abc.Container)):
         test_types = []
         for some_type in args:
             test_types.append(create_custom_type(some_type))
@@ -71,7 +77,18 @@ def create_custom_type(container_type, *args):
     return make_custom_typecheck(test_func)
 
 
+def is_typing_definition(item):
+    if not isinstance(item, type):
+        return is_typing_definition(type(item))
+    if getattr(item, '__module__', None) == 'typing':
+        return True
+    return False
+
+
 def parse_typedef(typedef):
+    if not is_typing_definition(typedef):
+        return typedef
+
     if typedef is AnyStr:
         return str, bytes,
     elif typedef is Any:
@@ -85,12 +102,13 @@ def parse_typedef(typedef):
                 return flatten(
                     (parse_typedef(argument) for argument in typedef.__args__),
                     eager=True)
-            raise TypeError(f'Unrecognized typedef of special case {typedef!r}')
+            raise NotImplementedError(
+                f'The type definition for {typedef} is not supported, report as an issue.')
         if hasattr(typedef, '_special'):
             if not typedef._special:  # this typedef is specific!
                 cls = create_custom_type(typedef.__origin__, *typedef.__args__)
                 cls.set_name(str(typedef).replace('typing.', ''))
                 return cls
         return typedef.__origin__,
-
-    return typedef
+    raise NotImplementedError(
+        f'The type definition for {typedef} is not supported, report as an issue.')
