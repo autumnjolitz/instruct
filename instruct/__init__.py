@@ -22,7 +22,8 @@ env = Environment(loader=PackageLoader(__name__, 'templates'))
 
 
 def _convert_exception_to_json(item: Exception):
-    assert isinstance(item, Exception)
+    assert isinstance(item, Exception), \
+        f'item {item!r} ({type(item)}) is not an exception!'
     if hasattr(item, 'to_json'):
         return item.to_json()
     return {
