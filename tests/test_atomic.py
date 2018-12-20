@@ -1,5 +1,6 @@
 import json
-from typing import Union, List
+from typing import Union, List, Tuple
+from enum import Enum
 import datetime
 import pickle
 
@@ -295,4 +296,36 @@ def test_coerce_complex():
     assert tuple(item.value for item in f.value) == (1, 2)
     with pytest.raises(TypeError, message='^Unable to set value'):
         Item(value=[1, 2])
+
+    class SomeEnum(Enum):
+        VALUE = 'value'
+
+    def parse(items):
+        return [tuple(item) for item in items]
+
+    class ComplextItem(Base):
+        __slots__ = {
+            'name': str,
+            'type': SomeEnum,
+            'value': Union[List[Tuple[str, int]], List[int], List[float]],
+        }
+
+        __coerce__ = {
+            'type': (str, lambda val: SomeEnum(val)),
+            'value': (List[List[Union[str, int, float]]], parse)
+        }
+
+    class VectoredItems(Base):
+        __slots__ = {
+            'items': List[ComplextItem],
+        }
+
+        __coerce__ = {
+            'items': (List[dict], lambda items: [ComplextItem(**item) for item in items])
+        }
+
+    c = ComplextItem(value=[['a', 1], ['b', 2]], name='ab', type='value')
+    assert c.value == [('a', 1), ('b', 2)]
+
+    VectoredItems(items=[{'value': [['a', 1], ['b', 2]], 'name': 'ab', 'type': 'value'}])
 
