@@ -58,7 +58,6 @@ class LinkedFields(Base):
 
     def __init__(self, **kwargs):
         self.id = 0
-        self.name = ''
         super().__init__(**kwargs)
 
     @add_event_listener('id')
@@ -68,17 +67,45 @@ class LinkedFields(Base):
 
 
 def test_pickle():
-    l = LinkedFields(id=2, name='Autumn')
-    data = pickle.dumps(l)
+    l1 = LinkedFields(id=2, name='Autumn')
+    data = pickle.dumps(l1)
     l2 = pickle.loads(data)
-    assert l == l2
+    assert l1 == l2
+
+
+def test_partial_pickle():
+    l1 = LinkedFields(id=2)
+    assert l1.name is None
+    data = pickle.dumps(l1)
+    l2 = pickle.loads(data)
+    assert l1 == l2
 
 
 def test_json():
-    l = LinkedFields(id=2, name='Autumn')
-    data = json.dumps(l.to_json())
+    l1 = LinkedFields(id=2, name='Autumn')
+    data = json.dumps(l1.to_json())
     l2 = LinkedFields(**json.loads(data))
-    assert l == l2
+    assert l1 == l2
+
+
+def test_json_complex():
+    class SubItems(Base):
+        __slots__ = {
+            'value': int
+        }
+
+    class Item(Base):
+        __slots__ = {
+            'collection': List[SubItems]
+        }
+        __coerce__ = {
+            'collection': (List[dict], lambda items: [SubItems(**item) for item in items])
+        }
+
+    a = Item(collection=[{'value': 1}, {'value': -1}])
+    a_json = a.to_json()
+    assert isinstance(a['collection'][0], dict)
+    assert isinstance(a['collection'][1], dict)
 
 
 def test_coercion():
@@ -188,6 +215,10 @@ def test_getitem():
     assert f['b'] == 's'
 
     assert {**f} == {'a': 1, 'b': 's'}
+    f['b'] = 'New str'
+    assert f['b'] == 'New str'
+    with pytest.raises(TypeError):
+        f['b'] = 1234
 
 
 def test_readme():

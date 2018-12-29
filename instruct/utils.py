@@ -1,6 +1,6 @@
 import functools
 from collections.abc import Iterable
-
+from enum import EnumMeta
 
 def support_eager_eval(func):
 
@@ -16,7 +16,7 @@ def support_eager_eval(func):
 def flatten(iterable):
     for item in iterable:
         if isinstance(item, Iterable) and \
-                not isinstance(item, (str, bytes, bytearray)):
+                not isinstance(item, (str, bytes, bytearray, EnumMeta)):
             yield from item
         else:
             yield item
