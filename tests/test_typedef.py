@@ -1,5 +1,5 @@
 import pytest
-
+from enum import Enum
 from instruct.typedef import parse_typedef, make_custom_typecheck
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple
 
@@ -40,6 +40,18 @@ def test_parse_typedef():
     type_b = parse_typedef(List[List[Union[str, int, float]]])
     assert isinstance([('a', 1)], type_a)
     assert isinstance([['a', 1]], type_b)
+
+
+def test_enum():
+    class MyEnum(Enum):
+        A = 'a'
+        B = 'b'
+    types = parse_typedef(Optional[MyEnum])
+    assert isinstance(types, tuple)
+    assert all(isinstance(x, type) for x in types)
+    assert isinstance(None, types)
+    assert isinstance(MyEnum.A, types)
+    assert not isinstance('a', types)
 
 
 def test_custom_name():
