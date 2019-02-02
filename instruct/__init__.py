@@ -102,7 +102,6 @@ def make_fast_getitem(fields, class_name, get_variable_template, set_variable_te
     code_template = env.get_template('fast_getitem.jinja').render(
         fields=fields, class_name=class_name, get_variable_template=get_variable_template,
         set_variable_template=set_variable_template)
-    print(code_template)
     return code_template
 
 
