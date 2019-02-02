@@ -3,7 +3,7 @@ import time
 import tempfile
 import logging
 from collections import namedtuple, UserDict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import typing
 from enum import IntEnum
 
@@ -19,9 +19,11 @@ NoneType = type(None)
 
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, 'templates'))
+env.globals['tuple'] = tuple
+env.globals['repr'] = repr
 
 
-def _convert_exception_to_json(item: Exception):
+def _convert_exception_to_json(item):
     assert isinstance(item, Exception), \
         f'item {item!r} ({type(item)}) is not an exception!'
     if hasattr(item, 'to_json'):
@@ -96,9 +98,11 @@ def make_fast_clear(fields, set_block, class_name):
     return code_template
 
 
-def make_fast_getitem(fields, class_name):
+def make_fast_getitem(fields, class_name, get_variable_template, set_variable_template):
     code_template = env.get_template('fast_getitem.jinja').render(
-        fields=fields, class_name=class_name)
+        fields=fields, class_name=class_name, get_variable_template=get_variable_template,
+        set_variable_template=set_variable_template)
+    print(code_template)
     return code_template
 
 
@@ -109,6 +113,11 @@ def make_fast_eq(fields):
 
 def make_fast_iter(fields):
     code_template = env.get_template('fast_iter.jinja').render(fields=fields)
+    return code_template
+
+
+def make_set_get_states(fields):
+    code_template = env.get_template('raw_get_set_state.jinja').render(fields=fields)
     return code_template
 
 
@@ -140,6 +149,8 @@ class Atomic(type):
         cls.MIXINS[name] = klass
 
     def __init__(self, *args, **kwargs):
+        # We use kwargs to pass to __new__ and therefore we need
+        # to filter it out of the `type(...)` call
         super().__init__(*args)
 
     def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
@@ -186,7 +197,7 @@ class Atomic(type):
                 value = type('{}'.format(key.capitalize()), bases, {'__slots__': value})
                 derived_classes[key] = value
                 attrs['__slots__'][key] = value
-            columns[key] = value
+            columns[key] = parse_typedef(value)
 
         for mixin_name in mixins:
             if mixins[mixin_name]:
@@ -287,7 +298,7 @@ class Atomic(type):
             if key[0] == '_':
                 continue
             field_names.append(key)
-            attrs['__slots__'][f'_{key}'] = value
+            attrs['__slots__'][f'_raw_{key}'] = value
             del attrs['__slots__'][key]
             ns = {}
             coerce_types = coerce_func = None
@@ -342,11 +353,14 @@ class Atomic(type):
             make_fast_clear(columns, local_setter_var_template, class_name),
             '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
-            make_fast_getitem(columns, class_name),
+            make_fast_getitem(columns, class_name, local_getter_var_template, local_setter_var_template),
             '<make_fast_getitem>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
             make_fast_iter(columns),
             '<make_fast_iter>', mode='exec'), ns_globals, ns_globals)
+        exec(compile(
+            make_set_get_states(columns),
+            '<make_set_get_states>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
             make_defaults(tuple(columns), defaults_var_template),
             '<make_defaults>', mode='exec'), ns_globals, ns_globals)
@@ -357,10 +371,13 @@ class Atomic(type):
             attrs['__new__'] = ns_globals['__new__']
 
         attrs['__iter__'] = ns_globals['__iter__']
+        attrs['__getstate__'] = ns_globals['__getstate__']
+        attrs['__setstate__'] = ns_globals['__setstate__']
         attrs['__eq__'] = ns_globals['__eq__']
         attrs['_set_defaults'] = ns_globals['_set_defaults']
         attrs['clear'] = ns_globals['clear']
         attrs['__getitem__'] = ns_globals['__getitem__']
+        attrs['__setitem__'] = ns_globals['__setitem__']
 
         slots = attrs.pop('__slots__')
 
@@ -372,7 +389,7 @@ class Atomic(type):
         ns_globals[class_name] = new_cls
         dataclass_template = env.get_template('data_class.jinja').render(
             class_name=class_name,
-            slots=repr(tuple('_{}'.format(key) for key in columns) + support_columns))
+            slots=repr(tuple('_raw_{}'.format(key) for key in columns) + support_columns))
         exec(compile(
             dataclass_template,
             '<dcs>', mode='exec'), ns_globals, ns_globals)
@@ -482,10 +499,11 @@ class Flags(IntEnum):
     DEFAULTS_SET = 2
     INITIALIZED = 4
     DISABLE_HISTORY = 8
+    UNPICKLING = 16
 
 
 DEFAULTS = '''{%- for field in fields %}
-result._{{field}} = None
+result._raw_{{field}} = None
 {%- endfor %}
 '''
 
@@ -502,10 +520,48 @@ def load_cls(cls, args, kwargs):
     return cls(*args, **kwargs)
 
 
+def _encode_simple_nested_base(iterable):
+    '''
+    Handle an List[Base], Tuple[Base], Mapping[Any, Base]
+    and coerce to json. Does not deeply traverse by design.
+    '''
+
+    # Empty items short circuit:
+    if not iterable:
+        return iterable
+    if isinstance(iterable, Mapping):
+        for key in iterable:
+            value = iterable[key]
+            if hasattr(value, 'to_json'):
+                iterable[key] = value.to_json()
+        return iterable
+    elif isinstance(iterable, Sequence):
+        immutable = None
+        if isinstance(iterable, tuple):
+            immutable = True
+        elif isinstance(iterable, list):
+            immutable = False
+        if immutable is None:
+            try:
+                iterable[0] = iterable[0]
+            except Exception:
+                immutable = True
+            else:
+                immutable = False
+        if immutable:
+            # Convert to a mutable list and replace items
+            iterable = list(iterable)
+        for index, item in enumerate(iterable):
+            if hasattr(item, 'to_json'):
+                iterable[index] = item.to_json()
+        return iterable
+    return iterable
+
+
 class Base(metaclass=Atomic, skip=True):
     __slots__ = ('_flags',)
-    __setter_template__ = ReadOnly('self._{key} = val')
-    __getter_template__ = ReadOnly('return self._{key}')
+    __setter_template__ = ReadOnly('self._raw_{key} = val')
+    __getter_template__ = ReadOnly('return self._raw_{key}')
     __defaults_init__ = ReadOnly(DEFAULTS)
 
     @classmethod
@@ -514,14 +570,18 @@ class Base(metaclass=Atomic, skip=True):
             if len(types_required) == 2:
                 expects = 'either an {.__name__} or {.__name__}'.format(*types_required)
             else:
-                expects = f'either an {", ".join(x.__name__ for x in types_required[:-1])} '\
-                          f'or a {types_required[-1].__name__}'
+                expects = \
+                    f'either an {", ".join(x.__name__ for x in types_required[:-1])} '\
+                    f'or a {types_required[-1].__name__}'
         else:
             expects = f'a {types_required[0].__name__}'
         return TypeError(
             f'Unable to set {field_name} to {val!r} ({val_type.__name__}). {field_name} expects '
-            f'{expects}'
-        )
+            f'{expects}')
+
+    @classmethod
+    def _create_invalid_value(cls, message, *args, **kwargs):
+        return ValueError(message, *args, **kwargs)
 
     def keys(self):
         return self._columns.keys()
@@ -531,7 +591,8 @@ class Base(metaclass=Atomic, skip=True):
         cls = cls._data_class
         result = super().__new__(cls)
         result._flags = 0
-        assert '__dict__' not in dir(result)
+        assert '__dict__' not in dir(result), \
+            'Violation - there should never be __dict__ on a slotted class'
         return result
 
     def to_json(self) -> dict:
@@ -544,39 +605,55 @@ class Base(metaclass=Atomic, skip=True):
             if hasattr(value, 'to_json'):
                 value = value.to_json()
             # Date/datetimes
-            if hasattr(value, 'isoformat'):
+            elif hasattr(value, 'isoformat'):
                 value = value.isoformat()
+            elif not isinstance(value, (str, bytearray, bytes)) and \
+                    isinstance(value, (Mapping, Sequence)):
+                value = _encode_simple_nested_base(value)
             result[key] = value
         return result
 
+    def __json__(self):
+        return self.to_json()
+
     def __reduce__(self):
-        values = dict(self)
-        this_cls, support_cls, *_ = self.__class__.__mro__
-        return load_cls, (support_cls, (), values)
+        # Create an empty class then let __setstate__ in the autogen
+        # code to handle passing raw values.
+        data_class, support_cls, *_ = self.__class__.__mro__
+        return load_cls, (support_cls, (), {}), self.__getstate__()
+
+    def _handle_init_errors(self, errors, errored_keys, unrecognized_keys):
+        if unrecognized_keys:
+            fields = ', '.join(unrecognized_keys)
+            errors.append(self._create_invalid_value(f'Unrecognized fields {fields}'))
+        if errors:
+            raise ClassCreationFailed(
+                f'Unable to construct, encountered {len(errors)} '
+                f'error{"s" if len(errors) > 1 else ""}', *errors)
 
     def __init__(self, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR
         self._flags |= Flags.DEFAULTS_SET
         errors = []
+        errored_keys = []
         for key in self._columns.keys() & kwargs.keys():
             value = kwargs[key]
             try:
                 setattr(self, key, value)
             except Exception as e:
                 errors.append(e)
+                errored_keys.append(key)
         for key in self._properties & kwargs.keys():
             value = kwargs[key]
             try:
                 setattr(self, key, value)
             except Exception as e:
                 errors.append(e)
+                errored_keys.append(key)
+        unrecognized_keys = ()
         if kwargs.keys() - (self._columns.keys() | self._properties):
-            fields = ', '.join(kwargs.keys() - self._columns.keys())
-            errors.append(ValueError(f'Unrecognized fields {fields}'))
-        if errors:
-            raise ClassCreationFailed(
-                f'Unable to construct, encountered {len(errors)} '
-                f'error{"s" if len(errors) > 1 else ""}', *errors)
+            unrecognized_keys = kwargs.keys() - (self._columns.keys() | self._properties)
+        self._handle_init_errors(errors, errored_keys, unrecognized_keys)
         self._flags = Flags.INITIALIZED
 
     def clear(self, fields=None):
