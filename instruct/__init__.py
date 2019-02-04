@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 import typing
 import types
 from enum import IntEnum
+from importlib import import_module
 
 
 import inflection
@@ -159,7 +160,7 @@ def insert_class_closure(klass, function, *, memory=None):
             __slots__ = ()
 
             def dummy(self):
-                return __class__
+                return __class__  # noqa
 
         if memory is not None:
             memory[klass] = Derived
@@ -169,8 +170,13 @@ def insert_class_closure(klass, function, *, memory=None):
     current_closure = function.__closure__
     if current_closure is None:
         current_closure = ()
+    new_globals = globals()
+    if function.__module__ and function.__module__ != '__main__':
+        module = import_module(function.__module__)
+        new_globals = {**globals(), **vars(module)}
     return types.FunctionType(
-        code, globals(), function.__name__, function.__defaults__, current_closure + (class_cell,))
+        code, new_globals, function.__name__,
+        function.__defaults__, current_closure + (class_cell,))
 
 
 class Atomic(type):
