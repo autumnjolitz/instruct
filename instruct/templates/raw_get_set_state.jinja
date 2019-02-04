@@ -3,12 +3,12 @@ def __setstate__(self, state):
         value = state[key]
         {%- for field in fields %}
         {%if not loop.first%}el{%endif%}if key == '{{field}}':
-            self._raw_{{field}} = value
+            self._{{field}}_ = value
         {%- endfor %}        
 
 def __getstate__(self):
     return {
         {%- for field in fields %}
-        "{{field}}": self._raw_{{field}},
+        "{{field}}": self._{{field}}_,
         {%- endfor %}
     }
