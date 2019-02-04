@@ -687,7 +687,7 @@ class Base(metaclass=Atomic, skip=True):
             errors.append(self._create_invalid_value(f'Unrecognized fields {fields}'))
         if errors:
             raise ClassCreationFailed(
-                f'Unable to construct, encountered {len(errors)} '
+                f'Unable to construct {self.__class__.__name__}, encountered {len(errors)} '
                 f'error{"s" if len(errors) > 1 else ""}', *errors)
 
     def __init__(self, **kwargs):
