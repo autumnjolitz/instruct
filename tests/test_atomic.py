@@ -270,6 +270,10 @@ def test_readme():
     assert org.members[0].first_name == 'Jinja'
     org.name = "New Name"
     print(tuple(org.list_changes()))
+    types = frozenset((type(x) for _, x in org))
+    assert len(types) == 4 and type(None) not in types
+    org.clear()
+    assert frozenset((type(x) for _, x in org)) == {type(None)}
 
 
 def test_invalid_kwargs():
