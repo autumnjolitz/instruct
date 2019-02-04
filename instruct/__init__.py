@@ -5,6 +5,7 @@ import logging
 from collections import namedtuple, UserDict
 from collections.abc import Mapping, Sequence
 import typing
+import types
 from enum import IntEnum
 
 
@@ -136,6 +137,40 @@ def _set_defaults(self):
     super(self.__class__, self)._set_defaults()
     ''').render(item=defaults_var_template)
     return code
+
+
+def insert_class_closure(klass, function, *, memory=None):
+    Derived = None
+    if memory is not None:
+        try:
+            Derived = memory[klass]
+        except KeyError:
+            Derived = None
+
+    code = function.__code__
+    code = types.CodeType(
+        code.co_argcount, code.co_kwonlyargcount, code.co_nlocals,
+        code.co_stacksize, code.co_flags, code.co_code, code.co_consts, code.co_names,
+        code.co_varnames, code.co_filename, code.co_name, code.co_firstlineno,
+        code.co_lnotab, code.co_freevars + ('__class__',), code.co_cellvars)
+
+    if Derived is None:
+        class Derived(klass):
+            __slots__ = ()
+
+            def dummy(self):
+                return __class__
+
+        if memory is not None:
+            memory[klass] = Derived
+
+    class_cell = Derived.dummy.__closure__[0]
+    class_cell.cell_contents = klass
+    current_closure = function.__closure__
+    if current_closure is None:
+        current_closure = ()
+    return types.FunctionType(
+        code, globals(), function.__name__, function.__defaults__, current_closure + (class_cell,))
 
 
 class Atomic(type):
@@ -282,6 +317,7 @@ class Atomic(type):
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'NoneType': type(None), 'Flags': Flags, 'typing': typing}
         field_names = []
+        _class_cell_fixups = []
         listeners = {}  # mapping of the setter -> function_name to be called with old, new vals
         for key, value in attrs.items():
             if callable(value) and hasattr(value, '_fields'):
@@ -297,7 +333,8 @@ class Atomic(type):
             if key[0] == '_':
                 continue
             field_names.append(key)
-            attrs['__slots__'][f'_raw_{key}'] = value
+            attrs['__slots__'][f'_{key}_'] = value
+
             del attrs['__slots__'][key]
             ns = {}
             coerce_types = coerce_func = None
@@ -342,6 +379,7 @@ class Atomic(type):
                         new_property = current_prop.setter(new_property.fset)
                 else:
                     new_property = current_prop
+            _class_cell_fixups.append((key, new_property))
             attrs[key] = new_property
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
@@ -351,8 +389,10 @@ class Atomic(type):
         exec(compile(
             make_fast_clear(columns, local_setter_var_template, class_name),
             '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
+        _class_cell_fixups.append(('clear', ns_globals['clear']))
         exec(compile(
-            make_fast_getitem(columns, class_name, local_getter_var_template, local_setter_var_template),
+            make_fast_getitem(
+                columns, class_name, local_getter_var_template, local_setter_var_template),
             '<make_fast_getitem>', mode='exec'), ns_globals, ns_globals)
         exec(compile(
             make_fast_iter(columns),
@@ -368,6 +408,7 @@ class Atomic(type):
                 make_fast_new(field_names, defaults_var_template),
                 '<make_fast_new>', mode='exec'), ns_globals, ns_globals)
             attrs['__new__'] = ns_globals['__new__']
+            _class_cell_fixups.append(('__new__', ns_globals['__new__']))
 
         attrs['__iter__'] = ns_globals['__iter__']
         attrs['__getstate__'] = ns_globals['__getstate__']
@@ -384,11 +425,24 @@ class Atomic(type):
         attrs['__slots__'] = ()
         attrs['_parent'] = parent_cell = ReadOnly(None)
         new_cls = super().__new__(klass, class_name, bases, attrs)
+
+        cache = {}
+        for prop_name, value in _class_cell_fixups:
+            if isinstance(value, property):
+                value = property(
+                    insert_class_closure(new_cls, value.fget, memory=cache),
+                    insert_class_closure(new_cls, value.fset, memory=cache),
+                )
+            else:
+                value = insert_class_closure(new_cls, value, memory=cache)
+            setattr(new_cls, prop_name, value)
+        del cache
+
         ns_globals[class_name].value = new_cls
         ns_globals[class_name] = new_cls
         dataclass_template = env.get_template('data_class.jinja').render(
             class_name=class_name,
-            slots=repr(tuple('_raw_{}'.format(key) for key in columns) + support_columns))
+            slots=repr(tuple('_{}_'.format(key) for key in columns) + support_columns))
         exec(compile(
             dataclass_template,
             '<dcs>', mode='exec'), ns_globals, ns_globals)
@@ -502,7 +556,7 @@ class Flags(IntEnum):
 
 
 DEFAULTS = '''{%- for field in fields %}
-result._raw_{{field}} = None
+result._{{field}}_ = None
 {%- endfor %}
 '''
 
@@ -559,8 +613,8 @@ def _encode_simple_nested_base(iterable):
 
 class Base(metaclass=Atomic, skip=True):
     __slots__ = ('_flags',)
-    __setter_template__ = ReadOnly('self._raw_{key} = val')
-    __getter_template__ = ReadOnly('return self._raw_{key}')
+    __setter_template__ = ReadOnly('self._{key}_ = val')
+    __getter_template__ = ReadOnly('return self._{key}_')
     __defaults_init__ = ReadOnly(DEFAULTS)
 
     @classmethod
