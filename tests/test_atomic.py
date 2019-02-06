@@ -104,8 +104,9 @@ def test_json_complex():
 
     a = Item(collection=[{'value': 1}, {'value': -1}])
     a_json = a.to_json()
-    assert isinstance(a['collection'][0], dict)
-    assert isinstance(a['collection'][1], dict)
+    assert isinstance(a_json['collection'][0], dict)
+    assert isinstance(a_json['collection'][1], dict)
+    assert isinstance(a['collection'][0], SubItems)
 
 
 def test_coercion():
