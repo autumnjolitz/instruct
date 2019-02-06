@@ -365,3 +365,37 @@ def test_coerce_complex():
 
     VectoredItems(items=[{'value': [['a', 1], ['b', 2]], 'name': 'ab', 'type': 'value'}])
 
+
+def test_qulaname():
+    def parse(items):
+        return [tuple(item) for item in items]
+
+    class SomeEnum(Enum):
+        VALUE = 'value'
+
+    class ComplextItem(Base):
+        __slots__ = {
+            'name': str,
+            'type': SomeEnum,
+            'value': Union[List[Tuple[str, int]], List[int], List[float]],
+        }
+
+        __coerce__ = {
+            'type': (str, lambda val: SomeEnum(val)),
+            'value': (List[List[Union[str, int, float]]], parse)
+        }
+
+    class VectoredItems(Base):
+        __slots__ = {
+            'items': List[ComplextItem],
+        }
+
+        __coerce__ = {
+            'items': (List[dict], lambda items: [ComplextItem(**item) for item in items])
+        }
+    assert VectoredItems.__qualname__ == 'test_qulaname.<locals>.VectoredItems'
+    assert VectoredItems._data_class.__qualname__ == 'test_qulaname.<locals>._VectoredItems'
+    assert VectoredItems.__name__ == 'VectoredItems'
+    assert VectoredItems._data_class.__name__ == '_VectoredItems'
+    assert VectoredItems.__module__ is VectoredItems._data_class.__module__
+
