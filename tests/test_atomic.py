@@ -86,6 +86,8 @@ def test_json():
     data = json.dumps(l1.to_json())
     l2 = LinkedFields(**json.loads(data))
     assert l1 == l2
+    l3 = LinkedFields.from_json(l1.to_json())
+    assert l1 == l2 == l3
 
 
 def test_json_complex():
