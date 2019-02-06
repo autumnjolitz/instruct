@@ -430,32 +430,36 @@ class Atomic(type):
         attrs['_data_class'] = dc = ReadOnly(None)
         attrs['__slots__'] = ()
         attrs['_parent'] = parent_cell = ReadOnly(None)
-        new_cls = super().__new__(klass, class_name, bases, attrs)
+        support_cls = super().__new__(klass, class_name, bases, attrs)
 
         cache = {}
         for prop_name, value in _class_cell_fixups:
             if isinstance(value, property):
                 value = property(
-                    insert_class_closure(new_cls, value.fget, memory=cache),
-                    insert_class_closure(new_cls, value.fset, memory=cache),
+                    insert_class_closure(support_cls, value.fget, memory=cache),
+                    insert_class_closure(support_cls, value.fset, memory=cache),
                 )
             else:
-                value = insert_class_closure(new_cls, value, memory=cache)
-            setattr(new_cls, prop_name, value)
+                value = insert_class_closure(support_cls, value, memory=cache)
+            setattr(support_cls, prop_name, value)
         del cache
 
-        ns_globals[class_name].value = new_cls
-        ns_globals[class_name] = new_cls
+        ns_globals[class_name].value = support_cls
+        ns_globals[class_name] = support_cls
+
         dataclass_template = env.get_template('data_class.jinja').render(
             class_name=class_name,
             slots=repr(tuple('_{}_'.format(key) for key in columns) + support_columns))
         exec(compile(
             dataclass_template,
             '<dcs>', mode='exec'), ns_globals, ns_globals)
-        dc.value = ns_globals[f'_{class_name}']
-        parent_cell.value = new_cls
-        klass.REGISTRY.add(new_cls)
-        return new_cls
+        dc.value = data_class = ns_globals[f'_{class_name}']
+        data_class.__module__ = support_cls.__module__
+        parent_qualname, *_ = support_cls.__qualname__.rsplit(support_cls.__name__, 1)
+        data_class.__qualname__ = f'{parent_qualname}{data_class.__name__}'
+        parent_cell.value = support_cls
+        klass.REGISTRY.add(support_cls)
+        return support_cls
 
 
 Delta = namedtuple('Delta', ['state', 'old', 'new', 'index'])
