@@ -394,8 +394,9 @@ def test_qulaname():
             'items': (List[dict], lambda items: [ComplextItem(**item) for item in items])
         }
     assert VectoredItems.__qualname__ == 'test_qulaname.<locals>.VectoredItems'
-    assert VectoredItems._data_class.__qualname__ == 'test_qulaname.<locals>._VectoredItems'
+    assert VectoredItems._data_class.__qualname__ == 'test_qulaname.<locals>.VectoredItems._VectoredItems'
     assert VectoredItems.__name__ == 'VectoredItems'
     assert VectoredItems._data_class.__name__ == '_VectoredItems'
     assert VectoredItems.__module__ is VectoredItems._data_class.__module__
+    assert getattr(VectoredItems, '_VectoredItems') is VectoredItems._data_class
 

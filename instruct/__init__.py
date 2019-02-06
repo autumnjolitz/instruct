@@ -427,7 +427,7 @@ class Atomic(type):
 
         slots = attrs.pop('__slots__')
 
-        attrs['_data_class'] = dc = ReadOnly(None)
+        attrs['_data_class'] = attrs[f'_{class_name}'] = dc = ReadOnly(None)
         attrs['__slots__'] = ()
         attrs['_parent'] = parent_cell = ReadOnly(None)
         support_cls = super().__new__(klass, class_name, bases, attrs)
@@ -455,8 +455,7 @@ class Atomic(type):
             '<dcs>', mode='exec'), ns_globals, ns_globals)
         dc.value = data_class = ns_globals[f'_{class_name}']
         data_class.__module__ = support_cls.__module__
-        parent_qualname, *_ = support_cls.__qualname__.rsplit(support_cls.__name__, 1)
-        data_class.__qualname__ = f'{parent_qualname}{data_class.__name__}'
+        data_class.__qualname__ = f'{support_cls.__qualname__}.{data_class.__name__}'
         parent_cell.value = support_cls
         klass.REGISTRY.add(support_cls)
         return support_cls
