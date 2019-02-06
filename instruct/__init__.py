@@ -579,7 +579,7 @@ def load_cls(cls, args, kwargs):
     return cls(*args, **kwargs)
 
 
-def _encode_simple_nested_base(iterable):
+def _encode_simple_nested_base(iterable, *, immutable=None):
     '''
     Handle an List[Base], Tuple[Base], Mapping[Any, Base]
     and coerce to json. Does not deeply traverse by design.
@@ -595,10 +595,9 @@ def _encode_simple_nested_base(iterable):
                 iterable[key] = value.to_json()
         return iterable
     elif isinstance(iterable, Sequence):
-        immutable = None
-        if isinstance(iterable, tuple):
+        if immutable is None and isinstance(iterable, tuple):
             immutable = True
-        elif isinstance(iterable, list):
+        elif immutable is None and isinstance(iterable, list):
             immutable = False
         if immutable is None:
             try:
@@ -668,7 +667,7 @@ class Base(metaclass=Atomic, skip=True):
                 value = value.isoformat()
             elif not isinstance(value, (str, bytearray, bytes)) and \
                     isinstance(value, (Mapping, Sequence)):
-                value = _encode_simple_nested_base(value)
+                value = _encode_simple_nested_base(value, immutable=True)
             result[key] = value
         return result
 
