@@ -656,6 +656,10 @@ class Base(metaclass=Atomic, skip=True):
             'Violation - there should never be __dict__ on a slotted class'
         return result
 
+    @classmethod
+    def from_json(cls, data: dict):
+        return cls(**data)
+
     def to_json(self) -> dict:
         '''
         Returns a dictionary compatible with json.dumps(...)
