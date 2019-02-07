@@ -3,6 +3,7 @@ from typing import Union, List, Tuple
 from enum import Enum
 import datetime
 import pickle
+from collections.abc import Mapping
 
 import pytest
 
@@ -64,6 +65,12 @@ class LinkedFields(Base):
     def _on_id_change(self, old, new):
         if new == -1:
             self.name = 'invalid'
+
+
+def test_mapping():
+    l1 = LinkedFields(id=2, name='Ben')
+    assert len(l1) == 2
+    assert isinstance(l1, Mapping)
 
 
 def test_pickle():

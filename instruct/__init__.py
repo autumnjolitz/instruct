@@ -3,7 +3,7 @@ import time
 import tempfile
 import logging
 from collections import namedtuple, UserDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, ValuesView, KeysView, ItemsView as _ItemsView
 import typing
 import types
 from enum import IntEnum
@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, 'templates'))
 env.globals['tuple'] = tuple
 env.globals['repr'] = repr
+
+
+class ItemsView(_ItemsView):
+    __slots__ = ()
+
+    def __iter__(self):
+        yield from self._mapping
 
 
 def _convert_exception_to_json(item):
@@ -76,7 +83,7 @@ class FrozenMapping:
     def __getitem__(self, key):
         return self._value[key]
 
-    def __len__(self, key):
+    def __len__(self):
         return len(self._value)
 
     def __contains__(self, key):
@@ -656,6 +663,18 @@ class Base(metaclass=Atomic, skip=True):
             'Violation - there should never be __dict__ on a slotted class'
         return result
 
+    def __len__(self):
+        return len(self._column_types)
+
+    def __contains__(self, item):
+        return item in self._column_types
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
     @classmethod
     def from_json(cls, data: dict):
         return cls(**data)
@@ -677,6 +696,12 @@ class Base(metaclass=Atomic, skip=True):
                 value = _encode_simple_nested_base(value, immutable=True)
             result[key] = value
         return result
+
+    def items(self):
+        return ItemsView(self)
+
+    def values(self):
+        return ValuesView(self)
 
     def __json__(self):
         return self.to_json()
@@ -724,3 +749,6 @@ class Base(metaclass=Atomic, skip=True):
 
     def clear(self, fields=None):
         pass
+
+
+Mapping.register(Base)
