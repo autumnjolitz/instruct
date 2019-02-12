@@ -503,11 +503,11 @@ class History(metaclass=Atomic):
         super().__init__(**kwargs)
 
     def __setattr__(self, key, value):
-        if key != '_flags' and self._flags & Flags.IN_CONSTRUCTOR and key in self._columns:
-            before = len(self._changed_keys)
         super().__setattr__(key, value)
         if self._flags & Flags.IN_CONSTRUCTOR and key in self._columns:
-            self._changed_index += (len(self._changed_keys) - before)
+            # Always normalize the changed index to be after the constructor
+            # is done.
+            self._changed_index = len(self._changed_keys)
 
     def _record_change(self, key, old_value, new_value):
         if old_value == new_value:
