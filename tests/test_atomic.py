@@ -40,6 +40,12 @@ class Field(Base):
     }
 
 
+class Child(Field):
+    __slots__ = {
+        'another': str
+    }
+
+
 class NestedDataAlt(Base):
     __slots__ = {
         'id': int,
@@ -66,6 +72,12 @@ class LinkedFields(Base):
         if new == -1:
             self.name = 'invalid'
 
+
+def test_inheritance():
+    child = Child(field='a', another='b')
+    assert child.field == 'a'
+    assert child.another == 'b'
+    assert child._column_types['field'] is str
 
 def test_mapping():
     l1 = LinkedFields(id=2, name='Ben')
