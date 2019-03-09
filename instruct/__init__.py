@@ -77,6 +77,9 @@ class AttrsDict(UserDict):
 class FrozenMapping:
     __slots__ = ('_value',)
 
+    def keys(self):
+        return frozenset(self._value.keys())
+
     def __init__(self, value):
         self._value = value
 
@@ -262,9 +265,14 @@ class Atomic(type):
         defaults_templates = []
         support_columns = []
 
+        column_types = {}
+
         properties = [name for name, val in attrs.items() if isinstance(val, property)]
 
         for cls in bases:
+            if hasattr(cls, '_column_types'):
+                column_types.update(cls._column_types)
+
             if hasattr(cls, '__slots__') and cls.__slots__ != () \
                     and not issubclass(type(cls), Atomic):
                 # Because we cannot control the circumstances of a base class's construction
@@ -318,7 +326,6 @@ class Atomic(type):
         getter_template = env.get_template('getter.jinja')
 
         attrs['_columns'] = ReadOnly(columns)
-        column_types = {}
         all_coercions = {}
         attrs['_column_types'] = ReadOnly(FrozenMapping(column_types))
         attrs['_all_coercions'] = ReadOnly(FrozenMapping(all_coercions))
@@ -339,7 +346,6 @@ class Atomic(type):
                         listeners[field].append(key)
                     except KeyError:
                         listeners[field] = [key]
-
         for key, value in tuple(attrs['__slots__'].items()):
             if value in klass.REGISTRY:
                 derived_classes[key] = value
