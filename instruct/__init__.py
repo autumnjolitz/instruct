@@ -58,7 +58,8 @@ class ClassCreationFailed(ValueError, TypeError):
             if hasattr(item, 'errors'):
                 stack.extend(item.to_json())
                 continue
-            item = _convert_exception_to_json(item)
+            if isinstance(item, Exception):
+                item = _convert_exception_to_json(item)
             item['parent_message'] = self.message
             item['parent_type'] = inflection.titleize(type(self).__name__)
             results.append(item)
