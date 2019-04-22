@@ -53,6 +53,12 @@ class ComplexTest(Base):
         super().__init__(**kwargs)
 
 
+class Next(ComplexTest):
+    __slots__ = {
+        'next': int
+    }
+
+
 def main():
     ttl = timeit.timeit('t = Test(name_or_id="autumn")', setup='from __main__ import Test')
     per_round_ms = (ttl / timeit.default_number) * 1000000
@@ -64,11 +70,11 @@ def main():
 
     print('Overhead of setting a field:')
     ttl = timeit.timeit(test_statement, setup='from __main__ import Test;t = Test()')
-    per_round_ms = (ttl / timeit.default_number) * 1000000
+    per_round_ms = (ttl / 1000000) * 1000000
     print('Test with safeties: {:.2f} us'.format(per_round_ms))
 
-    ttl = timeit.timeit(test_statement, setup='from __main__ import TestOptimized as Test;t = Test()')
-    per_round_ms = (ttl / timeit.default_number) * 1000000
+    ttl = timeit.timeit(test_statement, setup='from __main__ import TestOptimized as Test;t = Test()', number=1000000)
+    per_round_ms = (ttl / 1000000) * 1000000
     print('Test without safeties: {:.2f} us'.format(per_round_ms))
 
     print('Overhead of clearing/setting')
@@ -86,23 +92,28 @@ def main():
 if __name__ == '__main__':
     import argparse
     import random
-    from pycallgraph import PyCallGraph
-    from pycallgraph.output import GraphvizOutput
+    try:
+        from pycallgraph import PyCallGraph  # pytype: skip-file
+        from pycallgraph.output import GraphvizOutput
+    except ImportError:
+        PyCallGraph = None
+
     parser = argparse.ArgumentParser()
     parser.set_defaults(mode=None)
     subparsers = parser.add_subparsers()
     benchmark = subparsers.add_parser('benchmark')
     benchmark.set_defaults(mode='benchmark')
-    callgraph = subparsers.add_parser('callgraph')
-    callgraph.set_defaults(mode='callgraph')
-    callgraph.add_argument('filename', default='callgraph.png', nargs='?')
+    if PyCallGraph is not None:
+        callgraph = subparsers.add_parser('callgraph')
+        callgraph.set_defaults(mode='callgraph')
+        callgraph.add_argument('filename', default='callgraph.png', nargs='?')
 
     args = parser.parse_args()
     if not args.mode:
         raise SystemExit('Use benchmark or callgraph')
     if args.mode == 'benchmark':
         main()
-    if args.mode == 'callgraph':
+    if PyCallGraph and args.mode == 'callgraph':
         with PyCallGraph(GraphvizOutput(output_file='callgraph.png')):
             for _ in range(1000):
                 try:
