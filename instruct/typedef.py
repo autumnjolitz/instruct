@@ -1,10 +1,12 @@
+from typing import Type
 import collections.abc
-from typing import Union, Any, AnyStr
+from typing import Union, Any, AnyStr, List, Tuple, cast
 
 from .utils import flatten
+from .typing import ICustomTypeCheck
 
 
-def make_custom_typecheck(func):
+def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
     '''Create a custom type that will turn `isinstance(item, klass)` into `func(item)`
     '''
     typename = 'WrappedType<{}>'
@@ -28,8 +30,7 @@ def make_custom_typecheck(func):
             _WrappedType.__name__ = name
             _WrappedType._name__ = name
             return name
-
-    return _WrappedType
+    return cast(Type[ICustomTypeCheck], _WrappedType)
 
 
 def create_custom_type(container_type, *args):
@@ -85,7 +86,7 @@ def is_typing_definition(item):
     return False
 
 
-def parse_typedef(typedef):
+def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, Tuple[Type]]:
     if type(typedef) is tuple or type(typedef) is list:
         return tuple(parse_typedef(x) for x in typedef)
     if not is_typing_definition(typedef):
