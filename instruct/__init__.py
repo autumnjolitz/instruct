@@ -3,8 +3,9 @@ import time
 import tempfile
 import logging
 from collections import namedtuple, UserDict
-from collections.abc import Mapping, Sequence, ValuesView, KeysView, ItemsView as _ItemsView
+from collections.abc import Mapping as AbstractMapping, Sequence, ValuesView, KeysView, ItemsView as _ItemsView
 import typing
+from typing import Optional, Callable, Type, cast, FrozenSet, Mapping, TYPE_CHECKING, Tuple, Any, Union
 import types
 from enum import IntEnum
 from importlib import import_module
@@ -15,6 +16,7 @@ from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef
+from .typing import ICustomTypeCheck
 __version__  # Silence unused import warning.
 
 NoneType = type(None)
@@ -27,6 +29,8 @@ env.globals['repr'] = repr
 
 class ItemsView(_ItemsView):
     __slots__ = ()
+    if TYPE_CHECKING:
+        _mapping: Mapping[str, Any]
 
     def __iter__(self):
         yield from self._mapping
@@ -151,7 +155,12 @@ def _set_defaults(self):
     return code
 
 
-def insert_class_closure(klass, function, *, memory=None):
+def insert_class_closure(
+        klass: Type, function: Optional[types.FunctionType], *, memory: Optional[dict]=None) \
+        -> Optional[Callable]:
+    if function is None:
+        return None
+
     Derived = None
     if memory is not None:
         try:
@@ -176,7 +185,9 @@ def insert_class_closure(klass, function, *, memory=None):
         if memory is not None:
             memory[klass] = Derived
 
-    class_cell = Derived.dummy.__closure__[0]
+    source_func = cast(types.FunctionType, Derived.dummy)
+
+    class_cell = source_func.__closure__[0]
     class_cell.cell_contents = klass
     current_closure = function.__closure__
     if current_closure is None:
@@ -190,10 +201,23 @@ def insert_class_closure(klass, function, *, memory=None):
         function.__defaults__, current_closure + (class_cell,))
 
 
+def explode(*args, **kwargs):
+    raise TypeError('This shouldn\'t happen!')
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
     MIXINS = ReadOnly({})
+
+    if TYPE_CHECKING:
+        _data_class: 'Atomic'
+        _columns: Mapping[str, Any]
+        _column_types: Mapping[str, Union[Type, Tuple[Type, ...]]]
+        _all_coercions: Mapping[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
+        _support_columns: Tuple[str, ...]
+        _properties: FrozenSet[str]
+        _configuration: AttrsDict
 
     @classmethod
     def register_mixin(cls, name, klass):
@@ -219,7 +243,7 @@ class Atomic(type):
         if '__slots__' not in attrs:
             raise TypeError(
                 f'You must define __slots__ for {class_name} to constrain the typespace')
-        if not isinstance(attrs['__slots__'], Mapping):
+        if not isinstance(attrs['__slots__'], AbstractMapping):
             if isinstance(attrs['__slots__'], tuple):
                 # Classes with tuples in them are assumed to be
                 # data class definitions (i.e. supporting things like a change log)
@@ -338,7 +362,7 @@ class Atomic(type):
         attrs['_configuration'] = ReadOnly(conf)
         ns_globals = {'NoneType': type(None), 'Flags': Flags, 'typing': typing}
         field_names = []
-        _class_cell_fixups = []
+        _class_cell_fixups: List[Tuple[str, Union[property, types.FunctionType]]] = []
         listeners = {}  # mapping of the setter -> function_name to be called with old, new vals
         for key, value in attrs.items():
             if callable(value) and hasattr(value, '_fields'):
@@ -356,7 +380,10 @@ class Atomic(type):
             attrs['__slots__'][f'_{key}_'] = value
 
             del attrs['__slots__'][key]
-            ns = {}
+            ns = {
+                'make_getter': explode,
+                'make_setter': explode,
+            }
             coerce_types = coerce_func = None
             if '__coerce__' in attrs and key in attrs['__coerce__'].value:
                 coerce_types, coerce_func = attrs['__coerce__'].value[key]
@@ -409,7 +436,7 @@ class Atomic(type):
         exec(compile(
             make_fast_clear(columns, local_setter_var_template, class_name),
             '<make_fast_clear>', mode='exec'), ns_globals, ns_globals)
-        _class_cell_fixups.append(('clear', ns_globals['clear']))
+        _class_cell_fixups.append(('clear', cast(types.FunctionType, ns_globals['clear'])))
         exec(compile(
             make_fast_getitem(
                 columns, class_name, local_getter_var_template, local_setter_var_template),
@@ -428,7 +455,7 @@ class Atomic(type):
                 make_fast_new(field_names, defaults_var_template),
                 '<make_fast_new>', mode='exec'), ns_globals, ns_globals)
             attrs['__new__'] = ns_globals['__new__']
-            _class_cell_fixups.append(('__new__', ns_globals['__new__']))
+            _class_cell_fixups.append(('__new__', cast(types.FunctionType, ns_globals['__new__'])))
 
         attrs['__iter__'] = ns_globals['__iter__']
         attrs['__getstate__'] = ns_globals['__getstate__']
@@ -498,6 +525,9 @@ UNDEFINED = Undefined()
 class History(metaclass=Atomic):
     __slots__ = ('_changes', '_changed_keys', '_changed_index',)
     setter_wrapper = 'history-setter-wrapper.jinja'
+
+    if TYPE_CHECKING:
+        _columns: FrozenSet[str]
 
     def __init__(self, **kwargs):
         t_s = time.time()
@@ -605,7 +635,7 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
     # Empty items short circuit:
     if not iterable:
         return iterable
-    if isinstance(iterable, Mapping):
+    if isinstance(iterable, AbstractMapping):
         for key in iterable:
             value = iterable[key]
             if hasattr(value, 'to_json'):
@@ -699,7 +729,7 @@ class Base(metaclass=Atomic, skip=True):
             elif hasattr(value, 'isoformat'):
                 value = value.isoformat()
             elif not isinstance(value, (str, bytearray, bytes)) and \
-                    isinstance(value, (Mapping, Sequence)):
+                    isinstance(value, (AbstractMapping, Sequence)):
                 value = _encode_simple_nested_base(value, immutable=True)
             result[key] = value
         return result
@@ -758,4 +788,4 @@ class Base(metaclass=Atomic, skip=True):
         pass
 
 
-Mapping.register(Base)
+AbstractMapping.register(Base)  # pytype: disable=attribute-error
