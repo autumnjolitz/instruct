@@ -8,6 +8,7 @@ here = path.abspath(path.dirname(__file__))
 install_requirements = [
     'Jinja2~=2.10.0',
     'inflection~=0.3.1',
+    'typing-extensions'
 ]
 
 with open(path.join(here, 'README.rst'), encoding='utf-8') as fh:
