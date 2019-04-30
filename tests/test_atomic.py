@@ -1,5 +1,5 @@
 import json
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Optional
 from enum import Enum
 import datetime
 import pickle
@@ -421,3 +421,22 @@ def test_qulaname():
     assert VectoredItems.__module__ is VectoredItems._data_class.__module__
     assert getattr(VectoredItems, '_VectoredItems') is VectoredItems._data_class
 
+
+def test_redefine_fields():
+    class LooseyGooseyItem(Base):
+        __slots__ = {
+            'a': Optional[str],
+            'b': Optional[str],
+            'c': Optional[str],
+        }
+
+    class ARequired(LooseyGooseyItem):
+        __slots__ = {
+            'a': str,
+        }
+
+    item = ARequired(a='a')
+    assert item.b is None
+    assert item.c is None
+    with pytest.raises(ValueError):
+        ARequired(a=None)

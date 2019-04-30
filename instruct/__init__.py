@@ -418,14 +418,21 @@ class Atomic(type):
                     coerce_types, coerce_func))
 
             if key in properties:
-                current_prop = attrs[key]
-                if not all((current_prop.fget, current_prop.fset)):
-                    if not current_prop.fget:
-                        new_property = current_prop.getter(new_property.fget)
-                    if not current_prop.fset:
-                        new_property = current_prop.setter(new_property.fset)
+                try:
+                    current_prop = attrs[key]
+                except KeyError:
+                    # Case where we want to override an inherited
+                    # Base definition, possibly with a new type
+                    # signature.
+                    pass
                 else:
-                    new_property = current_prop
+                    if not all((current_prop.fget, current_prop.fset)):
+                        if not current_prop.fget:
+                            new_property = current_prop.getter(new_property.fget)
+                        if not current_prop.fset:
+                            new_property = current_prop.setter(new_property.fset)
+                    else:
+                        new_property = current_prop
             _class_cell_fixups.append((key, new_property))
             attrs[key] = new_property
         # Support columns are left as-is for slots
