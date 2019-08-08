@@ -86,11 +86,12 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
         if any(item is Ellipsis for item in items):
             if len(items) != 2:
                 raise TypeError("Tuple[type, ...] is allowed but it must be a two pair tuple!")
-            homogenous_type, ellipsis = items
-            if ellipsis is not Ellipsis or homogenous_type is Ellipsis:
+            homogenous_type_spec, ellipsis = items
+            if ellipsis is not Ellipsis or homogenous_type_spec is Ellipsis:
                 raise TypeError(
                     "Tuple[type, ...] is allowed but it must have ellipsis as second arg"
                 )
+            homogenous_type = parse_typedef(homogenous_type_spec)
 
             def test_func(value):
                 if not isinstance(value, container_type):
