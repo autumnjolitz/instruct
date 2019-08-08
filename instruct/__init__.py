@@ -838,13 +838,13 @@ class Base(metaclass=Atomic, skip=True):
             fields = ", ".join(unrecognized_keys)
             errors.append(self._create_invalid_value(f"Unrecognized fields {fields}"))
         if errors:
+            typename = type(self).__name__[1:]
             if len(errors) == 1:
                 raise ClassCreationFailed(
                     f"Unable to construct {typename}, encountered {len(errors)} "
                     f'error{"s" if len(errors) > 1 else ""}',
                     *errors,
                 ) from errors[0]
-            typename = type(self).__name__[1:]
             raise ClassCreationFailed(
                 f"Unable to construct {typename}, encountered {len(errors)} "
                 f'error{"s" if len(errors) > 1 else ""}',
