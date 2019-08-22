@@ -1,5 +1,5 @@
 import json
-from typing import Union, List, Tuple, Optional
+from typing import Union, List, Tuple, Optional, Dict
 from enum import Enum
 import datetime
 import pickle
@@ -54,11 +54,39 @@ class LinkedFields(Base):
             self.name = "invalid"
 
 
+class IBase(Base):
+    __slots__ = ()
+
+
+class InheritCoerceBase(IBase):
+    __slots__ = {"id": int}
+
+    __coerce__ = {"id": (str, lambda obj: int(obj, 10))}
+
+
+class InheritCoerce(InheritCoerceBase):
+    __slots__ = {"baz": int}
+    __coerce__ = {"baz": (str, lambda obj: int(obj, 10))}
+
+
+def test_coerce_definition_error():
+    with pytest.raises(TypeError) as exc_info:
+
+        class Foo(Base):
+            __slots__ = {"a": int}
+
+            __coerce__ = "a string"
+
+    assert "AbstractMapping" in str(exc_info.value)
+
+
 def test_inheritance():
     child = Child(field="a", another="b")
     assert child.field == "a"
     assert child.another == "b"
     assert child._column_types["field"] is str
+
+    assert InheritCoerce(id="1234").id == 1234
 
 
 def test_mapping():
@@ -106,6 +134,19 @@ def test_json_complex():
     assert isinstance(a_json["collection"][0], dict)
     assert isinstance(a_json["collection"][1], dict)
     assert isinstance(a["collection"][0], SubItems)
+
+
+def test_mapping_immutability():
+    class Embedded(Base):
+        __slots__ = {"d": str}
+
+    class Item(Base):
+        __slots__ = {"data": Dict[str, Embedded]}
+
+    i = Item(data={"foo": Embedded(d="bar")})
+    data = i.to_json()
+    assert isinstance(i.data["foo"], Embedded)
+    del data
 
 
 def test_coercion():
