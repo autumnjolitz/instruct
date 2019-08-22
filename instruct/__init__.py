@@ -22,6 +22,7 @@ from typing import (
     Tuple,
     Any,
     Union,
+    List,
 )
 import types
 from enum import IntEnum
@@ -263,8 +264,21 @@ class Atomic(type):
         super().__init__(*args)
 
     def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
-        if "__coerce__" in attrs and not isinstance(attrs["__coerce__"], ReadOnly):
-            attrs["__coerce__"] = ReadOnly(attrs["__coerce__"])
+
+        coerce_mappings = None
+        if "__coerce__" in attrs and attrs["__coerce__"] is not None:
+            coerce_mappings: AbstractMapping = attrs["__coerce__"]
+            if isinstance(coerce_mappings, ReadOnly):
+                # Unwrap
+                coerce_mappings = coerce_mappings.value
+        if coerce_mappings is not None:
+            if not isinstance(coerce_mappings, AbstractMapping):
+                raise TypeError(
+                    f"{class_name} expects `__coerce__` to implement an AbstractMapping or None, "
+                    f"not a {type(coerce_mappings)}"
+                )
+            if not isinstance(attrs["__coerce__"], ReadOnly):
+                attrs["__coerce__"] = ReadOnly(coerce_mappings)
 
         if skip:
             attrs["_metaclass_skip"] = ReadOnly(True)
@@ -405,6 +419,7 @@ class Atomic(type):
         field_names = []
         _class_cell_fixups: List[Tuple[str, Union[property, types.FunctionType]]] = []
         listeners = {}  # mapping of the setter -> function_name to be called with old, new vals
+
         for key, value in attrs.items():
             if callable(value) and hasattr(value, "_fields"):
                 for field in value._fields:
@@ -423,8 +438,8 @@ class Atomic(type):
             del attrs["__slots__"][key]
             ns = {"make_getter": explode, "make_setter": explode}
             coerce_types = coerce_func = None
-            if "__coerce__" in attrs and key in attrs["__coerce__"].value:
-                coerce_types, coerce_func = attrs["__coerce__"].value[key]
+            if coerce_mappings and key in coerce_mappings:
+                coerce_types, coerce_func = coerce_mappings[key]
             coerce_types = parse_typedef(coerce_types)
             all_coercions[key] = (coerce_types, coerce_func)
             getter_code = getter_template.render(
@@ -716,10 +731,19 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
     if not iterable:
         return iterable
     if isinstance(iterable, AbstractMapping):
+        destination = iterable
+        if immutable:
+            if hasattr(iterable, "copy"):
+                destination = iterable.copy()
+            else:
+                # initialize an empty form of an AbstractMapping:
+                destination = type(iterable)()
         for key in iterable:
             value = iterable[key]
             if hasattr(value, "to_json"):
-                iterable[key] = value.to_json()
+                destination[key] = value.to_json()
+            else:
+                destination[key] = value
         return iterable
     elif isinstance(iterable, Sequence):
         if immutable is None and isinstance(iterable, tuple):
