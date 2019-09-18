@@ -7,7 +7,13 @@ from collections.abc import Mapping
 
 import pytest
 
-from instruct import Base, add_event_listener, ClassCreationFailed
+from instruct import (
+    Base,
+    add_event_listener,
+    ClassCreationFailed,
+    OrphanedListenersError,
+    handle_type_error,
+)
 
 
 class Data(Base, history=True):
@@ -253,6 +259,10 @@ def test_getitem():
         def some_func():
             return 1
 
+        @add_event_listener("b")
+        def _on_b(self, old, new):
+            print("ass", new, type(self))
+
     f = Foo(a=1, b="s")
     assert f["a"] == 1
     assert f["b"] == "s"
@@ -262,6 +272,54 @@ def test_getitem():
     assert f["b"] == "New str"
     with pytest.raises(TypeError):
         f["b"] = 1234
+
+    # Now test a more complicated case:
+    with pytest.raises(OrphanedListenersError):
+
+        class BarA(Foo):
+            __slots__ = {"new": Union[str, int]}
+
+            @property
+            def c(self):
+                return self.new
+
+            @c.setter
+            def c(self, val):
+                self.new = val
+
+            @add_event_listener("b")
+            def _change_b(self, old, new):
+                self._b_ = new.upper()
+
+            @add_event_listener("new")
+            def _on_update_(self, _, new):
+                self._new_ = new * 2
+
+        del BarA
+
+    class BarA(Foo):
+        __slots__ = {"new": Union[str, int], "b": str}
+
+        @property
+        def c(self):
+            return self.new
+
+        @c.setter
+        def c(self, val):
+            self.new = val
+
+        @add_event_listener("b")
+        def _change_b(self, old, new):
+            self._b_ = new.upper()
+
+        @add_event_listener("new")
+        def _on_update_(self, _, new):
+            self._new_ = new * 2
+
+    b = BarA(c=1, a=2, b="A string")
+    assert b.b == "A STRING"
+
+    assert {**b} == {"new": 2, "a": 2, "b": "A STRING"}
 
 
 def test_readme():
@@ -426,3 +484,78 @@ def test_redefine_fields():
     assert item.c is None
     with pytest.raises(ValueError):
         ARequired(a=None)
+
+
+class DivergentType(Enum):
+    USE_DIVERGENT_A = 1
+    USE_DIVERGENT_B = 2
+
+
+class DivergentA(Base):
+    __slots__ = {"foo": str, "id": str}
+
+
+class DivergentB(Base):
+    __slots__ = {"type": str, "id": int}
+
+
+class Foo(Base):
+    __extra_slots__ = ("pending",)
+    __slots__ = {"complex": Union[DivergentA, DivergentB], "type": DivergentType}
+
+    def __delattr__(self, key):
+        if key in self.keys():
+            setattr(self, f"_{key}_", None)
+
+    def __init__(self, **data):
+        self.pending = None
+        if "complex" in data and not isinstance(data["complex"], (DivergentA, DivergentB)):
+            self.pending = data.pop("complex")
+        super().__init__(**data)
+
+    @add_event_listener("type")
+    def _on_type_set(self, old, new):
+        if self.pending is not None:
+            if new is DivergentType.USE_DIVERGENT_A:
+                self.complex = DivergentA(**self.pending)
+                self.pending = None
+            elif new is DivergentType.USE_DIVERGENT_B:
+                self.complex = DivergentB(**self.pending)
+                self.pending = None
+
+    @handle_type_error("complex")
+    def _on_type_failure(self, value):
+        if isinstance(value, dict):
+            self.pending = value
+            return True
+
+
+def test_extra_slots():
+    """
+    Demonstrate a technique to hold arbitrary values in a lookaside that
+    is untracked (intentionally).
+    """
+
+    f = Foo(complex={"type": "art", "id": 123})
+    assert f.complex is None
+    assert f.pending == {"type": "art", "id": 123}
+
+    # pickle shows that we lose the temporary slot as expected:
+    # This keeps the requirements that objects are mostly good
+    m = pickle.loads(pickle.dumps(f))
+    assert m.pending is not f.pending
+    assert m.pending is None
+
+    f.type = DivergentType.USE_DIVERGENT_B
+    assert f.pending is None
+    assert isinstance(f.complex, DivergentB)
+    del f.complex
+    del f.type
+
+    assert f.pending is None
+    div_b = {"id": "123", "foo": "BAAAAAZ"}
+    f.complex = div_b
+    assert f.pending is not None
+    assert f.complex is None
+    f.type = DivergentType.USE_DIVERGENT_A
+    assert f.complex == DivergentA(**div_b)
