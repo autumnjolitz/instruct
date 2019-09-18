@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import time
 import tempfile
@@ -7,7 +8,6 @@ from collections.abc import (
     Mapping as AbstractMapping,
     Sequence,
     ValuesView,
-    KeysView,
     ItemsView as _ItemsView,
 )
 import typing
@@ -23,8 +23,10 @@ from typing import (
     Any,
     Union,
     List,
+    Set,
 )
 import types
+from itertools import chain
 from enum import IntEnum
 from importlib import import_module
 
@@ -34,7 +36,6 @@ from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef
-from .typing import ICustomTypeCheck
 
 __version__  # Silence unused import warning.
 
@@ -44,6 +45,24 @@ logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, "templates"))
 env.globals["tuple"] = tuple
 env.globals["repr"] = repr
+env.globals["frozenset"] = frozenset
+env.globals["chain"] = chain
+
+
+class ClassDefinitionError(ValueError):
+    ...
+
+
+class OrphanedListenersError(ClassDefinitionError):
+    ...
+
+
+class MissingGetterSetterTemplateError(ClassDefinitionError):
+    ...
+
+
+class InvalidPostCoerceAttributeNames(ClassDefinitionError):
+    ...
 
 
 class ItemsView(_ItemsView):
@@ -131,9 +150,16 @@ def make_fast_clear(fields, set_block, class_name):
     return code_template
 
 
-def make_fast_getitem(fields, class_name, get_variable_template, set_variable_template):
+def make_fast_getset_item(
+    fields: List[str],
+    properties: List[str],
+    class_name: str,
+    get_variable_template: str,
+    set_variable_template: str,
+):
     code_template = env.get_template("fast_getitem.jinja").render(
         fields=fields,
+        properties=properties,
         class_name=class_name,
         get_variable_template=get_variable_template,
         set_variable_template=set_variable_template,
@@ -246,13 +272,14 @@ class Atomic(type):
     MIXINS = ReadOnly({})
 
     if TYPE_CHECKING:
-        _data_class: "Atomic"
+        _data_class: Atomic
         _columns: Mapping[str, Any]
         _column_types: Mapping[str, Union[Type, Tuple[Type, ...]]]
         _all_coercions: Mapping[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
         _support_columns: Tuple[str, ...]
         _properties: FrozenSet[str]
         _configuration: AttrsDict
+        _all_accessible_fields: FrozenSet[str]
 
     @classmethod
     def register_mixin(cls, name, klass):
@@ -263,8 +290,7 @@ class Atomic(type):
         # to filter it out of the `type(...)` call
         super().__init__(*args)
 
-    def __new__(klass, class_name, bases, attrs, fast=None, skip=None, **mixins):
-
+    def __new__(klass, class_name, bases, attrs, fast=None, dataclass=None, **mixins):
         coerce_mappings = None
         if "__coerce__" in attrs and attrs["__coerce__"] is not None:
             coerce_mappings: AbstractMapping = attrs["__coerce__"]
@@ -280,14 +306,14 @@ class Atomic(type):
             if not isinstance(attrs["__coerce__"], ReadOnly):
                 attrs["__coerce__"] = ReadOnly(coerce_mappings)
 
-        if skip:
-            attrs["_metaclass_skip"] = ReadOnly(True)
+        if dataclass:
+            attrs["_metaclass_dataclass"] = ReadOnly(True)
             cls = super().__new__(klass, class_name, bases, attrs)
             if not getattr(cls, "__hash__", None):
                 cls.__hash__ = object.__hash__
             assert cls.__hash__ is not None
             return cls
-        attrs["_metaclass_skip"] = ReadOnly(False)
+        attrs["_metaclass_dataclass"] = ReadOnly(False)
         if "__slots__" not in attrs:
             raise TypeError(
                 f"You must define __slots__ for {class_name} to constrain the typespace"
@@ -343,6 +369,8 @@ class Atomic(type):
         column_types = {}
 
         properties = [name for name, val in attrs.items() if isinstance(val, property)]
+        inherited_listeners = {}
+        pending_extra_slots = []
 
         for cls in bases:
             if hasattr(cls, "_column_types"):
@@ -364,10 +392,18 @@ class Atomic(type):
                     "with `metaclass=Atomic`. Mixins with empty __slots__ are not subject to "
                     "this restriction."
                 )
-            if not getattr(cls, "_metaclass_skip", False):
+            if not getattr(cls, "_metaclass_dataclass", False):
                 assert (
                     getattr(cls, "__slots__", None) == ()
                 ), f"You must define {cls.__name__}.__slots__ = ()"
+            if hasattr(cls, "_listener_funcs"):
+                for key, value in cls._listener_funcs.items():
+                    if key in inherited_listeners:
+                        inherited_listeners[key].extend(value)
+                    else:
+                        inherited_listeners[key] = value
+            if hasattr(cls, "__extra_slots__"):
+                pending_extra_slots.extend(list(cls.__extra_slots__))
             if hasattr(cls, "_columns"):
                 for key, value in cls._columns.items():
                     columns[key] = value
@@ -390,7 +426,9 @@ class Atomic(type):
             getter_var_template = attrs.get("__getter_template__", getter_templates[0])
             defaults_var_template = attrs.get("__defaults_init__", defaults_templates[0])
         except IndexError:
-            raise ValueError("You must define both __getter_template__ and __setter_template__")
+            raise MissingGetterSetterTemplateError(
+                "You must define both __getter_template__ and __setter_template__"
+            )
 
         local_setter_var_template = setter_var_template.format(key="{{field_name}}")
         local_getter_var_template = getter_var_template.format(key="{{field_name}}")
@@ -412,21 +450,70 @@ class Atomic(type):
         attrs["_support_columns"] = tuple(support_columns)
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
+        if "__extra_slots__" in attrs:
+            pending_extra_slots.extend(attrs["__extra_slots__"])
+        extra_slots = tuple(frozenset(pending_extra_slots))
+
+        attrs["__extra_slots__"] = ReadOnly(extra_slots)
         attrs["_properties"] = properties = frozenset(properties)
+        attrs["_all_accessible_fields"] = ReadOnly(
+            frozenset(columns.keys() | frozenset(properties))
+        )
 
         attrs["_configuration"] = ReadOnly(conf)
+        listeners = {}
+        post_coerce_failure_handlers = {}
+        attrs["_listener_funcs"] = ReadOnly(listeners)
         ns_globals = {"NoneType": type(None), "Flags": Flags, "typing": typing}
         field_names = []
         _class_cell_fixups: List[Tuple[str, Union[property, types.FunctionType]]] = []
-        listeners = {}  # mapping of the setter -> function_name to be called with old, new vals
+        lost_listeners = []
+        invalid_on_error_funcs = {}
 
         for key, value in attrs.items():
-            if callable(value) and hasattr(value, "_fields"):
-                for field in value._fields:
-                    try:
-                        listeners[field].append(key)
-                    except KeyError:
-                        listeners[field] = [key]
+            if callable(value):
+                if hasattr(value, "_event_listener_funcs"):
+                    for field in value._event_listener_funcs:
+                        if field not in attrs["__slots__"] and field in inherited_listeners:
+                            lost_listeners.append(field)
+                            continue
+                        try:
+                            listeners[field].append(key)
+                        except KeyError:
+                            listeners[field] = [key]
+                if hasattr(value, "_post_coerce_failure_funcs"):
+                    for field in value._post_coerce_failure_funcs:
+                        if field not in attrs["__slots__"]:
+                            invalid_on_error_funcs.append(field)
+                            continue
+                        try:
+                            post_coerce_failure_handlers[field].append(key)
+                        except KeyError:
+                            post_coerce_failure_handlers[field] = [key]
+        if lost_listeners:
+            if len(lost_listeners) == 1:
+                lost_listeners_friendly = lost_listeners[0]
+            else:
+                lost_listeners_friendly = (
+                    f"{', '.join(lost_listeners[:-1])} and {lost_listeners[-1]}"
+                )
+            raise OrphanedListenersError(
+                "Unable to attach listeners to the following fields without redefining them in "
+                f"__slots__ for {class_name}: {lost_listeners_friendly}"
+            )
+
+        if invalid_on_error_funcs:
+            if len(invalid_on_error_funcs) == 1:
+                invalid_on_error_funcs_friendly = invalid_on_error_funcs[0]
+            else:
+                invalid_on_error_funcs_friendly = (
+                    f"{', '.join(invalid_on_error_funcs[:-1])} and {invalid_on_error_funcs[-1]}"
+                )
+            raise InvalidPostCoerceAttributeNames(
+                "Unable to attach a post-coerce failure function to missing attributes "
+                f"for {class_name}: {invalid_on_error_funcs_friendly}"
+            )
+
         for key, value in tuple(attrs["__slots__"].items()):
             if value in klass.REGISTRY:
                 derived_classes[key] = value
@@ -449,6 +536,7 @@ class Atomic(type):
                 field_name=key,
                 setter_variable_template=local_setter_var_template,
                 on_sets=listeners.get(key),
+                post_coerce_failure_handlers=post_coerce_failure_handlers.get(key),
                 has_coercion=coerce_types is not None,
             )
             filename = "<getter-setter>"
@@ -516,10 +604,14 @@ class Atomic(type):
         _class_cell_fixups.append(("clear", cast(types.FunctionType, ns_globals["clear"])))
         exec(
             compile(
-                make_fast_getitem(
-                    columns, class_name, local_getter_var_template, local_setter_var_template
+                make_fast_getset_item(
+                    columns,
+                    properties,
+                    class_name,
+                    local_getter_var_template,
+                    local_setter_var_template,
                 ),
-                "<make_fast_getitem>",
+                "<make_fast_getset_item>",
                 mode="exec",
             ),
             ns_globals,
@@ -588,7 +680,9 @@ class Atomic(type):
 
         dataclass_template = env.get_template("data_class.jinja").render(
             class_name=class_name,
-            slots=repr(tuple("_{}_".format(key) for key in columns) + support_columns),
+            slots=repr(
+                tuple("_{}_".format(key) for key in columns) + support_columns + extra_slots
+            ),
         )
         exec(compile(dataclass_template, "<dcs>", mode="exec"), ns_globals, ns_globals)
         dc.value = data_class = ns_globals[f"_{class_name}"]
@@ -711,7 +805,15 @@ result._{{field}}_ = None
 
 def add_event_listener(*fields):
     def wrapper(func):
-        func._fields = getattr(func, "_fields", ()) + fields
+        func._event_listener_funcs = getattr(func, "_event_listener_funcs", ()) + fields
+        return func
+
+    return wrapper
+
+
+def handle_type_error(*fields):
+    def wrapper(func):
+        func._post_coerce_failure_funcs = getattr(func, "_post_coerce_failure_funcs", ()) + fields
         return func
 
     return wrapper
@@ -767,7 +869,7 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
     return iterable
 
 
-class Base(metaclass=Atomic, skip=True):
+class Base(metaclass=Atomic, dataclass=True):
     __slots__ = ("_flags",)
     __setter_template__ = ReadOnly("self._{key}_ = val")
     __getter_template__ = ReadOnly("return self._{key}_")
@@ -794,7 +896,9 @@ class Base(metaclass=Atomic, skip=True):
     def _create_invalid_value(cls, message, *args, **kwargs):
         return ValueError(message, *args, **kwargs)
 
-    def keys(self):
+    def keys(self, all=False) -> Set[str]:
+        if all:
+            return self._all_accessible_fields
         return self._columns.keys()
 
     def __new__(cls, *args, **kwargs):
@@ -808,10 +912,10 @@ class Base(metaclass=Atomic, skip=True):
         return result
 
     def __len__(self):
-        return len(self._column_types)
+        return len(self.keys())
 
     def __contains__(self, item):
-        return item in self._column_types
+        return item in self.keys(all=True)
 
     def get(self, key, default=None):
         try:
@@ -880,14 +984,8 @@ class Base(metaclass=Atomic, skip=True):
         self._flags |= Flags.DEFAULTS_SET
         errors = []
         errored_keys = []
-        for key in self._columns.keys() & kwargs.keys():
-            value = kwargs[key]
-            try:
-                setattr(self, key, value)
-            except Exception as e:
-                errors.append(e)
-                errored_keys.append(key)
-        for key in self._properties & kwargs.keys():
+        class_keys = self.keys(all=True)
+        for key in class_keys & kwargs.keys():
             value = kwargs[key]
             try:
                 setattr(self, key, value)
@@ -895,8 +993,8 @@ class Base(metaclass=Atomic, skip=True):
                 errors.append(e)
                 errored_keys.append(key)
         unrecognized_keys = ()
-        if kwargs.keys() - (self._columns.keys() | self._properties):
-            unrecognized_keys = kwargs.keys() - (self._columns.keys() | self._properties)
+        if kwargs.keys() - class_keys:
+            unrecognized_keys = kwargs.keys() - class_keys
         self._handle_init_errors(errors, errored_keys, unrecognized_keys)
         self._flags = Flags.INITIALIZED
 

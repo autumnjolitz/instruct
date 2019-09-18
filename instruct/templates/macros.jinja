@@ -12,7 +12,7 @@ def make_getter(type_def):
     return _get_{{field_name}}
 {% endmacro %}
 
-{% macro setter_func_template(field_name, setter_variable_template, on_sets=None, has_coercion=False) %}
+{% macro setter_func_template(field_name, setter_variable_template, on_sets=None, has_coercion=False, type_failure_func_names=None) %}
 def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coerce_func=None):
     if isinstance(type_restriction, type):
         type_restriction = (type_restriction,)
@@ -46,9 +46,23 @@ def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coer
                     val = coerce_func(val)
                 {%- endif %}
                 if not isinstance(val, type_restriction):
+                    {%- if type_failure_func_names %}
+                    handled_error = (func(val) for func in (
+                        {%- for on_error_func_name in type_failure_func_names %}
+                        self.{{on_error_func_name}},
+                        {%- endfor %}
+                    ))
+                    if not any(handled_error):
+                        raise self._create_invalid_type(
+                            '{{field_name}}',
+                            val, type(val), type_restriction)
+                    return
+                    {%- else %}
                     raise self._create_invalid_type(
                         '{{field_name}}',
                         val, type(val), type_restriction)
+                    {%- endif %}
+
             {%- if on_sets %}
             _old_value = self.{{field_name}}
             {%- endif %}
