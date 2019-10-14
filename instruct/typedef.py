@@ -3,7 +3,7 @@ import collections.abc
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable
 
-from .utils import flatten
+from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
 
 
