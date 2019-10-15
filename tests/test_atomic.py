@@ -559,3 +559,10 @@ def test_extra_slots():
     assert f.complex is None
     f.type = DivergentType.USE_DIVERGENT_A
     assert f.complex == DivergentA(**div_b)
+
+
+def test_original_slots():
+    from instruct.typedef import parse_typedef
+
+    for key, value in DivergentA._slots.items():
+        assert DivergentA._columns[key] == parse_typedef(value)

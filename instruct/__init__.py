@@ -113,11 +113,17 @@ class AttrsDict(UserDict):
             return None
 
 
-class FrozenMapping:
+class FrozenMapping(AbstractMapping):
     __slots__ = ("_value",)
 
     def keys(self):
         return frozenset(self._value.keys())
+
+    def __repr__(self):
+        return f"FrozenMapping<{self._value!r}>"
+
+    def __str__(self):
+        return str(self._value)
 
     def __init__(self, value):
         self._value = value
@@ -130,6 +136,12 @@ class FrozenMapping:
 
     def __contains__(self, key):
         return key in self._value
+
+    def items(self):
+        return self._value.items()
+
+    def __iter__(self):
+        return iter(self.keys())
 
 
 class ReadOnly:
@@ -343,11 +355,13 @@ class Atomic(type):
 
         columns = {}
         derived_classes = {}
+        original_slots = {}
         for key, value in attrs["__slots__"].items():
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
                 derived_classes[key] = value
                 attrs["__slots__"][key] = value
+            original_slots[key] = value
             columns[key] = parse_typedef(value)
 
         for mixin_name in mixins:
@@ -407,6 +421,9 @@ class Atomic(type):
             if hasattr(cls, "_columns"):
                 for key, value in cls._columns.items():
                     columns[key] = value
+            if hasattr(cls, "_slots"):
+                for key, value in cls._slots.items():
+                    original_slots[key] = value
             if hasattr(cls, "_support_columns"):
                 support_columns.extend(cls._support_columns)
             if hasattr(cls, "setter_wrapper"):
@@ -443,7 +460,8 @@ class Atomic(type):
         setter_template = env.get_template("setter.jinja")
         getter_template = env.get_template("getter.jinja")
 
-        attrs["_columns"] = ReadOnly(columns)
+        attrs["_columns"] = ReadOnly(FrozenMapping(columns))
+        attrs["_slots"] = ReadOnly(FrozenMapping(original_slots))
         all_coercions = {}
         attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
