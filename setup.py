@@ -22,7 +22,7 @@ if __version__ is None:
     raise IOError('about.py in project lacks __version__!')
 
 setup(name='instruct', version=__version__,
-      author='Ben Jolitz',
+      author='Autumn Jolitz',
       description='',
       long_description=long_description,
       license='BSD',
@@ -34,7 +34,7 @@ setup(name='instruct', version=__version__,
           'test': ['pytest']
       },
       python_requires='>=3',
-      url="https://github.com/benjolitz/instruct",
+      url="https://github.com/autumnjolitz/instruct",
       classifiers=[
           "Development Status :: 3 - Alpha",
           "Topic :: Utilities",
