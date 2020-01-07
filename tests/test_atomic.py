@@ -566,3 +566,29 @@ def test_original_slots():
 
     for key, value in DivergentA._slots.items():
         assert DivergentA._columns[key] == parse_typedef(value)
+
+
+def test_embedded_collection_tracking():
+    class Foo(Base):
+        __slots__ = {"field": Union[str, bool]}
+
+    class Bar(Base):
+        __slots__ = {"fields": List[Foo], "bar": List[str]}
+
+    assert "fields" in Bar._nested_atomic_collection_keys
+    assert "bar" not in Bar._nested_atomic_collection_keys
+
+    class Barter(Base):
+        __slots__ = {"mapping": Dict[str, Bar]}
+
+    assert Barter._nested_atomic_collection_keys == ()
+
+    class CollectableBarter(Barter):
+        __slots__ = {"others": Dict[str, Dict[int, List[Barter]]]}
+
+    assert CollectableBarter._nested_atomic_collection_keys == ("others",)
+
+    class InheritedBarter(CollectableBarter, Bar, Foo):
+        __slots__ = {"key": str}
+
+    assert not ({"others", "fields"} - set(InheritedBarter._nested_atomic_collection_keys))

@@ -35,7 +35,7 @@ import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
-from .typedef import parse_typedef
+from .typedef import parse_typedef, has_collect_class
 
 __version__  # Silence unused import warning.
 
@@ -292,6 +292,8 @@ class Atomic(type):
         _properties: FrozenSet[str]
         _configuration: AttrsDict
         _all_accessible_fields: FrozenSet[str]
+        # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
+        _nested_atomic_collection_keys: Tuple[str]
 
     @classmethod
     def register_mixin(cls, name, klass):
@@ -356,6 +358,7 @@ class Atomic(type):
         columns = {}
         derived_classes = {}
         original_slots = {}
+        nested_atomic_collections: List[str] = []
         for key, value in attrs["__slots__"].items():
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
@@ -363,6 +366,8 @@ class Atomic(type):
                 attrs["__slots__"][key] = value
             original_slots[key] = value
             columns[key] = parse_typedef(value)
+            if has_collect_class(value, Atomic, metaclass=True):
+                nested_atomic_collections.append(key)
 
         for mixin_name in mixins:
             if mixins[mixin_name]:
@@ -389,7 +394,12 @@ class Atomic(type):
         for cls in bases:
             if hasattr(cls, "_column_types"):
                 column_types.update(cls._column_types)
-
+            if hasattr(cls, "_nested_atomic_collection_keys"):
+                for key in cls._nested_atomic_collection_keys:
+                    # Override of this collection definition, so don't inherit!
+                    if key in columns:
+                        continue
+                    nested_atomic_collections.append(key)
             if (
                 hasattr(cls, "__slots__")
                 and cls.__slots__ != ()
@@ -466,6 +476,7 @@ class Atomic(type):
         attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
         attrs["_support_columns"] = tuple(support_columns)
+        attrs["_nested_atomic_collection_keys"] = tuple(nested_atomic_collections)
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
         if "__extra_slots__" in attrs:
