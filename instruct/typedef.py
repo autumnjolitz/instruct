@@ -1,7 +1,7 @@
-from typing import Type
+from __future__ import annotations
 import collections.abc
 from collections.abc import Mapping as AbstractMapping
-from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable
+from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
@@ -33,6 +33,54 @@ def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
             return name
 
     return cast(Type[ICustomTypeCheck], _WrappedType)
+
+
+def issubormetasubclass(type_cls, cls, metaclass=False):
+    if metaclass is True:
+        type_cls = type(type_cls)
+    return issubclass(type_cls, cls)
+
+
+def has_collect_class(
+    type_hints: Union[Type, Tuple[Type, ...], List[Type]],
+    root_cls: Type,
+    *,
+    _recursing=False,
+    metaclass=False,
+):
+    if not isinstance(type_hints, (tuple, list)):
+        type_hints = (type_hints,)
+    for type_cls in type_hints:
+        module = getattr(type_cls, "__module__", None)
+        if module != "typing":
+            continue
+        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
+            if _recursing:
+                for child in type_cls.__args__:
+                    if isinstance(child, type) and issubormetasubclass(
+                        child, root_cls, metaclass=metaclass
+                    ):
+                        return True
+                    if has_collect_class(child, root_cls, _recursing=True, metaclass=metaclass):
+                        return True
+            continue
+        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
+            issubclass(type_cls.__origin__, collections.abc.Iterable)
+            and issubclass(type_cls.__origin__, collections.abc.Container)
+        ):
+            if issubclass(type_cls.__origin__, collections.abc.Mapping):
+                key_type, value_type = type_cls.__args__
+                if has_collect_class(value_type, root_cls, _recursing=True, metaclass=metaclass):
+                    return True
+            else:
+                for child in type_cls.__args__:
+                    if isinstance(child, type) and issubormetasubclass(
+                        child, root_cls, metaclass=metaclass
+                    ):
+                        return True
+                    elif has_collect_class(child, root_cls, _recursing=True, metaclass=metaclass):
+                        return True
+    return False
 
 
 def create_custom_type(container_type, *args):

@@ -1,6 +1,7 @@
 import pytest
 from enum import Enum
-from instruct.typedef import parse_typedef, make_custom_typecheck
+from instruct.typedef import parse_typedef, make_custom_typecheck, has_collect_class
+from instruct import Base
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
 
 NoneType = type(None)
@@ -92,3 +93,18 @@ def test_set():
     assert not isinstance({"a", "b"}, type_b)
     assert isinstance(frozenset({"a", "b"}), type_b)
     assert not isinstance(frozenset({"a", "b"}), type_a)
+
+
+def test_collection_detection():
+    class Foo(Base):
+        __slots__ = {"a": List[str]}
+
+    assert has_collect_class(List[Foo], Base)
+    assert has_collect_class(Tuple[Foo, ...], Base)
+    assert has_collect_class(Tuple[Optional[Foo], ...], Base)
+    assert has_collect_class(Dict[str, List[Optional[Foo]]], Base)
+    assert not has_collect_class(Dict[str, str], Base)
+    assert not has_collect_class(Dict[str, Foo], Base)
+    assert not has_collect_class(Dict[str, Dict[str, Foo]], Base)
+    assert has_collect_class(Dict[str, Dict[str, List[Foo]]], Base)
+    assert has_collect_class(Dict[str, Tuple[Union[str, List[Foo]]]], Base)
