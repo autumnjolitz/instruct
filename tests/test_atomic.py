@@ -74,6 +74,28 @@ class InheritCoerce(InheritCoerceBase):
     __slots__ = {"baz": int}
     __coerce__ = {"baz": (str, lambda obj: int(obj, 10))}
 
+    @property
+    def off_by_one(self):
+        return self.baz + 1
+
+    @off_by_one.setter
+    def off_by_one(self, val):
+        self.baz = val - 1
+
+
+def test_ordering_keys():
+    assert tuple(InheritCoerce.keys()) == ("id", "baz")
+    assert tuple(InheritCoerce(id=1, baz="2").keys()) == ("id", "baz")
+
+
+def test_constructor_arguments():
+    InheritCoerce(1, "2")
+    with pytest.raises(TypeError):
+        InheritCoerce(1, "2", 2)
+    # keyword arguments always are applied after positional lol
+    i = InheritCoerce(1, 2, off_by_one=3)
+    assert i.baz == 2
+
 
 def test_coerce_definition_error():
     with pytest.raises(TypeError) as exc_info:
