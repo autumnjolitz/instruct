@@ -9,6 +9,7 @@ from collections.abc import (
     Sequence,
     ValuesView,
     ItemsView as _ItemsView,
+    KeysView,
 )
 import typing
 from typing import (
@@ -117,7 +118,7 @@ class FrozenMapping(AbstractMapping):
     __slots__ = ("_value",)
 
     def keys(self):
-        return frozenset(self._value.keys())
+        return self._value.keys()
 
     def __repr__(self):
         return f"FrozenMapping<{self._value!r}>"
@@ -278,6 +279,14 @@ def explode(*args, **kwargs):
     raise TypeError("This shouldn't happen!")
 
 
+def _dedupe(iterable):
+    seen = set()
+    for item in iterable:
+        if item not in seen:
+            seen.add(item)
+            yield item
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
@@ -289,9 +298,9 @@ class Atomic(type):
         _column_types: Mapping[str, Union[Type, Tuple[Type, ...]]]
         _all_coercions: Mapping[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
         _support_columns: Tuple[str, ...]
-        _properties: FrozenSet[str]
+        _properties: typing.collections.KeysView[str]
         _configuration: AttrsDict
-        _all_accessible_fields: FrozenSet[str]
+        _all_accessible_fields: typing.collections.KeysView[str]
         # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
         _nested_atomic_collection_keys: Tuple[str]
 
@@ -355,16 +364,18 @@ class Atomic(type):
         if fast is None:
             fast = not __debug__
 
+        final_columns = {}
         columns = {}
         derived_classes = {}
-        original_slots = {}
+        current_slots = {}
+        final_slots = {}
         nested_atomic_collections: List[str] = []
         for key, value in attrs["__slots__"].items():
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
                 derived_classes[key] = value
                 attrs["__slots__"][key] = value
-            original_slots[key] = value
+            current_slots[key] = value
             columns[key] = parse_typedef(value)
             if has_collect_class(value, Atomic, metaclass=True):
                 nested_atomic_collections.append(key)
@@ -397,7 +408,7 @@ class Atomic(type):
             if hasattr(cls, "_nested_atomic_collection_keys"):
                 for key in cls._nested_atomic_collection_keys:
                     # Override of this collection definition, so don't inherit!
-                    if key in columns:
+                    if key in final_columns:
                         continue
                     nested_atomic_collections.append(key)
             if (
@@ -430,10 +441,10 @@ class Atomic(type):
                 pending_extra_slots.extend(list(cls.__extra_slots__))
             if hasattr(cls, "_columns"):
                 for key, value in cls._columns.items():
-                    columns[key] = value
+                    final_columns[key] = value
             if hasattr(cls, "_slots"):
                 for key, value in cls._slots.items():
-                    original_slots[key] = value
+                    final_slots[key] = value
             if hasattr(cls, "_support_columns"):
                 support_columns.extend(cls._support_columns)
             if hasattr(cls, "setter_wrapper"):
@@ -456,6 +467,10 @@ class Atomic(type):
             raise MissingGetterSetterTemplateError(
                 "You must define both __getter_template__ and __setter_template__"
             )
+        for key in current_slots:
+            final_slots[key] = current_slots[key]
+        for key in columns:
+            final_columns[key] = columns[key]
 
         local_setter_var_template = setter_var_template.format(key="{{field_name}}")
         local_getter_var_template = getter_var_template.format(key="{{field_name}}")
@@ -470,8 +485,8 @@ class Atomic(type):
         setter_template = env.get_template("setter.jinja")
         getter_template = env.get_template("getter.jinja")
 
-        attrs["_columns"] = ReadOnly(FrozenMapping(columns))
-        attrs["_slots"] = ReadOnly(FrozenMapping(original_slots))
+        attrs["_columns"] = ReadOnly(FrozenMapping(final_columns))
+        attrs["_slots"] = ReadOnly(FrozenMapping(final_slots))
         all_coercions = {}
         attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
@@ -481,13 +496,11 @@ class Atomic(type):
         conf["fast"] = fast
         if "__extra_slots__" in attrs:
             pending_extra_slots.extend(attrs["__extra_slots__"])
-        extra_slots = tuple(frozenset(pending_extra_slots))
+        extra_slots = tuple(_dedupe(pending_extra_slots))
 
         attrs["__extra_slots__"] = ReadOnly(extra_slots)
-        attrs["_properties"] = properties = frozenset(properties)
-        attrs["_all_accessible_fields"] = ReadOnly(
-            frozenset(columns.keys() | frozenset(properties))
-        )
+        attrs["_properties"] = properties = KeysView(properties)
+        attrs["_all_accessible_fields"] = ReadOnly(final_columns.keys() | KeysView(properties))
 
         attrs["_configuration"] = ReadOnly(conf)
         listeners = {}
@@ -620,10 +633,14 @@ class Atomic(type):
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
         ns_globals[class_name] = ReadOnly(None)
-        exec(compile(make_fast_eq(columns), "<make_fast_eq>", mode="exec"), ns_globals, ns_globals)
+        exec(
+            compile(make_fast_eq(final_columns), "<make_fast_eq>", mode="exec"),
+            ns_globals,
+            ns_globals,
+        )
         exec(
             compile(
-                make_fast_clear(columns, local_setter_var_template, class_name),
+                make_fast_clear(final_columns, local_setter_var_template, class_name),
                 "<make_fast_clear>",
                 mode="exec",
             ),
@@ -634,7 +651,7 @@ class Atomic(type):
         exec(
             compile(
                 make_fast_getset_item(
-                    columns,
+                    final_columns,
                     properties,
                     class_name,
                     local_getter_var_template,
@@ -647,18 +664,20 @@ class Atomic(type):
             ns_globals,
         )
         exec(
-            compile(make_fast_iter(columns), "<make_fast_iter>", mode="exec"),
+            compile(make_fast_iter(final_columns), "<make_fast_iter>", mode="exec"),
             ns_globals,
             ns_globals,
         )
         exec(
-            compile(make_set_get_states(columns), "<make_set_get_states>", mode="exec"),
+            compile(make_set_get_states(final_columns), "<make_set_get_states>", mode="exec"),
             ns_globals,
             ns_globals,
         )
         exec(
             compile(
-                make_defaults(tuple(columns), defaults_var_template), "<make_defaults>", mode="exec"
+                make_defaults(tuple(final_columns), defaults_var_template),
+                "<make_defaults>",
+                mode="exec",
             ),
             ns_globals,
             ns_globals,
@@ -710,7 +729,7 @@ class Atomic(type):
         dataclass_template = env.get_template("data_class.jinja").render(
             class_name=class_name,
             slots=repr(
-                tuple("_{}_".format(key) for key in columns) + support_columns + extra_slots
+                tuple("_{}_".format(key) for key in final_columns) + support_columns + extra_slots
             ),
         )
         exec(compile(dataclass_template, "<dcs>", mode="exec"), ns_globals, ns_globals)
@@ -898,6 +917,25 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
     return iterable
 
 
+class ClassOrInstanceFuncsDescriptor:
+    __slots__ = "_class_function", "_instance_function"
+
+    def __init__(self, class_function=None, instance_function=None):
+        self._class_function = class_function
+        self._instance_function = instance_function
+
+    def instance_function(self, instance_function):
+        return type(self)(self._class_function, instance_function)
+
+    def class_function(self, class_function):
+        return type(self)(class_function, self._instance_function)
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return types.MethodType(self._class_function, owner)
+        return types.MethodType(self._instance_function, instance)
+
+
 class Base(metaclass=Atomic, dataclass=True):
     __slots__ = ("_flags",)
     __setter_template__ = ReadOnly("self._{key}_ = val")
@@ -925,6 +963,13 @@ class Base(metaclass=Atomic, dataclass=True):
     def _create_invalid_value(cls, message, *args, **kwargs):
         return ValueError(message, *args, **kwargs)
 
+    @ClassOrInstanceFuncsDescriptor
+    def keys(cls, all=False) -> Set[str]:
+        if all:
+            return cls._all_accessible_fields
+        return cls._columns.keys()
+
+    @keys.instance_function
     def keys(self, all=False) -> Set[str]:
         if all:
             return self._all_accessible_fields
@@ -1008,11 +1053,22 @@ class Base(metaclass=Atomic, dataclass=True):
                 *errors,
             )
 
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR
         self._flags |= Flags.DEFAULTS_SET
         errors = []
         errored_keys = []
+        keys = self.keys()
+        if len(args) > len(keys):
+            raise TypeError(
+                f"__init__() takes {len(keys)} positional arguments but {len(args)} were given"
+            )
+        for key, value in zip(keys, args):
+            try:
+                setattr(self, key, value)
+            except Exception as e:
+                errors.append(e)
+                errored_keys.append(key)
         class_keys = self.keys(all=True)
         for key in class_keys & kwargs.keys():
             value = kwargs[key]
