@@ -12,6 +12,7 @@ from collections.abc import (
     KeysView,
 )
 import typing
+from weakref import WeakKeyDictionary
 from typing import (
     Optional,
     Callable,
@@ -918,9 +919,10 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
 
 
 class ClassOrInstanceFuncsDescriptor:
-    __slots__ = "_class_function", "_instance_function"
+    __slots__ = "_class_function", "_instance_function", "_classes"
 
     def __init__(self, class_function=None, instance_function=None):
+        self._classes = WeakKeyDictionary()
         self._class_function = class_function
         self._instance_function = instance_function
 
@@ -932,7 +934,11 @@ class ClassOrInstanceFuncsDescriptor:
 
     def __get__(self, instance, owner=None):
         if instance is None:
-            return types.MethodType(self._class_function, owner)
+            try:
+                return self._classes[owner]
+            except KeyError:
+                value = self._classes[owner] = types.MethodType(self._class_function, owner)
+                return value
         return types.MethodType(self._instance_function, instance)
 
 
