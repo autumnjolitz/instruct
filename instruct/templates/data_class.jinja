@@ -1,3 +1,208 @@
-class _{{class_name}}({{class_name}}, dataclass=True):
-    __slots__ = {{slots}}
-    pass
+class {{class_name}}(_DataclassRoot_):
+    """
+    Internal Data Class for {{class_name}}.
+
+    This class focuses on providing several helper and consistency methods.
+    """
+    __slots__ = "__weakref__", {% for slot in slots %}"_internal_{{slot}}",{% endfor %}{% for slot in raw_slots%}"{{slot}}",{%endfor%}
+
+    {% for slot, slot_types in slots.items() %}
+    @property
+    def {{slot}}(self) -> "{{slot_types}}":
+        return self._internal_{{slot}}
+
+    @{{slot}}.setter
+    def {{slot}}(self, value: "{{slot_types}}") -> None:
+        """
+        Warning:
+        !!! No type checks are applied here !!!
+        """
+        if is_frozen:
+            raise FrozenError("{{class_name}} is frozen!")
+        self._internal_{{slot}} = value
+
+    @{{slot}}.deleter
+    def {{slot}}(self, value):
+        if is_frozen:
+            raise FrozenError("{{class_name}} is frozen!")
+        self._internal_{{slot}} = UNDEFINED
+    {% endfor %}
+
+    def __init__(self, {% for slot in slots %}{{slot}}=UNDEFINED,{%endfor%}):
+        {% for slot in slots %}
+        self._internal_{{slot}} = {{slot}}
+        {% endfor %}
+
+    def _clear(self, fields=None):
+        if fields is not None:
+            for key in fields:
+                del self[key]
+            return
+        {% for slot in slots %}
+        self._internal_{{slot}} = UNDEFINED
+        {% endfor %}
+
+    def _keys(self) -> KeysView:
+        return KeysView({{tuple(slots)}})
+
+    def __freeze__(self):
+        """
+        Call to make object immutable (and thus with a working __hash__ representation)
+        """
+        global is_frozen
+        try:
+            hash(({% for slot in tuple(slots) %}self._internal_{{slot}},{% endfor %}))
+        except TypeError as e:
+            raise TypeError("Cannot freeze {{class_name}} - contains unhashable data types!") from e
+        is_frozen = True
+
+    def __thaw__(self):
+        global is_frozen
+        is_frozen = False
+
+    def _is_frozen(self) -> bool:
+        return is_frozen
+
+    def __hash__(self):
+        if not is_frozen:
+            raise TypeError("unhashable type: {{class_name}}. Hint: freeze the class before calling hash!")
+        return hash(({% for slot in tuple(slots) %}self._internal_{{slot}},{% endfor %}))
+
+    def __setstate__(state):
+        global is_frozen
+        if is_frozen is True:
+            is_frozen = state["is_frozen"]
+
+    def __reduce__(self):
+        return self.__class__, ({% for slot in tuple(slots) %}self._internal_{{slot}},{% endfor %}), {"is_frozen": is_frozen}
+
+    def _copy(self):
+        return self.__class__({% for slot in slots %}self._internal_{{slot}},{%endfor%})
+
+    @property
+    def __dict__(self):
+        """
+        support for calling vars(self)
+        """
+        return self
+
+    def __repr__(self):
+        return f"{{class_name}}({% for slot in slots %}{{slot}}={self._internal_{{slot}}!r},{%endfor%})"
+
+    def _asdict(self):
+        return dict(self)
+
+    def _astuple(self):
+        return ({% for slot in slots %}self._internal_{{slot}},{%endfor%})
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
+            if isinstance(other, _DataclassRoot_):
+                other_slots = other._keys()
+            else:
+                try:
+                    other_slots = type(other).__slots__
+                except AttributeError:
+                    if frozenset(dir(other)) == {{ frozenset(slots) }}:
+                        return {% for slot in slots %}self._internal_{{slot}} == other.{{slot}}{% if not loop.last %} and {%endif%}{%endfor%}
+            if frozenset(other_slots) != {{frozenset(slots)}}:
+                return NotImplemented
+        return {% for slot in slots %}self._internal_{{slot}} == other._internal_{{slot}}{% if not loop.last %} and {%endif%}{%endfor%}
+
+    def __neq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
+            if isinstance(other, _DataclassRoot_):
+                other_slots = other._keys()
+            else:
+                try:
+                    other_slots = type(other).__slots__
+                except AttributeError:
+                    if frozenset(dir(other)) == {{ frozenset(slots) }}:
+                        return {% for slot in slots %}self._internal_{{slot}} != other.{{slot}}{% if not loop.last %} or {%endif%}{%endfor%}
+                if frozenset(other_slots) != {{frozenset(slots)}}:
+                    return NotImplemented
+        return {% for slot in slots %}self._internal_{{slot}} != other._internal_{{slot}}{% if not loop.last %} or {%endif%}{%endfor%}
+
+    def __delitem__(self, key: str) -> None:
+        # {% for slot in slots %}
+        {% if not loop.first %}el{%endif%}if key == "{{slot}}":
+            self._internal_{{slot}} = UNDEFINED
+            return
+        # {% endfor %}
+        raise KeyError(key)
+
+    def __reversed__(self):
+        # {% for slot in tuple(slots)[::-1] %}
+        yield "{{slot}}", self._internal_{{slot}}
+        # {% endfor %}
+
+    def __len__(self) -> int:
+        currently_set = 0
+        for key, value in self:
+            if UNDEFINED is not None and value is not UNDEFINED:
+                currently_set += 1
+        return currently_set
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """
+        Internal dataclass of {{class_name}}.
+
+        Warning:
+        !!! No type checks are applied here !!!
+        """
+        # {% for slot in slots %}
+        {% if not loop.first %}el{%endif%}if key == "{{slot}}":
+            self._internal_{{slot}} = value
+            return None
+        # {% endfor %}
+        raise KeyError(key)
+
+
+    def __getitem__(self, key: Union[str, slice, int, Tuple[Union[str, int], ...]]) -> Any:
+        if isinstance(key, str):
+            # {% for slot in slots %}
+            {% if not loop.first %}el{%endif%}if key == "{{slot}}":
+                return self._internal_{{slot}}
+            # {% endfor %}
+            raise KeyError(key)
+        elif isinstance(key, slice):
+            if key.start is None and key.stop is None and key.step is None:
+                return self._astuple()
+            start, stop, step = key.indices({{len(slots)}})
+            return tuple(self[index] for index in range(start, stop, step))
+        elif isinstance(key, int):
+            if key < 0:
+                key = abs(key)
+                key = {{len(slots)}} - key
+                if key < 0:
+                    raise IndexError("{{class_name}} index out of range")
+            {% for index, slot in enumerate(tuple(slots)) %}
+            {% if not loop.first %}el{%endif%}if key == {{index}}:
+                return self._internal_{{slot}}
+            {% endfor %}
+        elif isinstance(key, (tuple, list)) and all(isinstance(step, (str, int)) for step in key):
+            # Consume a json path like ("foo", "bar", 1, "baz") to access foo.bar[1].baz
+            target = self
+            steps_taken = []
+            for step in key:
+                try:
+                    target = target[step]
+                except (TypeError, IndexError, ValueError) as e:
+                    if steps_taken:
+                        raise IndexError("Unable to access {step} on {target} (covered path of {tuple(steps_taken)})") from e
+                    raise
+                steps_taken.append(step)
+            return target
+        typename = type(key).__qualname__
+        raise TypeError(f"{{class_name}} key must be either a string, integer, slices, or a tuple/list of strings and integers, not {typename}")
+
+
+    def __iter__(self):
+        # {% for slot in slots %}
+        yield "{{slot}}", self._internal_{{slot}}
+        # {% endfor %}
+
+    def __contains__(self, key: str) -> bool:
+        return key in {{ frozenset(slots) }}
+
+

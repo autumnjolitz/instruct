@@ -12,6 +12,7 @@ from collections.abc import (
     KeysView,
 )
 import typing
+import builtins
 from weakref import WeakKeyDictionary
 from typing import (
     Optional,
@@ -42,6 +43,9 @@ from .typedef import parse_typedef, has_collect_class
 __version__  # Silence unused import warning.
 
 NoneType = type(None)
+DEBUG_CODEGEN = (
+    os.environ.get("INSTRUCT_DEBUG_CODEGEN", "").lower().startswith(("1", "true", "yes", "y"))
+)
 
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, "templates"))
@@ -49,6 +53,24 @@ env.globals["tuple"] = tuple
 env.globals["repr"] = repr
 env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
+env.globals["len"] = len
+env.globals["enumerate"] = enumerate
+
+
+class Undefined(object):
+    SINGLETON = None
+
+    def __new__(cls):
+        if Undefined.SINGLETON is not None:
+            return Undefined.SINGLETON
+        Undefined.SINGLETON = super().__new__(cls)
+        return Undefined.SINGLETON
+
+    def __repr__(self):
+        return "Undefined"
+
+
+UNDEFINED = Undefined()
 
 
 class ClassDefinitionError(ValueError):
@@ -156,65 +178,18 @@ class ReadOnly:
         return self.value
 
 
-def make_fast_clear(fields, set_block, class_name):
-    set_block = set_block.format(key="%(key)s")
-    code_template = env.get_template("fast_clear.jinja").render(
-        fields=fields, setter_variable_template=set_block, class_name=class_name
-    )
-    return code_template
-
-
-def make_fast_getset_item(
-    fields: List[str],
-    properties: List[str],
-    class_name: str,
-    get_variable_template: str,
-    set_variable_template: str,
-):
+def make_fast_getset_item(fields: List[str], properties: List[str], class_name: str):
     code_template = env.get_template("fast_getitem.jinja").render(
-        fields=fields,
-        properties=properties,
-        class_name=class_name,
-        get_variable_template=get_variable_template,
-        set_variable_template=set_variable_template,
+        fields=fields, properties=properties, class_name=class_name
     )
-    return code_template
-
-
-def make_fast_eq(fields):
-    code_template = env.get_template("fast_eq.jinja").render(fields=fields)
-    return code_template
-
-
-def make_fast_iter(fields):
-    code_template = env.get_template("fast_iter.jinja").render(fields=fields)
+    if DEBUG_CODEGEN:
+        print(code_template)
     return code_template
 
 
 def make_set_get_states(fields):
     code_template = env.get_template("raw_get_set_state.jinja").render(fields=fields)
     return code_template
-
-
-def make_fast_new(fields, defaults_var_template):
-    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
-    code_template = env.get_template("fast_new.jinja").render(
-        fields=fields, defaults_var_template=defaults_var_template
-    )
-    return code_template
-
-
-def make_defaults(fields, defaults_var_template):
-    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
-    code = env.from_string(
-        """
-def _set_defaults(self):
-    result = self
-    {{item|indent(4)}}
-    super(self.__class__, self)._set_defaults()
-    """
-    ).render(item=defaults_var_template)
-    return code
 
 
 def insert_class_closure(
@@ -288,13 +263,44 @@ def _dedupe(iterable):
             yield item
 
 
+class DataclassRoot:
+    __slots__ = ()
+    ...
+
+
+class ViewBase:
+    __slots__ = ("_proxy", "_data")
+
+    def __init__(self, proxied):
+        self._proxy = proxied
+        self._data = proxied._data
+
+    def __getattr__(self, name):
+        return getattr(self._proxy, name)
+
+    def __setattr__(self, name, value):
+        if name in ("_proxy", "_data"):
+            return object.__setattr__(self, name, value)
+        return setattr(self._proxy, name, value)
+
+    def __delattr__(self, name):
+        del self._proxy[name]
+
+    def __delitem__(self, key):
+        del self._proxy[key]
+
+    def __getitem__(self, key):
+        return self._proxy[key]
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
     MIXINS = ReadOnly({})
 
     if TYPE_CHECKING:
-        _data_class: Atomic
+        _data: Atomic
+        _data_class: Type[Atomic]
         _columns: Mapping[str, Any]
         _column_types: Mapping[str, Union[Type, Tuple[Type, ...]]]
         _all_coercions: Mapping[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
@@ -314,7 +320,16 @@ class Atomic(type):
         # to filter it out of the `type(...)` call
         super().__init__(*args)
 
-    def __new__(klass, class_name, bases, attrs, fast=None, dataclass=None, **mixins):
+    def __new__(
+        klass,
+        class_name,
+        bases,
+        attrs,
+        fast=None,
+        baseclass=False,
+        undefined_type: Optional[Type] = None,
+        **mixins,
+    ):
         coerce_mappings = None
         if "__coerce__" in attrs and attrs["__coerce__"] is not None:
             coerce_mappings: AbstractMapping = attrs["__coerce__"]
@@ -330,14 +345,31 @@ class Atomic(type):
             if not isinstance(attrs["__coerce__"], ReadOnly):
                 attrs["__coerce__"] = ReadOnly(coerce_mappings)
 
-        if dataclass:
-            attrs["_metaclass_dataclass"] = ReadOnly(True)
+        if baseclass:
+            attrs["_metaclass_baseclass"] = ReadOnly(True)
+            config = {}
+            if fast is not None:
+                config["fast"] = fast
+            if undefined_type is not None:
+                config["undefined_type"] = undefined_type
+            attrs["_metaclass_config"] = FrozenMapping(config)
             cls = super().__new__(klass, class_name, bases, attrs)
             if not getattr(cls, "__hash__", None):
                 cls.__hash__ = object.__hash__
             assert cls.__hash__ is not None
             return cls
-        attrs["_metaclass_dataclass"] = ReadOnly(False)
+
+        config = {}
+        for cls in bases:
+            if hasattr(cls, "_metaclass_config"):
+                config.update(cls._metaclass_config)
+        if undefined_type is None:
+            undefined_type = config.get("undefined_type", Undefined)
+        if fast is None:
+            fast = config.get("fast", False)
+
+        attrs["_metaclass_baseclass"] = ReadOnly(False)
+
         if "__slots__" not in attrs:
             raise TypeError(
                 f"You must define __slots__ for {class_name} to constrain the typespace"
@@ -387,21 +419,14 @@ class Atomic(type):
                 if isinstance(mixins[mixin_name], type):
                     mixin_cls = mixins[mixin_name]
                 bases = (mixin_cls,) + bases
-        # Setup wrappers are nested
-        # pieces of code that effectively surround a part that sets
-        #    self._{key} -> value
-        # They must be reindented properly
-        setter_wrapper = []
-        getter_templates = []
-        setter_templates = []
-        defaults_templates = []
-        support_columns = []
 
+        support_columns = []
         column_types = {}
 
         properties = [name for name, val in attrs.items() if isinstance(val, property)]
         inherited_listeners = {}
         pending_extra_slots = []
+        inherted_properties = {}
 
         for cls in bases:
             if hasattr(cls, "_column_types"):
@@ -428,7 +453,7 @@ class Atomic(type):
                     "with `metaclass=Atomic`. Mixins with empty __slots__ are not subject to "
                     "this restriction."
                 )
-            if not getattr(cls, "_metaclass_dataclass", False):
+            if not getattr(cls, "_metaclass_baseclass", False):
                 assert (
                     getattr(cls, "__slots__", None) == ()
                 ), f"You must define {cls.__name__}.__slots__ = ()"
@@ -448,40 +473,17 @@ class Atomic(type):
                     final_slots[key] = value
             if hasattr(cls, "_support_columns"):
                 support_columns.extend(cls._support_columns)
-            if hasattr(cls, "setter_wrapper"):
-                setter_wrapper.append(cls.setter_wrapper)
-            if hasattr(cls, "__getter_template__"):
-                getter_templates.append(cls.__getter_template__)
-            if hasattr(cls, "__setter_template__"):
-                setter_templates.append(cls.__setter_template__)
-            if hasattr(cls, "__defaults_init__"):
-                defaults_templates.append(cls.__defaults_init__)
             for key in dir(cls):
                 value = getattr(cls, key)
                 if isinstance(value, property):
                     properties.append(key)
-        try:
-            setter_var_template = attrs.get("__setter_template__", setter_templates[0])
-            getter_var_template = attrs.get("__getter_template__", getter_templates[0])
-            defaults_var_template = attrs.get("__defaults_init__", defaults_templates[0])
-        except IndexError:
-            raise MissingGetterSetterTemplateError(
-                "You must define both __getter_template__ and __setter_template__"
-            )
+                    inherted_properties[key] = value
+
         for key in current_slots:
             final_slots[key] = current_slots[key]
+
         for key in columns:
             final_columns[key] = columns[key]
-
-        local_setter_var_template = setter_var_template.format(key="{{field_name}}")
-        local_getter_var_template = getter_var_template.format(key="{{field_name}}")
-        for index, template_name in enumerate(setter_wrapper):
-            template = env.get_template(template_name)
-            local_setter_var_template = template.render(
-                field_name="{{field_name}}", setter_variable_template=local_setter_var_template
-            )
-        local_setter_var_template = local_setter_var_template.replace("{{field_name}}", "%(key)s")
-        local_getter_var_template = local_getter_var_template.replace("{{field_name}}", "%(key)s")
 
         setter_template = env.get_template("setter.jinja")
         getter_template = env.get_template("getter.jinja")
@@ -557,37 +559,35 @@ class Atomic(type):
                 f"for {class_name}: {invalid_on_error_funcs_friendly}"
             )
 
-        for key, value in tuple(attrs["__slots__"].items()):
-            if value in klass.REGISTRY:
-                derived_classes[key] = value
-            if key[0] == "_":
-                continue
-            field_names.append(key)
-            attrs["__slots__"][f"_{key}_"] = value
-
-            del attrs["__slots__"][key]
+        non_clobbering_view = {}
+        non_clobbering_view.update(inherted_properties)
+        # Todo: type(..., ) -> View[Class] where properties are perfect
+        for key, value in tuple(attrs["__slots__"].items()) + tuple(
+            (slot, None) for slot in extra_slots
+        ):
             ns = {"make_getter": explode, "make_setter": explode}
             coerce_types = coerce_func = None
-            if coerce_mappings and key in coerce_mappings:
-                coerce_types, coerce_func = coerce_mappings[key]
-            coerce_types = parse_typedef(coerce_types)
-            all_coercions[key] = (coerce_types, coerce_func)
-            getter_code = getter_template.render(
-                field_name=key, get_variable_template=local_getter_var_template
-            )
+            if value is not None:
+                if value in klass.REGISTRY:
+                    derived_classes[key] = value
+                field_names.append(key)
+
+                if coerce_mappings and key in coerce_mappings:
+                    coerce_types, coerce_func = coerce_mappings[key]
+                if coerce_types is not None:
+                    coerce_types = parse_typedef(coerce_types)
+                all_coercions[key] = (coerce_types, coerce_func)
+
+            getter_code = getter_template.render(field_name=key)
             setter_code = setter_template.render(
                 field_name=key,
-                setter_variable_template=local_setter_var_template,
                 on_sets=listeners.get(key),
                 post_coerce_failure_handlers=post_coerce_failure_handlers.get(key),
                 has_coercion=coerce_types is not None,
+                history=mixins.get("history"),
             )
             filename = "<getter-setter>"
-            if (
-                os.environ.get("INSTRUCT_DEBUG_CODEGEN", "")
-                .lower()
-                .startswith(("1", "true", "yes", "y"))
-            ):
+            if DEBUG_CODEGEN:
                 with tempfile.NamedTemporaryFile(
                     delete=False,
                     mode="w",
@@ -603,15 +603,20 @@ class Atomic(type):
 
             code = compile("{}\n{}".format(getter_code, setter_code), filename, mode="exec")
             exec(code, ns_globals, ns)
-
-            types_to_check = parse_typedef(value)
-            column_types[key] = types_to_check
-            new_property = property(
-                ns["make_getter"](value),
-                ns["make_setter"](
+            if value is not None:
+                types_to_check = parse_typedef(value)
+                column_types[key] = types_to_check
+                get_func = ns["make_getter"](value)
+                set_func = ns["make_setter"](
                     value, fast, derived_classes.get(key), types_to_check, coerce_types, coerce_func
-                ),
-            )
+                )
+            get_raw_func = ns["make_raw_getter"]()
+            set_raw_func = ns["make_raw_setter"]()
+            if value is None:
+                get_func = get_raw_func
+                set_func = set_raw_func
+            new_property = property(get_func, set_func)
+            non_clobbering_view[key] = new_property
 
             if key in properties:
                 try:
@@ -631,41 +636,18 @@ class Atomic(type):
                         new_property = current_prop
             _class_cell_fixups.append((key, new_property))
             attrs[key] = new_property
+            if value is not None:
+                attrs[f"_{key}_"] = property(get_raw_func, set_raw_func)
+
         # Support columns are left as-is for slots
         support_columns = tuple(support_columns)
         ns_globals[class_name] = ReadOnly(None)
         exec(
-            compile(make_fast_eq(final_columns), "<make_fast_eq>", mode="exec"),
-            ns_globals,
-            ns_globals,
-        )
-        exec(
             compile(
-                make_fast_clear(final_columns, local_setter_var_template, class_name),
-                "<make_fast_clear>",
-                mode="exec",
-            ),
-            ns_globals,
-            ns_globals,
-        )
-        _class_cell_fixups.append(("clear", cast(types.FunctionType, ns_globals["clear"])))
-        exec(
-            compile(
-                make_fast_getset_item(
-                    final_columns,
-                    properties,
-                    class_name,
-                    local_getter_var_template,
-                    local_setter_var_template,
-                ),
+                make_fast_getset_item(final_columns, properties, class_name),
                 "<make_fast_getset_item>",
                 mode="exec",
             ),
-            ns_globals,
-            ns_globals,
-        )
-        exec(
-            compile(make_fast_iter(final_columns), "<make_fast_iter>", mode="exec"),
             ns_globals,
             ns_globals,
         )
@@ -674,43 +656,51 @@ class Atomic(type):
             ns_globals,
             ns_globals,
         )
-        exec(
-            compile(
-                make_defaults(tuple(final_columns), defaults_var_template),
-                "<make_defaults>",
-                mode="exec",
-            ),
-            ns_globals,
-            ns_globals,
-        )
-        if "__new__" not in attrs:
-            exec(
-                compile(
-                    make_fast_new(field_names, defaults_var_template),
-                    "<make_fast_new>",
-                    mode="exec",
-                ),
-                ns_globals,
-                ns_globals,
-            )
-            attrs["__new__"] = ns_globals["__new__"]
-            _class_cell_fixups.append(("__new__", cast(types.FunctionType, ns_globals["__new__"])))
 
-        attrs["__iter__"] = ns_globals["__iter__"]
         attrs["__getstate__"] = ns_globals["__getstate__"]
         attrs["__setstate__"] = ns_globals["__setstate__"]
-        attrs["__eq__"] = ns_globals["__eq__"]
-        attrs["_set_defaults"] = ns_globals["_set_defaults"]
-        attrs["clear"] = ns_globals["clear"]
         attrs["__getitem__"] = ns_globals["__getitem__"]
         attrs["__setitem__"] = ns_globals["__setitem__"]
+        attrs["_nonclobbering_view_cls"] = type("View", (ViewBase,), non_clobbering_view)
 
         slots = attrs.pop("__slots__")
 
-        attrs["_data_class"] = attrs[f"_{class_name}"] = dc = ReadOnly(None)
+        attrs["_data_class"] = attrs[class_name] = dc = ReadOnly(None)
         attrs["__slots__"] = ()
-        attrs["_parent"] = parent_cell = ReadOnly(None)
+        attrs["_support_cls"] = type("SupportData", (), {"__slots__": support_columns})
+
+        for name in support_columns:
+            support_ns = {}
+            exec(
+                compile(
+                    f"""
+def _support_set_{name}(self, value):
+    self._support.{name} = value
+                """,
+                    "<support>",
+                    mode="exec",
+                ),
+                support_ns,
+                support_ns,
+            )
+            exec(
+                compile(
+                    f"""
+def _support_get_{name}(self):
+    return self._support.{name}
+                """,
+                    "<support>",
+                    mode="exec",
+                ),
+                support_ns,
+                support_ns,
+            )
+            attrs[name] = property(
+                support_ns[f"_support_get_{name}"], support_ns[f"_support_set_{name}"]
+            )
+
         support_cls = super().__new__(klass, class_name, bases, attrs)
+        support_cls._parent = support_cls
 
         cache = {}
         for prop_name, value in _class_cell_fixups:
@@ -724,20 +714,30 @@ class Atomic(type):
             setattr(support_cls, prop_name, value)
         del cache
 
-        ns_globals[class_name].value = support_cls
-        ns_globals[class_name] = support_cls
-
         dataclass_template = env.get_template("data_class.jinja").render(
-            class_name=class_name,
-            slots=repr(
-                tuple("_{}_".format(key) for key in final_columns) + support_columns + extra_slots
-            ),
+            class_name=class_name, slots=final_columns, raw_slots=support_columns + extra_slots
         )
-        exec(compile(dataclass_template, "<dcs>", mode="exec"), ns_globals, ns_globals)
-        dc.value = data_class = ns_globals[f"_{class_name}"]
+        if DEBUG_CODEGEN:
+            print(dataclass_template)
+        dataclass_global_namespace = {
+            "Union": Union,
+            "Tuple": Tuple,
+            "Any": Any,
+            "UNDEFINED": undefined_type(),
+            "is_frozen": False,
+            "KeysView": KeysView,
+            "_DataclassRoot_": DataclassRoot,
+        }
+        dataclass_global_namespace = {**vars(builtins), **dataclass_global_namespace}
+        dataclass_namespace = {}
+        exec(
+            compile(dataclass_template, "<dataclass-autogen-code>", mode="exec"),
+            dataclass_global_namespace,
+            dataclass_namespace,
+        )
+        dc.value = data_class = dataclass_namespace[class_name]
         data_class.__module__ = support_cls.__module__
         data_class.__qualname__ = f"{support_cls.__qualname__}.{data_class.__name__}"
-        parent_cell.value = support_cls
         klass.REGISTRY.add(support_cls)
         return support_cls
 
@@ -746,25 +746,8 @@ Delta = namedtuple("Delta", ["state", "old", "new", "index"])
 LoggedDelta = namedtuple("LoggedDelta", ["timestamp", "key", "delta"])
 
 
-class Undefined(object):
-    SINGLETON = None
-
-    def __new__(cls):
-        if Undefined.SINGLETON is not None:
-            return Undefined.SINGLETON
-        Undefined.SINGLETON = super().__new__(cls)
-        return Undefined.SINGLETON
-
-    def __repr__(self):
-        return "Undefined"
-
-
-UNDEFINED = Undefined()
-
-
 class History(metaclass=Atomic):
     __slots__ = ("_changes", "_changed_keys", "_changed_index")
-    setter_wrapper = "history-setter-wrapper.jinja"
 
     if TYPE_CHECKING:
         _columns: FrozenSet[str]
@@ -839,6 +822,7 @@ Atomic.register_mixin("history", History)
 
 
 class Flags(IntEnum):
+    UNCONSTRUCTED = 0
     IN_CONSTRUCTOR = 1
     DEFAULTS_SET = 2
     INITIALIZED = 4
@@ -942,11 +926,8 @@ class ClassOrInstanceFuncsDescriptor:
         return types.MethodType(self._instance_function, instance)
 
 
-class Base(metaclass=Atomic, dataclass=True):
-    __slots__ = ("_flags",)
-    __setter_template__ = ReadOnly("self._{key}_ = val")
-    __getter_template__ = ReadOnly("return self._{key}_")
-    __defaults_init__ = ReadOnly(DEFAULTS)
+class Base(metaclass=Atomic, baseclass=True, undefined_type=type(None)):
+    __slots__ = ("_flags", "_data", "_attr_proxy", "_support", "__weakref__")
 
     @classmethod
     def _create_invalid_type(cls, field_name, val, val_type, types_required):
@@ -983,23 +964,56 @@ class Base(metaclass=Atomic, dataclass=True):
 
     def __new__(cls, *args, **kwargs):
         # Get the edge class that has all the __slots__ defined
-        cls = cls._data_class
         result = super().__new__(cls)
-        result._flags = 0
-        assert "__dict__" not in dir(
-            result
-        ), "Violation - there should never be __dict__ on a slotted class"
+        result._flags = Flags.UNCONSTRUCTED
+        result._data = cls._data_class()
+        result._support = cls._support_cls()
+        result._attr_proxy = cls._nonclobbering_view_cls(result)
         return result
+
+    @property
+    def __dict__(self):
+        """
+        support for calling vars(self)
+        """
+        return self._data.__dict__
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __reversed__(self):
+        return reversed(self._data)
+
+    def __delitem__(self, key):
+        del self._data[key]
+
+    def __delattr__(self, key):
+        self._data.__delattr__(key)
+
+    def __repr__(self):
+        return self._data.__repr__()
 
     def __len__(self):
         return len(self.keys())
 
     def __contains__(self, item):
-        return item in self.keys(all=True)
+        return item in self._data or item in self._properties
+
+    def __getitem__(self, proxy):
+        return self._data[proxy]
+
+    def __hash__(self):
+        return hash(self._data)
+
+    def __freeze__(self):
+        return self._data.__freeze__()
+
+    def __thaw__(self):
+        return self._data.__thaw__()
 
     def get(self, key, default=None):
         try:
-            return self[key]
+            return self._data[key]
         except KeyError:
             return default
 
@@ -1012,7 +1026,9 @@ class Base(metaclass=Atomic, dataclass=True):
         Returns a dictionary compatible with json.dumps(...)
         """
         result = {}
-        for key, value in self:
+        for key, value in self._data:
+            if value is UNDEFINED:
+                value = None
             # Support nested daos
             if hasattr(value, "to_json"):
                 value = value.to_json()
@@ -1027,10 +1043,10 @@ class Base(metaclass=Atomic, dataclass=True):
         return result
 
     def items(self):
-        return ItemsView(self)
+        return self._data._items()
 
     def values(self):
-        return ValuesView(self)
+        return self._data._values()
 
     def __json__(self):
         return self.to_json()
@@ -1038,8 +1054,7 @@ class Base(metaclass=Atomic, dataclass=True):
     def __reduce__(self):
         # Create an empty class then let __setstate__ in the autogen
         # code to handle passing raw values.
-        data_class, support_cls, *_ = self.__class__.__mro__
-        return load_cls, (support_cls, (), {}), self.__getstate__()
+        return self.__class__, (), self.__getstate__()
 
     def _handle_init_errors(self, errors, errored_keys, unrecognized_keys):
         if unrecognized_keys:
@@ -1059,9 +1074,14 @@ class Base(metaclass=Atomic, dataclass=True):
                 *errors,
             )
 
+    def __init_defaults__(self, *args, **kwargs):
+        pass
+
     def __init__(self, *args, **kwargs):
         self._flags |= Flags.IN_CONSTRUCTOR
+        self.__init_defaults__(*args, **kwargs)
         self._flags |= Flags.DEFAULTS_SET
+
         errors = []
         errored_keys = []
         keys = self.keys()
@@ -1089,8 +1109,43 @@ class Base(metaclass=Atomic, dataclass=True):
         self._handle_init_errors(errors, errored_keys, unrecognized_keys)
         self._flags = Flags.INITIALIZED
 
-    def clear(self, fields=None):
+    def __enter__(self):
+        return self._attr_proxy
+
+    def __exit__(self, exc_type, exc_value, traceback):
         pass
+
+    def clear(self, fields=None):
+        self._data._clear(fields)
+
+    def __eq__(self, other):
+        if isinstance(other, Base):
+            other = other._data
+        return self._data == other
+
+    def __neq__(self, other):
+        if isinstance(other, Base):
+            other = other._data
+        return self._data != other
+
+    def _asdict(self):
+        return self._data._asdict()
+
+    def _astuple(self):
+        return self._data._astuple()
+
+    def copy(self):
+        item = self.__class__()
+        item._data = self._data._copy()
+        return item
 
 
 AbstractMapping.register(Base)  # pytype: disable=attribute-error
+
+
+def freeze(item):
+    return item.__freeze__()
+
+
+def thaw(item):
+    return item.__thaw__()

@@ -201,12 +201,15 @@ def test_derived_klass():
 def test_derived_equivalence():
     item = NestedData(id=1, nested={"field": "ben"})
     item_alt = NestedDataAlt(id=1, nested={"field": "ben"})
+    assert item.id == item_alt.id
+    assert item.nested.field == item_alt.nested.field
+    assert item.nested == item_alt.nested
     assert item == item_alt
 
 
 def test_valid_types():
     t = Data(field=1)
-    assert "__dict__" not in dir(t)
+    assert "__dict__" not in dir(t) or not isinstance(t.__dict__, dict)
     assert t.field == 1
     t.field = "t"
     assert t.field == "t"
@@ -486,12 +489,12 @@ def test_qulaname():
     assert VectoredItems.__qualname__ == "test_qulaname.<locals>.VectoredItems"
     assert (
         VectoredItems._data_class.__qualname__
-        == "test_qulaname.<locals>.VectoredItems._VectoredItems"
+        == "test_qulaname.<locals>.VectoredItems.VectoredItems"
     )
     assert VectoredItems.__name__ == "VectoredItems"
-    assert VectoredItems._data_class.__name__ == "_VectoredItems"
+    assert VectoredItems._data_class.__name__ == "VectoredItems"
     assert VectoredItems.__module__ is VectoredItems._data_class.__module__
-    assert getattr(VectoredItems, "_VectoredItems") is VectoredItems._data_class
+    assert getattr(VectoredItems, "VectoredItems") is VectoredItems._data_class
 
 
 def test_redefine_fields():
