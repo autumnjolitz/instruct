@@ -197,18 +197,34 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
 
 
 def is_typing_definition(item):
-    if not isinstance(item, type):
-        return is_typing_definition(type(item))
     if getattr(item, "__module__", None) == "typing":
         return True
     return False
 
 
 def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, Tuple[Type]]:
+    """
+    Break a type def into types suitable for doing an isinstance(item, ...) check.
+
+    typeA -> typeA
+    (typeA, typeB) -> (typeA, typeB)
+    Union[typeA, typeB] -> (typeA, typeB)
+    Optional[typeA] -> (NoneType, typeA)
+
+    Support collection typelimiting like
+
+    List[int] -> (IntList,) where IntList is a custom type with a special
+    metaclass that executes an embedded function for checking if all members
+    of the collection is the right type. i.e all(isintance(item, int) for item in object)
+    """
     if type(typedef) is tuple or type(typedef) is list:
         return tuple(parse_typedef(x) for x in typedef)
     if not is_typing_definition(typedef):
-        return typedef
+        # ARJ: Okay, we're not a typing module descendant.
+        # Are we a type itelf?
+        if isinstance(typedef, type):
+            return typedef
+        raise NotImplementedError(f"Unknown typedef definition {typedef!r} ({type(typedef)})!")
 
     if typedef is AnyStr:
         return str, bytes
@@ -233,5 +249,5 @@ def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, T
                 return cls
         return (typedef.__origin__,)
     raise NotImplementedError(
-        f"The type definition for {typedef} is not supported, report as an issue."
+        f"The type definition for {typedef!r} is not supported yet, report as an issue."
     )
