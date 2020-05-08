@@ -570,7 +570,8 @@ class Atomic(type):
             coerce_types = coerce_func = None
             if coerce_mappings and key in coerce_mappings:
                 coerce_types, coerce_func = coerce_mappings[key]
-            coerce_types = parse_typedef(coerce_types)
+            if coerce_types is not None:
+                coerce_types = parse_typedef(coerce_types)
             all_coercions[key] = (coerce_types, coerce_func)
             getter_code = getter_template.render(
                 field_name=key, get_variable_template=local_getter_var_template
