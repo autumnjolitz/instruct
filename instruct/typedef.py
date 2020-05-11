@@ -35,6 +35,10 @@ def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
     return cast(Type[ICustomTypeCheck], _WrappedType)
 
 
+def ismetasubclass(cls, metacls):
+    return issubclass(type(cls), metacls)
+
+
 def issubormetasubclass(type_cls, cls, metaclass=False):
     if metaclass is True:
         type_cls = type(type_cls)
