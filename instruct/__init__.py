@@ -411,6 +411,15 @@ def create_proxy_property(
 
 
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
+EMPTY_FROZEN_SET = frozenset()
+
+
+def __no_op_skip_get__(self):
+    return
+
+
+def __no_op_skip_set__(self, value):
+    return
 
 
 class Atomic(type):
@@ -439,13 +448,41 @@ class Atomic(type):
         # to filter it out of the `type(...)` call
         super().__init__(*args)
 
-    def __new__(klass, class_name, bases, attrs, fast=None, concrete_class=False, **mixins):
+    def __iter__(self):
+        yield from self._columns.keys()
+
+    def __sub__(self, other: Union[Set[str], List[str], Tuple[str], FrozenSet[str]]):
+        assert isinstance(other, (list, frozenset, set, tuple)), other
+        other = frozenset(other)
+        cls = type(self)
+        cls = getattr(self, "_parent", self)
+        unrecognized_keys = other - self._columns.keys()
+        if unrecognized_keys:
+            unrecognized_keys_friendly = ", ".join(str(x) for x in unrecognized_keys)
+            raise TypeError(f"Unrecognized fields on {cls}: {unrecognized_keys_friendly}")
+        fieldnames = "And".join(other)
+        return type(
+            f"{cls.__name__}Minus{fieldnames}", (cls,), {"__slots__": ()}, skip_fields=other
+        )
+
+    def __new__(
+        klass,
+        class_name,
+        bases,
+        attrs,
+        *,
+        fast=None,
+        concrete_class=False,
+        skip_fields=EMPTY_FROZEN_SET,
+        **mixins,
+    ):
         if concrete_class:
             cls = super().__new__(klass, class_name, bases, attrs)
             if not getattr(cls, "__hash__", None):
                 cls.__hash__ = object.__hash__
             assert cls.__hash__ is not None
             return cls
+        assert isinstance(skip_fields, frozenset)
 
         if "__slots__" not in attrs:
             raise TypeError(
@@ -524,6 +561,7 @@ class Atomic(type):
         # Base class inherited items:
         inherited_listeners = {}
         for cls in bases:
+            skipped_properties = ()
             if (
                 hasattr(cls, "__slots__")
                 and cls.__slots__ != ()
@@ -567,6 +605,7 @@ class Atomic(type):
                     combined_slots.update(cls._slots)
                 if cls._support_columns:
                     support_columns.extend(cls._support_columns)
+                skipped_properties = cls._no_op_properties
 
                 if hasattr(cls, "setter_wrapper"):
                     setter_wrapper.append(cls.setter_wrapper)
@@ -576,11 +615,18 @@ class Atomic(type):
                     setter_templates.append(cls.__setter_template__)
                 if hasattr(cls, "__defaults_init__"):
                     defaults_templates.append(cls.__defaults_init__)
-
             # Collect all publicly accessible properties:
             for key in dir(cls):
                 value = getattr(cls, key)
                 if isinstance(value, property):
+                    if key in skipped_properties:
+                        continue
+                    if (
+                        key.startswith("_")
+                        and key.endswith("_")
+                        and key[1:-1] in skipped_properties
+                    ):
+                        continue
                     properties.append(key)
 
         # Okay, now parse the current class types and then merge with
@@ -596,6 +642,17 @@ class Atomic(type):
                 nested_atomic_collections.append(key)
             current_class_slots[key] = combined_slots[key] = value
             current_class_columns[key] = combined_columns[key] = parse_typedef(value)
+
+        no_op_skip_keys = []
+        for key in combined_columns.keys() & skip_fields:
+            no_op_skip_keys.append(key)
+            del combined_columns[key]
+            del combined_slots[key]
+
+        for key in current_class_columns.keys() & skip_fields:
+            no_op_skip_keys.append(key)
+            del current_class_slots[key]
+            del current_class_columns[key]
 
         # Gather listeners:
         listeners, post_coerce_failure_handlers = gather_listeners(
@@ -750,12 +807,17 @@ class Atomic(type):
             if key in ns_globals:
                 logger.debug(f"Copying {key} into {class_name} attributes")
                 attrs[key] = ns_globals.pop(key)
+
+        for key in no_op_skip_keys:
+            attrs[key] = attrs[f"_{key}_"] = property(__no_op_skip_get__, __no_op_skip_set__)
+
         if ns_globals:
             logger.debug(
                 f"Did not add the following to {class_name} attributes: {tuple(ns_globals.keys())}"
             )
 
         attrs["_columns"] = ReadOnly(FrozenMapping(combined_columns))
+        attrs["_no_op_properties"] = tuple(no_op_skip_keys)
         attrs["_slots"] = ReadOnly(FrozenMapping(combined_slots))
         attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
@@ -789,8 +851,7 @@ class Atomic(type):
             setattr(support_cls, prop_name, value)
         del cache
 
-        ns_globals[class_name].value = support_cls
-        ns_globals[class_name] = support_cls
+        ns_globals["klass"] = support_cls
         dataclass_slots = (
             tuple("_{}_".format(key) for key in combined_columns) + support_columns + extra_slots
         )

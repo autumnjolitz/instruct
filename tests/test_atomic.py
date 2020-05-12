@@ -614,3 +614,14 @@ def test_embedded_collection_tracking():
         __slots__ = {"key": str}
 
     assert not ({"others", "fields"} - set(InheritedBarter._nested_atomic_collection_keys))
+
+
+def test_skip_fields():
+    cls = InheritCoerce - {"id"}
+    assert "id" not in cls.keys()
+    assert (InheritCoerce.keys() - {"id"}) == cls.keys()
+    a = cls(baz="1")
+    assert a.baz == 1
+    b = cls(1)
+    assert b.baz == 1
+    assert b.to_json() == {"baz": 1}
