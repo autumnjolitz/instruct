@@ -625,3 +625,42 @@ def test_skip_fields():
     b = cls(1)
     assert b.baz == 1
     assert b.to_json() == {"baz": 1}
+
+
+def test_override_special_functions():
+    class OverriddenEq(Base):
+        __slots__ = {"a": str}
+
+        def __eq__(self, other: Union[str, int]) -> bool:
+            if isinstance(other, (int, str)):
+                other = OverriddenEq(f"{other}")
+            return super().__eq__(other)
+
+    assert OverriddenEq("1") == OverriddenEq("1")
+    assert OverriddenEq("1") == 1
+
+
+def test_dataclasses_format():
+    """
+    Data classes are popular and make linters happy. Let's support them by
+    copying __annotations__ -> __slots__ as is.
+    """
+
+    class Dataclass(Base):
+        a: Union[str, int]
+        b: int
+
+    class InstructVersion(Base):
+        __slots__ = {"a": Union[str, int], "b": int}
+
+    assert Dataclass("foo", 2) == InstructVersion("foo", 2)
+
+    # Now test the case where the annotations are strings (because of
+    # ``from __future__ import annotations``
+    # )
+    class DataclassFuture(Base):
+        a: "Union[str, int]"
+        b: "int"
+
+    assert Dataclass("foo", 2) == DataclassFuture("foo", 2)
+    assert DataclassFuture("foo", 2) == InstructVersion("foo", 2)
