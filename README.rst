@@ -91,11 +91,43 @@ And have it work like this?
     org.history()
 
 
+Example Usage
+^^^^^^^^^^^^^^^
+
+.. code-block:: pycon
+
+    >>> from instruct import Base
+    >>>
+    >>> class MyClass(Base):
+    ...     foo: int
+    ...     bar: Optional[str]
+    ...     baz: Union[Dict[str, str], int]
+    ...     def __eq__(self, other):
+    ...         if isinstance(other, tuple) and len(other) == 3:
+    ...            # Cast the tuple to this type!
+    ...            other = MyClass(*other)
+    ...         return super().__eq__(other)
+    ...
+    >>> instance = MyClass(1, None, baz={"a": "a"})
+    >>> assert instance.foo == 1
+    >>> assert instance.bar is None
+    >>> instance.bar = "A String!"
+    >>>
+    >>> assert instance == (1, "A String!", {"a": "a"})
+    >>>
+    >>> instance.foo = 'I should not be allowed'
+    Traceback (most recent call last):
+      File "<stdin>", line 1, in <module>
+      File "<getter-setter>", line 36, in _set_foo
+    TypeError: Unable to set foo to 'I should not be allowed' (str). foo expects a int
+    >>>
+
+
 Design
 ----------
 
 Solving the multiple-inheritance and ``__slots__`` problem
-***************************************************************
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Consider the following graph::
 
@@ -149,6 +181,25 @@ Callgraph Performance
 
 Benchmark
 --------------
+
+
+Latest benchmark run:::
+
+    (python) Fateweaver:~/software/instruct [master]$ python --version
+    Python 3.7.7
+    (python) Fateweaver:~/software/instruct [master]$ python -m instruct benchmark
+    Overhead of allocation, one field, safeties on: 19.53us
+    Overhead of allocation, one field, safeties off: 19.50us
+    Overhead of setting a field:
+    Test with safeties: 0.27 us
+    Test without safeties: 0.17 us
+    Overhead of clearing/setting
+    Test with safeties: 0.75 us
+    Test without safeties: 0.65 us
+    (python) Fateweaver:~/software/instruct [master]$
+
+
+
 
 Before additions of coercion, event-listeners, multiple-inheritance
 
