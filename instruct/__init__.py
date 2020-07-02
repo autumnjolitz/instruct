@@ -279,7 +279,7 @@ def insert_class_closure(
     if current_closure is None:
         current_closure = ()
     new_globals = globals()
-    if function.__module__ and function.__module__ != "__main__":
+    if function.__module__:
         module = import_module(function.__module__)
         new_globals = module.__dict__
 
