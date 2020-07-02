@@ -5,6 +5,10 @@ A compact, fast object system that can serve as the basis for a DAO model.
 
 To that end, instruct uses ``__slots__`` to prevent new attribute addition, properties to control types, event listeners and historical changes, and a Jinja2-driven codegen to keep a pure-Python implementation as fast and as light as possible.
 
+I want to basically have a form of strictly typed objects that behave like C structs but can handle automatically coercing incoming values correctly, have primitive events and have fast ``__iter__``, ``__eq__`` while also allowing for one to override it in the final class (and even call super!)
+
+This girl asks for a lot but I like taking metaclassing as far as it can go without diving into using macropy. 😉
+
 
 Attempt to serve multiple masters:
 
@@ -18,6 +22,7 @@ Attempt to serve multiple masters:
     - Support List[type] declarations and initializations
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
     - Cython compatibility
+    - optionally data class annotation-like behavior [Done]
 
 
 Design Goal
@@ -46,12 +51,13 @@ Wouldn't it be nice to define a heirachy like this:
             super().__init__(**kwargs)
 
     class Organization(Base, history=True):
-        __slots__ = {
-            'name': str,
-            'id': int,
-            'members': List[Member],
-            'created_date': datetime.datetime,
-        }
+        # ARJ: Note how we can also use the dataclass/typing.NamedTuple
+        # definition format and it behaves just like the ``__slots__`` example
+        # above!
+        name: str
+        id: int
+        members: List[Member]
+        created_date: datetime.datetime
 
         __coerce__ = {
             'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))

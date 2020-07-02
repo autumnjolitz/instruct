@@ -27,6 +27,7 @@ from typing import (
     List,
     Set,
     Dict,
+    get_type_hints,
 )
 import types
 from itertools import chain
@@ -234,6 +235,13 @@ def insert_class_closure(
             Derived = None
 
     code = function.__code__
+    co_closure = code.co_freevars
+
+    if "__class__" not in code.co_freevars:
+        co_closure += ("__class__",)
+        index = len(co_closure)
+    else:
+        index = co_closure.index("__class__")
     code = types.CodeType(
         code.co_argcount,
         code.co_kwonlyargcount,
@@ -248,7 +256,7 @@ def insert_class_closure(
         code.co_name,
         code.co_firstlineno,
         code.co_lnotab,
-        code.co_freevars + ("__class__",),
+        co_closure,
         code.co_cellvars,
     )
 
@@ -273,9 +281,13 @@ def insert_class_closure(
     new_globals = globals()
     if function.__module__ and function.__module__ != "__main__":
         module = import_module(function.__module__)
-        new_globals = {**globals(), **vars(module)}
+        new_globals = module.__dict__
+
+    # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
+    # This will allow for overridden functions to be called with super()
+    co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
     return types.FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, current_closure + (class_cell,)
+        code, new_globals, function.__name__, function.__defaults__, co_freevars_values
     )
 
 
@@ -483,15 +495,38 @@ class Atomic(type):
             assert cls.__hash__ is not None
             return cls
         assert isinstance(skip_fields, frozenset)
+        data_class_attrs = {}
+        for key in (
+            "__iter__",
+            "__getstate__",
+            "__setstate__",
+            "__eq__",
+            "__neq__",
+            "_set_defaults",
+            "clear",
+            "__getitem__",
+            "__setitem__",
+        ):
+            if key in attrs:
+                data_class_attrs[key] = attrs.pop(key)
 
-        if "__slots__" not in attrs:
+        support_cls_attrs = attrs
+        del attrs
+
+        if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
+            module = import_module(support_cls_attrs["__module__"])
+            hints = get_type_hints(
+                types.SimpleNamespace(**support_cls_attrs), module.__dict__, globals()
+            )
+            support_cls_attrs["__slots__"] = hints
+        if "__slots__" not in support_cls_attrs:
             raise TypeError(
                 f"You must define __slots__ for {class_name} to constrain the typespace"
             )
 
         coerce_mappings: Optional[CoerceMapping] = None
-        if "__coerce__" in attrs and attrs["__coerce__"] is not None:
-            coerce_mappings: AbstractMapping = attrs["__coerce__"]
+        if "__coerce__" in support_cls_attrs and support_cls_attrs["__coerce__"] is not None:
+            coerce_mappings: AbstractMapping = support_cls_attrs["__coerce__"]
             if isinstance(coerce_mappings, ReadOnly):
                 # Unwrap
                 coerce_mappings = coerce_mappings.value
@@ -501,25 +536,25 @@ class Atomic(type):
                     f"{class_name} expects `__coerce__` to implement an AbstractMapping or None, "
                     f"not a {type(coerce_mappings)}"
                 )
-            if not isinstance(attrs["__coerce__"], ReadOnly):
-                attrs["__coerce__"] = ReadOnly(coerce_mappings)
+            if not isinstance(support_cls_attrs["__coerce__"], ReadOnly):
+                support_cls_attrs["__coerce__"] = ReadOnly(coerce_mappings)
         coerce_mappings = cast(CoerceMapping, coerce_mappings)
 
         # A support column is a __slot__ element that is unmanaged.
         support_columns = []
-        if isinstance(attrs["__slots__"], tuple):
+        if isinstance(support_cls_attrs["__slots__"], tuple):
             # Classes with tuples in them are assumed to be
             # data class definitions (i.e. supporting things like a change log)
-            support_columns.extend(attrs["__slots__"])
-            attrs["__slots__"] = FrozenMapping()
+            support_columns.extend(support_cls_attrs["__slots__"])
+            support_cls_attrs["__slots__"] = FrozenMapping()
 
-        if not isinstance(attrs["__slots__"], (tuple, AbstractMapping)):
+        if not isinstance(support_cls_attrs["__slots__"], (tuple, AbstractMapping)):
             raise TypeError(
                 f"The __slots__ definition for {class_name} must be a mapping or empty tuple!"
             )
 
-        if "fast" in attrs:
-            fast = attrs.pop("fast")
+        if "fast" in support_cls_attrs:
+            fast = support_cls_attrs.pop("fast")
         if fast is None:
             fast = not __debug__
 
@@ -545,19 +580,19 @@ class Atomic(type):
         setter_templates = []
         defaults_templates = []
 
-        if "__setter_template__" in attrs:
-            setter_templates.append(attrs["__setter_template__"])
-        if "__getter_template__" in attrs:
-            getter_templates.append(attrs["__getter_template__"])
-        if "__defaults_init__" in attrs:
-            defaults_templates.append(attrs["__defaults_init__"])
+        if "__setter_template__" in support_cls_attrs:
+            setter_templates.append(support_cls_attrs["__setter_template__"])
+        if "__getter_template__" in support_cls_attrs:
+            getter_templates.append(support_cls_attrs["__getter_template__"])
+        if "__defaults_init__" in support_cls_attrs:
+            defaults_templates.append(support_cls_attrs["__defaults_init__"])
 
         # collection of all the known public properties for this class and it's parents:
-        properties = [name for name, val in attrs.items() if isinstance(val, property)]
+        properties = [name for name, val in support_cls_attrs.items() if isinstance(val, property)]
 
         pending_extra_slots = []
-        if "__extra_slots__" in attrs:
-            pending_extra_slots.extend(attrs["__extra_slots__"])
+        if "__extra_slots__" in support_cls_attrs:
+            pending_extra_slots.extend(support_cls_attrs["__extra_slots__"])
         # Base class inherited items:
         inherited_listeners = {}
         for cls in bases:
@@ -634,7 +669,7 @@ class Atomic(type):
         derived_classes = {}
         current_class_columns = {}
         current_class_slots = {}
-        for key, value in attrs["__slots__"].items():
+        for key, value in support_cls_attrs["__slots__"].items():
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
                 derived_classes[key] = value
@@ -656,7 +691,11 @@ class Atomic(type):
 
         # Gather listeners:
         listeners, post_coerce_failure_handlers = gather_listeners(
-            class_name, attrs, current_class_columns, combined_columns, inherited_listeners
+            class_name,
+            support_cls_attrs,
+            current_class_columns,
+            combined_columns,
+            inherited_listeners,
         )
 
         if combined_columns:
@@ -713,15 +752,15 @@ class Atomic(type):
                 fast=fast,
             )
             column_types[key] = isinstance_compatible_types
-            if key in properties and key in attrs:
-                current_prop = attrs[key]
+            if key in properties and key in support_cls_attrs:
+                current_prop = support_cls_attrs[key]
                 if current_prop.fget is not None:
                     new_property = new_property.getter(current_prop.fget)
                 if current_prop.fset is not None:
                     new_property = new_property.setter(current_prop.fset)
                 if current_prop.fdel is not None:
                     new_property = new_property.deleter(current_prop.fdel)
-            attrs[key] = new_property
+            support_cls_attrs[key] = new_property
             class_cell_fixups.append((key, new_property))
 
         # Support columns are left as-is for slots
@@ -781,7 +820,7 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-        if "__new__" not in attrs and combined_columns:
+        if "__new__" not in support_cls_attrs and combined_columns:
             exec(
                 compile(
                     make_fast_new(current_class_fields, defaults_var_template),
@@ -791,7 +830,7 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-            attrs["__new__"] = ns_globals["__new__"]
+            support_cls_attrs["__new__"] = ns_globals["__new__"]
             class_cell_fixups.append(("__new__", cast(types.FunctionType, ns_globals["__new__"])))
         for key in (
             "__iter__",
@@ -804,50 +843,62 @@ class Atomic(type):
             "__getitem__",
             "__setitem__",
         ):
+            # Move the autogenerated functions into the support class
+            # Any overrides that *may* call them will be assigned
+            # to the concrete class instead
             if key in ns_globals:
                 logger.debug(f"Copying {key} into {class_name} attributes")
-                attrs[key] = ns_globals.pop(key)
+                support_cls_attrs[key] = ns_globals.pop(key)
 
+        # Any keys subtracted must have no-nop setters in order to
+        # allow for subtype relationship will behaving as if those keys are fundamentally
+        # not there.
         for key in no_op_skip_keys:
-            attrs[key] = attrs[f"_{key}_"] = property(__no_op_skip_get__, __no_op_skip_set__)
+            support_cls_attrs[key] = support_cls_attrs[f"_{key}_"] = property(
+                __no_op_skip_get__, __no_op_skip_set__
+            )
 
         if ns_globals:
             logger.debug(
                 f"Did not add the following to {class_name} attributes: {tuple(ns_globals.keys())}"
             )
 
-        attrs["_columns"] = ReadOnly(FrozenMapping(combined_columns))
-        attrs["_no_op_properties"] = tuple(no_op_skip_keys)
-        attrs["_slots"] = ReadOnly(FrozenMapping(combined_slots))
-        attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
-        attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
-        attrs["_support_columns"] = tuple(support_columns)
-        attrs["_nested_atomic_collection_keys"] = tuple(nested_atomic_collections)
+        support_cls_attrs["_columns"] = ReadOnly(FrozenMapping(combined_columns))
+        support_cls_attrs["_no_op_properties"] = tuple(no_op_skip_keys)
+        support_cls_attrs["_slots"] = ReadOnly(FrozenMapping(combined_slots))
+        support_cls_attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
+        support_cls_attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
+        support_cls_attrs["_support_columns"] = tuple(support_columns)
+        support_cls_attrs["_nested_atomic_collection_keys"] = tuple(nested_atomic_collections)
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
-        attrs["__extra_slots__"] = ReadOnly(extra_slots)
-        attrs["_properties"] = properties = KeysView(properties)
-        attrs["_all_accessible_fields"] = ReadOnly(combined_columns.keys() | KeysView(properties))
-        attrs["_configuration"] = ReadOnly(conf)
+        support_cls_attrs["__extra_slots__"] = ReadOnly(extra_slots)
+        support_cls_attrs["_properties"] = properties = KeysView(properties)
+        support_cls_attrs["_all_accessible_fields"] = ReadOnly(
+            combined_columns.keys() | KeysView(properties)
+        )
+        support_cls_attrs["_configuration"] = ReadOnly(conf)
 
-        attrs["_listener_funcs"] = ReadOnly(listeners)
+        support_cls_attrs["_listener_funcs"] = ReadOnly(listeners)
         # Ensure public class has zero slots!
-        attrs["__slots__"] = ()
+        support_cls_attrs["__slots__"] = ()
 
-        attrs["_data_class"] = attrs[f"_{class_name}"] = dc = ReadOnly(None)
-        attrs["_parent"] = parent_cell = ReadOnly(None)
-        support_cls = super().__new__(klass, class_name, bases, attrs)
+        support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = dc = ReadOnly(None)
+        support_cls_attrs["_parent"] = parent_cell = ReadOnly(None)
+        support_cls = super().__new__(klass, class_name, bases, support_cls_attrs)
 
         cache = {}
-        for prop_name, value in class_cell_fixups:
+        for prop_name, value in support_cls_attrs.items():
             if isinstance(value, property):
                 value = property(
                     insert_class_closure(support_cls, value.fget, memory=cache),
                     insert_class_closure(support_cls, value.fset, memory=cache),
                 )
-            else:
+            elif isinstance(value, types.FunctionType):
                 value = insert_class_closure(support_cls, value, memory=cache)
+            else:
+                continue
             setattr(support_cls, prop_name, value)
         del cache
 
@@ -856,11 +907,15 @@ class Atomic(type):
             tuple("_{}_".format(key) for key in combined_columns) + support_columns + extra_slots
         )
         dataclass_template = env.get_template("data_class.jinja").render(
-            class_name=class_name, slots=repr(dataclass_slots)
+            class_name=class_name, slots=repr(dataclass_slots), data_class_attrs=data_class_attrs
         )
+        ns_globals["_dataclass_attrs"] = data_class_attrs
         exec(compile(dataclass_template, "<dcs>", mode="exec"), ns_globals, ns_globals)
         dc.value = data_class = ns_globals[f"_{class_name}"]
         data_class.__module__ = support_cls.__module__
+        for key, value in data_class_attrs.items():
+            if callable(value):
+                setattr(data_class, key, insert_class_closure(data_class, value))
         data_class.__qualname__ = f"{support_cls.__qualname__}.{data_class.__name__}"
         parent_cell.value = support_cls
         klass.REGISTRY.add(support_cls)

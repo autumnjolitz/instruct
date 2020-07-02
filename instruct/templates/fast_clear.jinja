@@ -12,4 +12,3 @@ def clear(self, fields=None):
     if '{{field}}' in fields:
         {{setter_variable_template|format(key=field)|indent(8)}}
     {%- endfor %}
-    super().clear(fields)
