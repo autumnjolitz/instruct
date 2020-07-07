@@ -664,3 +664,34 @@ def test_dataclasses_format():
 
     assert Dataclass("foo", 2) == DataclassFuture("foo", 2)
     assert DataclassFuture("foo", 2) == InstructVersion("foo", 2)
+
+
+def test_keyword_only_args_super():
+    type_signature = Tuple[int, int, int]
+
+    class F(Base):
+        __slots__ = ()
+
+        def test_function_capabilities(self, a, b: int = 1, *, defaults=1) -> type_signature:
+            return a, b, defaults
+
+    assert F().test_function_capabilities(1) == (1, 1, 1)
+    assert F().test_function_capabilities.__annotations__ == {"b": int, "return": type_signature}
+
+    class BaseClass(Base):
+        __slots__ = ()
+
+        def my_function(self, *, defaults=1):
+            return defaults, dict(self)
+
+    class Inherits(BaseClass):
+        a: str
+
+        def bar(self):
+            return self.my_function()
+
+    b = Inherits("foobar")
+    assert b.my_function(defaults=2) == (2, {"a": "foobar"})
+
+    assert b.my_function() == (1, {"a": "foobar"})
+    assert b.bar() == (1, {"a": "foobar"})

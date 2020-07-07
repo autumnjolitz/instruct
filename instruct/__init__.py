@@ -286,9 +286,12 @@ def insert_class_closure(
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
     co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
-    return types.FunctionType(
+    new_function = types.FunctionType(
         code, new_globals, function.__name__, function.__defaults__, co_freevars_values
     )
+    new_function.__kwdefaults__ = function.__kwdefaults__
+    new_function.__annotations__ = function.__annotations__
+    return new_function
 
 
 def explode(*args, **kwargs):
