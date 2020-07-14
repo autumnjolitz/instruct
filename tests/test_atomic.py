@@ -13,6 +13,7 @@ from instruct import (
     ClassCreationFailed,
     OrphanedListenersError,
     handle_type_error,
+    SimpleBase,
 )
 
 
@@ -85,7 +86,7 @@ class InheritCoerce(InheritCoerceBase):
 
 def test_ordering_keys():
     assert tuple(InheritCoerce.keys()) == ("id", "baz")
-    assert tuple(InheritCoerce(id=1, baz="2").keys()) == ("id", "baz")
+    assert tuple(InheritCoerce.keys(InheritCoerce(id=1, baz="2"))) == ("id", "baz")
 
 
 def test_constructor_arguments():
@@ -272,6 +273,32 @@ def test_fast_setter():
 
     f = FastData(a=1)
     assert f.bar == "1"
+
+
+def test_values_view():
+    class Foo(Base):
+        foo: str
+
+    f = Foo("abc")
+    assert "abc" in Foo.values(f)
+
+    with pytest.raises(AttributeError):
+        # Avoid clobbering any properties named values please.
+        f.values()
+
+    assert {"abc"} == set(type(f).values(f))
+
+
+def test_items_view():
+    class Bar(Base):
+        baz: int
+
+    class Foo(Base):
+        foo: str
+        bar: Optional[Bar]
+
+    f = Foo("abc", Bar(1))
+    assert dict(Foo.items(f)) == f._asdict()
 
 
 def test_getitem():
@@ -526,7 +553,7 @@ class Foo(Base):
     __slots__ = {"complex": Union[DivergentA, DivergentB], "type": DivergentType}
 
     def __delattr__(self, key):
-        if key in self.keys():
+        if key in self.__class__.keys():
             setattr(self, f"_{key}_", None)
 
     def __init__(self, **data):
@@ -695,3 +722,61 @@ def test_keyword_only_args_super():
 
     assert b.my_function() == (1, {"a": "foobar"})
     assert b.bar() == (1, {"a": "foobar"})
+
+
+def test_as_primitives():
+    class Foo(Base):
+        foo: str
+        bar: int
+        baz: Tuple[complex, ...]
+
+    f = Foo("abc", 1, (1j, 2 + 1j))
+    assert f._astuple() == ("abc", 1, (1j, 2 + 1j))
+    assert f._asdict() == {"foo": "abc", "bar": 1, "baz": (1j, 2 + 1j)}
+    assert f._aslist() == ["abc", 1, (1j, 2 + 1j)]
+
+
+def test_without_keys():
+    class Foo(SimpleBase, json=True):
+        bar: str
+
+    f = Foo("abc")
+
+    with pytest.raises(TypeError):
+        {**f}
+
+    assert f.to_json() == {"bar": "abc"}
+
+    class ClobberedKeys(SimpleBase):
+        bar: str
+        keys: List[str]
+
+    c = ClobberedKeys("a", ["foo"])
+    with pytest.raises(TypeError):
+        {**c}
+
+    # Show that accessing the metaclass ALWAYS
+    # allows for getting the keys, values, etc functions
+    type(ClobberedKeys).keys(ClobberedKeys) & {"bar", "keys"} == {"bar", "keys"}
+    type(ClobberedKeys).keys(c) & {"bar", "keys"} == {"bar", "keys"}
+
+
+def test_without_json():
+    class Foo(SimpleBase):
+        bar: int
+
+    f = Foo(1)
+
+    assert Foo.to_json(f) == ({"bar": 1},)
+    with pytest.raises(AttributeError):
+        f.to_json()
+
+    class Clobbered(SimpleBase):
+        to_json: bool
+
+    c = Clobbered(False)
+
+    with pytest.raises(TypeError):
+        Clobbered.to_json()
+
+    assert type(Clobbered).to_json(c) == ({"to_json": False},)

@@ -1,0 +1,29 @@
+def _asdict(self):
+    """
+    Data helper - used to get this object as a raw dictionary.
+    """
+    return {
+        {% for key in fields %}
+        "{{key}}": self.{{key}},
+        {%endfor %}
+    }
+
+def _astuple(self):
+    """
+    Data helper - used to get this object's values as a raw tuple.
+    """
+    return (
+        {% for key in fields %}
+        self.{{key}},
+        {%endfor %}
+    )
+
+def _aslist(self):
+    """
+    Data helper - used to get this object's values as a raw list.
+    """
+    return [
+        {% for key in fields %}
+        self.{{key}},
+        {%endfor %}
+    ]
