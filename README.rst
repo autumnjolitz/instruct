@@ -23,6 +23,8 @@ Attempt to serve multiple masters:
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
     - Cython compatibility
     - optionally data class annotation-like behavior [Done]
+    - provide ``keys``, ``values``, ``items`` support such that even if it is clobbered by a class, you can do ``type(ItemClass).keys(ItemClass)`` and get what you expect [Done]
+    - ``_asdict``, ``_astuple``, ``_aslist`` functions like in a NamedTuple [Done]
 
 
 Design Goal
