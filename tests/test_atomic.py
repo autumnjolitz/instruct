@@ -1,12 +1,13 @@
 import json
-from typing import Union, List, Tuple, Optional, Dict
+from typing import Union, List, Tuple, Optional, Dict, Any
 from enum import Enum
 import datetime
+import base64
 import pickle
 from collections.abc import Mapping
 
 import pytest
-
+import instruct
 from instruct import (
     Base,
     add_event_listener,
@@ -276,17 +277,17 @@ def test_fast_setter():
 
 
 def test_values_view():
-    class Foo(Base):
+    class Foo(SimpleBase):
         foo: str
 
     f = Foo("abc")
-    assert "abc" in Foo.values(f)
+    assert "abc" in instruct.values(f)
 
     with pytest.raises(AttributeError):
         # Avoid clobbering any properties named values please.
         f.values()
 
-    assert {"abc"} == set(type(f).values(f))
+    assert {"abc"} == set(instruct.values(f))
 
 
 def test_items_view():
@@ -734,6 +735,9 @@ def test_as_primitives():
     assert f._astuple() == ("abc", 1, (1j, 2 + 1j))
     assert f._asdict() == {"foo": "abc", "bar": 1, "baz": (1j, 2 + 1j)}
     assert f._aslist() == ["abc", 1, (1j, 2 + 1j)]
+    assert instruct.astuple(f) == ("abc", 1, (1j, 2 + 1j))
+    assert instruct.asdict(f) == {"foo": "abc", "bar": 1, "baz": (1j, 2 + 1j)}
+    assert instruct.aslist(f) == ["abc", 1, (1j, 2 + 1j)]
 
 
 def test_without_keys():
@@ -757,8 +761,8 @@ def test_without_keys():
 
     # Show that accessing the metaclass ALWAYS
     # allows for getting the keys, values, etc functions
-    type(ClobberedKeys).keys(ClobberedKeys) & {"bar", "keys"} == {"bar", "keys"}
-    type(ClobberedKeys).keys(c) & {"bar", "keys"} == {"bar", "keys"}
+    instruct.keys(ClobberedKeys) & {"bar", "keys"} == {"bar", "keys"}
+    instruct.keys(c) & {"bar", "keys"} == {"bar", "keys"}
 
 
 def test_without_json():
@@ -780,3 +784,58 @@ def test_without_json():
         Clobbered.to_json()
 
     assert type(Clobbered).to_json(c) == ({"to_json": False},)
+
+
+def test_overridden_from_json():
+    class Foo(SimpleBase, json=True):
+        field: int
+
+        @classmethod
+        def from_json(cls, item: Union[str, Dict[str, Any]]):
+            if isinstance(item, str):
+                item = json.loads(item)
+            return super().from_json(item)
+
+    assert Foo(1) == Foo.from_json('{"field": 1}')
+
+
+def test_bytes_base64():
+    class Foo(Base):
+        item: bytes
+        foo: bytes
+
+        __coerce__ = {("item", "foo"): (str, base64.urlsafe_b64decode)}
+
+    f = Foo(b"\x00\xef\xff", b"foobar")
+    assert f.to_json() == {"foo": "Zm9vYmFy", "item": "AO__"}
+    assert json.dumps(f.to_json(), sort_keys=True) == '{"foo": "Zm9vYmFy", "item": "AO__"}'
+
+    class Broken(Base):
+        # intentionally break the json encoder by no-oping the
+        # field handling:
+        BINARY_JSON_ENCODERS = {"item": lambda val: val}
+        item: bytes
+
+    with pytest.raises(TypeError):
+        json.dumps(Broken(b"\x00\xef\xff").to_json())
+
+    class Baz(Base):
+        BINARY_JSON_ENCODERS = {"foo": lambda val: val.decode("utf8")}
+        item: bytes
+        foo: bytes
+
+        __coerce__ = {
+            "item": (str, base64.urlsafe_b64decode),
+            "foo": (str, lambda val: val.encode("utf8")),
+        }
+
+        @classmethod
+        def from_json(cls, item: Union[str, Dict[str, Any]]):
+            if isinstance(item, str):
+                item = json.loads(item)
+            return super().from_json(item)
+
+    f = Baz(b"\x00\xef\xff", b"foobar")
+    assert f.to_json() == {"foo": "foobar", "item": "AO__"}
+    assert json.dumps(f.to_json(), sort_keys=True) == '{"foo": "foobar", "item": "AO__"}'
+    assert f == Baz.from_json(json.dumps(f.to_json(), sort_keys=True))
