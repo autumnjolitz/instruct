@@ -1,4 +1,5 @@
 import typing
+
 if typing.TYPE_CHECKING:
     from typing import Protocol
 else:
@@ -6,6 +7,9 @@ else:
         from typing import Protocol
     except ImportError:
         from typing_extensions import Protocol
+
+
+T = typing.TypeVar("T")
 
 
 class ICustomTypeCheck(Protocol):

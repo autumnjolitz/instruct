@@ -1,48 +1,49 @@
 from __future__ import annotations
-import os
-import time
-import tempfile
 import logging
-from collections import namedtuple, UserDict
+import os
+import tempfile
+import time
+import types
+import typing
+from collections import UserDict
 from collections.abc import (
     Mapping as AbstractMapping,
     Sequence,
-    ValuesView,
     ItemsView as _ItemsView,
     MappingView,
     Set as AbstractSet,
     KeysView,
 )
-import typing
-from weakref import WeakKeyDictionary
-from typing import (
-    Optional,
-    Callable,
-    Type,
-    cast,
-    FrozenSet,
-    Mapping,
-    TYPE_CHECKING,
-    Tuple,
-    Any,
-    Union,
-    List,
-    Set,
-    Dict,
-    get_type_hints,
-    Iterable,
-)
-import types
-from itertools import chain
+from base64 import urlsafe_b64encode
 from enum import IntEnum
 from importlib import import_module
-
+from itertools import chain
+from typing import (
+    Any,
+    Callable,
+    cast,
+    Dict,
+    FrozenSet,
+    get_type_hints,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    TYPE_CHECKING,
+    Union,
+    NamedTuple,
+)
+from weakref import WeakKeyDictionary
 
 import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef, has_collect_class, ismetasubclass
+from .typing import T
 
 __version__  # Silence unused import warning.
 
@@ -69,6 +70,10 @@ class MissingGetterSetterTemplateError(ClassDefinitionError):
 
 
 class InvalidPostCoerceAttributeNames(ClassDefinitionError):
+    ...
+
+
+class CoerceMappingValueError(ClassDefinitionError):
     ...
 
 
@@ -106,7 +111,7 @@ class AtomicKeysView(MappingView, AbstractSet):
         return key in self._mapping
 
     def __iter__(self):
-        yield from type(self._mapping).keys()
+        yield from keys(self._mapping.__class__)
 
 
 def _convert_exception_to_json(item):
@@ -465,6 +470,7 @@ def create_proxy_property(
 
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 EMPTY_FROZEN_SET = frozenset()
+EMPTY_MAPPING = FrozenMapping({})
 
 
 def __no_op_skip_get__(self):
@@ -473,6 +479,110 @@ def __no_op_skip_get__(self):
 
 def __no_op_skip_set__(self, value):
     return
+
+
+def keys(
+    instance_or_cls: Union[Type[T], T], *, all: bool = False
+) -> Union[AtomicKeysView, KeysView]:
+    if not isinstance(instance_or_cls, type):
+        cls = type(instance_or_cls)
+        instance = instance_or_cls
+    else:
+        cls = instance_or_cls
+        instance = None
+    if not isinstance(cls, Atomic):
+        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if instance is not None and not all:
+        return AtomicKeysView(instance)
+    if all:
+        return cls._all_accessible_fields
+    return cls._columns.keys()
+
+
+def values(instance) -> AtomicValuesView:
+    cls = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return AtomicValuesView(instance)
+    raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
+
+
+def items(instance: T) -> ItemsView:
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return ItemsView(instance)
+    raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+
+
+def get(instance: T, key, default=None) -> Optional[Any]:
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is None:
+        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+    try:
+        return instance[key]
+    except KeyError:
+        return default
+
+
+def asdict(instance: T) -> Dict[str, Any]:
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._asdict()
+
+
+def astuple(instance: T) -> Tuple[Any, ...]:
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._astuple()
+
+
+def aslist(instance: T) -> List[Any]:
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._aslist()
+
+
+def unpack_coerce_mappings(mappings):
+    """
+    Transform:
+    {
+        "foo": (str, lambda val: item.encode("utf8")),
+        ("bar", "baz"): ((int, float), lambda val: f"{val}")
+    }
+    to
+    {
+        "foo": (str, lambda val: item.encode("utf8")),
+        "bar": ((int, float), lambda val: f"{val}"),
+        "baz": ((int, float), lambda val: f"{val}")
+    }
+    """
+    for key in mappings.keys():
+        if not isinstance(key, (str, tuple)):
+            raise CoerceMappingValueError(
+                f"Coerce mapping keys must either be a string or tuple of strings (Got {key!r})"
+            )
+        if isinstance(key, tuple) and not all(isinstance(prop_name, str) for prop_name in key):
+            raise CoerceMappingValueError(
+                f"Coerce mapping keys must either be a string or tuple of strings (Got {key!r})"
+            )
+        value = mappings[key]
+        if not isinstance(value, tuple) or len(value) != 2:
+            raise CoerceMappingValueError(
+                f"Coerce mapping key {key} must be Tuple[Union[Type, Tuple[Type, ...]], Callable[[T], U]], not {value!r}"
+            )
+        if isinstance(key, tuple):
+            for prop_name in key:
+                yield prop_name, value
+        else:
+            yield key, value
 
 
 class Atomic(type):
@@ -577,6 +687,7 @@ class Atomic(type):
                     f"{class_name} expects `__coerce__` to implement an AbstractMapping or None, "
                     f"not a {type(coerce_mappings)}"
                 )
+            coerce_mappings = dict(unpack_coerce_mappings(coerce_mappings))
             if not isinstance(support_cls_attrs["__coerce__"], ReadOnly):
                 support_cls_attrs["__coerce__"] = ReadOnly(coerce_mappings)
         coerce_mappings = cast(CoerceMapping, coerce_mappings)
@@ -977,55 +1088,10 @@ class Atomic(type):
         klass.REGISTRY.add(support_cls)
         return support_cls
 
-    def keys(cls, instance=None, *, all=False):
-        if not isinstance(cls, type) and instance is None:
-            # someone called Atomic.keys(my_instance), so correct
-            instance = cls
-            cls = type(cls)
-        if not isinstance(cls, Atomic):
-            raise TypeError("Can only call on Atomic-metaclassed types!")
-        if instance is not None and not all:
-            return AtomicKeysView(instance)
-        if all:
-            return cls._all_accessible_fields
-        return cls._columns.keys()
-
-    def values(cls, instance=None):
-        if not isinstance(cls, type) and instance is None:
-            # someone called Atomic.values(my_instance), so correct
-            instance = cls
-            cls = type(cls)
-        if not isinstance(cls, Atomic):
-            raise TypeError("Can only call on Atomic-metaclassed types!")
-        if instance is not None:
-            return AtomicValuesView(instance)
-        raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
-
-    def items(cls, instance=None):
-        if not isinstance(cls, type) and instance is None:
-            # someone called Atomic.items(my_instance), so correct
-            instance = cls
-            cls = type(cls)
-        if not isinstance(cls, Atomic):
-            raise TypeError("Can only call on Atomic-metaclassed types!")
-        if instance is not None:
-            return ItemsView(instance)
-        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-
-    def get(cls, instance, key, default=None):
-        if not isinstance(cls, Atomic):
-            raise TypeError("Can only call on Atomic-metaclassed types!")
-        if instance is None:
-            raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-        try:
-            return instance[key]
-        except KeyError:
-            return default
-
-    def from_json(cls, data: Dict[str, Any]):
+    def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
         return cls(**data)
 
-    def from_many_json(cls, iterable: Iterable[Dict[str, Any]]):
+    def from_many_json(cls: Type[T], iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
         return tuple(cls(**item) for item in iterable)
 
     def to_json(*instances):
@@ -1035,8 +1101,16 @@ class Atomic(type):
         if isinstance(instances[0], type):
             instances = instances[1:]
         jsons = []
+        cached_class_binary_encoders = {}
+        types = {type(item) for item in instances}
+        cached_class_binary_encoders = {
+            instance_type: getattr(instance_type, "BINARY_JSON_ENCODERS", EMPTY_MAPPING)
+            for instance_type in types
+        }
         for instance in instances:
+            instance_type = type(instance)
             result = {}
+            special_binary_encoders = cached_class_binary_encoders[instance_type]
             for key, value in instance:
                 # Support nested daos
                 if hasattr(value, "to_json"):
@@ -1044,7 +1118,12 @@ class Atomic(type):
                 # Date/datetimes
                 elif hasattr(value, "isoformat"):
                     value = value.isoformat()
-                elif not isinstance(value, (str, bytearray, bytes)) and isinstance(
+                elif isinstance(value, (bytearray, bytes)):
+                    if key in special_binary_encoders:
+                        value = special_binary_encoders[key](value)
+                    else:
+                        value = urlsafe_b64encode(value).decode()
+                elif not isinstance(value, (str,)) and isinstance(
                     value, (AbstractMapping, Sequence)
                 ):
                     value = _encode_simple_nested_base(value, immutable=True)
@@ -1053,8 +1132,17 @@ class Atomic(type):
         return tuple(jsons)
 
 
-Delta = namedtuple("Delta", ["state", "old", "new", "index"])
-LoggedDelta = namedtuple("LoggedDelta", ["timestamp", "key", "delta"])
+class Delta(NamedTuple):
+    state: str
+    old: Any
+    new: Any
+    index: int
+
+
+class LoggedDelta(NamedTuple):
+    timestamp: float
+    key: str
+    delta: Delta
 
 
 class Undefined(object):
@@ -1179,7 +1267,7 @@ class ClassOrInstanceFuncsDescriptor:
         return types.MethodType(self._instance_function, instance)
 
 
-class IKeys(metaclass=Atomic):
+class IMapping(metaclass=Atomic):
     """
     Allow an instruct class instance to have the `keys()` function which is
     mandatory to support **item unpacking.
@@ -1191,14 +1279,40 @@ class IKeys(metaclass=Atomic):
 
     @ClassOrInstanceFuncsDescriptor
     def keys(cls, instance=None, *, all=False) -> Set[str]:
-        return type(cls).keys(cls, instance, all=all)
+        if instance is not None:
+            return keys(instance, all=all)
+        return keys(cls, all=all)
 
     @keys.instance_function
     def keys(self, *, all=False) -> Set[str]:
-        return type(self.__class__).keys(self.__class__, self, all=all)
+        return keys(self, all=all)
+
+    @ClassOrInstanceFuncsDescriptor
+    def values(cls, item):
+        return values(item)
+
+    @values.instance_function
+    def values(self):
+        return values(self)
+
+    @ClassOrInstanceFuncsDescriptor
+    def items(cls, item):
+        return items(item)
+
+    @items.instance_function
+    def items(self):
+        return items(self)
+
+    @ClassOrInstanceFuncsDescriptor
+    def get(cls, instance, key, default=None):
+        return get(instance, key, default)
+
+    @get.instance_function
+    def get(self, key, default=None):
+        return get(self, key, default)
 
 
-Atomic.register_mixin("with_keys", IKeys)
+Atomic.register_mixin("mapping", IMapping)
 
 
 def add_event_listener(*fields):
@@ -1271,10 +1385,18 @@ class JSONSerializable(metaclass=Atomic):
     __slots__ = ()
 
     def to_json(self) -> Dict[str, Any]:
-        return Atomic.to_json(self.__class__, self)[0]
+        return Atomic.to_json(self)[0]
 
-    def __json__(self):
+    def __json__(self) -> Dict[str, Any]:
         return self.to_json()
+
+    @classmethod
+    def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
+        return cls(**data)
+
+    @classmethod
+    def from_many_json(cls: Type[T], iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
+        return tuple(cls.from_json(item) for item in iterable)
 
 
 Atomic.register_mixin("json", JSONSerializable)
@@ -1297,7 +1419,7 @@ class SimpleBase(metaclass=Atomic):
         return result
 
     def __len__(self):
-        return len(type(self.__class__).keys(self.__class__))
+        return len(keys(self.__class__))
 
     def __contains__(self, item):
         return item in self._all_accessible_fields
@@ -1352,12 +1474,12 @@ class SimpleBase(metaclass=Atomic):
         self._flags |= Flags.DEFAULTS_SET
         errors = []
         errored_keys = []
-        keys = type(self.__class__).keys(self.__class__)
-        if len(args) > len(keys):
+        class_keys = keys(self.__class__)
+        if len(args) > len(class_keys):
             raise TypeError(
-                f"__init__() takes {len(keys)} positional arguments but {len(args)} were given"
+                f"__init__() takes {len(class_keys)} positional arguments but {len(args)} were given"
             )
-        for key, value in zip(keys, args):
+        for key, value in zip(class_keys, args):
             try:
                 setattr(self, key, value)
             except Exception as e:
@@ -1381,7 +1503,7 @@ class SimpleBase(metaclass=Atomic):
         pass
 
 
-class Base(SimpleBase, with_keys=True, json=True):
+class Base(SimpleBase, mapping=True, json=True):
     __slots__ = ()
 
 

@@ -18,13 +18,16 @@ Attempt to serve multiple masters:
     - Ability to drop all of the above type checks [Done]
     - Track changes made to the object as well as reset [Done]
     - Fast ``__iter__`` [Done]
-    - Native support of pickle [Done]/json [Partial]
-    - Support List[type] declarations and initializations
+    - Native support of pickle [Done]/json [Done]
+    - Support List[type] declarations and initializations [Done]
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
     - Cython compatibility
     - optionally data class annotation-like behavior [Done]
-    - provide ``keys``, ``values``, ``items`` support such that even if it is clobbered by a class, you can do ``type(ItemClass).keys(ItemClass)`` and get what you expect [Done]
     - ``_asdict``, ``_astuple``, ``_aslist`` functions like in a NamedTuple [Done]
+    - ``get``, ``keys``, ``values``, ``item`` functions available in the module and in a mixin named ``mapping=True``
+        + This effectively allows access like other packages e.g. ``attrs.keys(item_instance)``
+    - ``bytes``/``bytearray`` are urlsafe base64 encoded by default, can override per field via a class level ``BINARY_JSON_ENCODERS = {key: encoding_function}`` [Done]
+    - Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Dpme]
 
 
 Design Goal
