@@ -905,10 +905,11 @@ class Atomic(type):
                 coerce_types = parse_typedef(coerce_types)
                 all_coercions[key] = (coerce_types, coerce_func)
             derived_class = derived_classes.get(key)
-            if disabled_derived and is_debug_mode():
-                logger.debug(
-                    f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
-                )
+            if disabled_derived and derived_class is not None:
+                if is_debug_mode():
+                    logger.debug(
+                        f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
+                    )
                 derived_class = None
             new_property, isinstance_compatible_types = create_proxy_property(
                 env,
