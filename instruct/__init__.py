@@ -409,6 +409,12 @@ def gather_listeners(class_name, attrs, class_columns, combined_class_columns, i
     return listeners, post_coerce_failure_handlers
 
 
+def is_debug_mode() -> bool:
+    return (
+        os.environ.get("INSTRUCT_DEBUG_CODEGEN", "").lower().startswith(("1", "true", "yes", "y"))
+    )
+
+
 def create_proxy_property(
     env: Environment,
     class_name: str,
@@ -440,7 +446,7 @@ def create_proxy_property(
         has_coercion=isinstance_compatible_coerce_type is not None,
     )
     filename = "<getter-setter>"
-    if os.environ.get("INSTRUCT_DEBUG_CODEGEN", "").lower().startswith(("1", "true", "yes", "y")):
+    if is_debug_mode():
         with tempfile.NamedTemporaryFile(
             delete=False, mode="w", prefix=f"{class_name}-{key}", suffix=".py", encoding="utf8"
         ) as fh:
@@ -881,14 +887,29 @@ class Atomic(type):
         # so track them so we can replace them with a derived type made ``__class__``
         class_cell_fixups = []
         for key, value in tuple(current_class_slots.items()):
+            disabled_derived = None
             if value in klass.REGISTRY:
+                disabled_derived = False
                 derived_classes[key] = value
             current_class_fields.append(key)
             coerce_types, coerce_func = None, None
             if coerce_mappings and key in coerce_mappings:
                 coerce_types, coerce_func = coerce_mappings[key]
+                if (
+                    isinstance(coerce_types, type)
+                    and coerce_types is dict
+                    or isinstance(coerce_types, tuple)
+                    and dict in coerce_types
+                ):
+                    disabled_derived = True
                 coerce_types = parse_typedef(coerce_types)
                 all_coercions[key] = (coerce_types, coerce_func)
+            derived_class = derived_classes.get(key)
+            if disabled_derived and is_debug_mode():
+                logger.debug(
+                    f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
+                )
+                derived_class = None
             new_property, isinstance_compatible_types = create_proxy_property(
                 env,
                 class_name,
@@ -896,7 +917,7 @@ class Atomic(type):
                 value,
                 coerce_types,
                 coerce_func,
-                derived_classes.get(key),
+                derived_class,
                 listeners.get(key),
                 post_coerce_failure_handlers.get(key),
                 local_getter_var_template,
