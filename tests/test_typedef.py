@@ -4,6 +4,11 @@ from instruct.typedef import parse_typedef, make_custom_typecheck, has_collect_c
 from instruct import Base
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
 NoneType = type(None)
 
 
@@ -72,6 +77,24 @@ def test_enum():
 def test_custom_name():
     types = parse_typedef(Union[List[str], List[float]])
     assert not frozenset(x.__name__ for x in types) - frozenset(["List[str]", "List[float]"])
+
+
+def test_literal():
+    type_a = parse_typedef(Literal["a", "b"])
+    assert isinstance("a", type_a)
+    assert isinstance("b", type_a)
+    assert not isinstance("c", type_a)
+
+    class File(Base):
+        binary_mode: Literal["rb", "wb", "r+b", "w+b"]
+
+    f = File("rb")
+    assert f.binary_mode == "rb"
+    f.binary_mode = "wb"
+    assert f.binary_mode == "wb"
+    with pytest.raises(TypeError) as exc:
+        f.binary_mode = "blah blah"
+    assert str(exc.value).endswith('binary_mode expects either an "rb", "wb", "r+b" or a "w+b"')
 
 
 def test_generic():
