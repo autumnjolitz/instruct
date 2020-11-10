@@ -27,7 +27,18 @@ Attempt to serve multiple masters:
     - ``get``, ``keys``, ``values``, ``item`` functions available in the module and in a mixin named ``mapping=True``
         + This effectively allows access like other packages e.g. ``attrs.keys(item_instance)``
     - ``bytes``/``bytearray`` are urlsafe base64 encoded by default, can override per field via a class level ``BINARY_JSON_ENCODERS = {key: encoding_function}`` [Done]
-    - Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Dpme]
+    - Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Done]
+
+Next Goals:
+    - Allow subtraction of properties like ``(F - {"a", "b"}).keys() == F_without_a_b.keys()``
+        + This will allow one to slim down a class to a restricted subtype, like for use in a DAO system to load/hold less data.
+    - Allow subtration of properties via an inclusive list like ``(F & {"a", "b"}).keys() == F_with_only_a_and_b.keys()``
+    - Allow subtration to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))``
+        + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
+    - Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
+        + Would be able to allow specialized subtypes
+    - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field"
+        + Would grant a more powerful interface to controlling code-gen'ed areas
 
 
 Design Goal
@@ -63,6 +74,7 @@ Wouldn't it be nice to define a heirachy like this:
         id: int
         members: List[Member]
         created_date: datetime.datetime
+        secret: Annotated[str, NoJSON, NoPickle, NoIterable]
 
         __coerce__ = {
             'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))
@@ -90,10 +102,13 @@ And have it work like this?
             }
         ]
     }
-    org = Organization(**data)
+    org = Organization(secret="my secret", **data)
     assert org.members[0].first_name == 'Jinja'
+    assert org.secret == "my secret"
     org.name = "New Name"
     org.history()
+    assert not any(y == "my secret" for y in tuple(org))
+    assert Organization.to_json(org) == data
 
 
 Example Usage
