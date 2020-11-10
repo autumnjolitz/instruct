@@ -3,6 +3,11 @@ import collections.abc
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
 
@@ -88,18 +93,20 @@ def has_collect_class(
 
 
 def create_custom_type(container_type, *args):
-    if getattr(container_type, "__module__", None) == "typing":
-        if (
-            hasattr(container_type, "_name")
-            and container_type._name is None
-            and container_type.__origin__ is Union
-        ):
-            types = flatten(
-                (create_custom_type(arg) for arg in container_type.__args__), eager=True
-            )
+    if is_typing_definition(container_type):
+        if hasattr(container_type, "_name") and container_type._name is None:
+            if container_type.__origin__ is Union:
+                types = flatten(
+                    (create_custom_type(arg) for arg in container_type.__args__), eager=True
+                )
 
-            def test_func(value):
-                return isinstance(value, types)
+                def test_func(value):
+                    return isinstance(value, types)
+
+            elif container_type.__origin__ is Literal:
+
+                def test_func(value):
+                    return value in args
 
         elif container_type is AnyStr:
             return (bytes, str)
@@ -201,7 +208,8 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
 
 
 def is_typing_definition(item):
-    if getattr(item, "__module__", None) == "typing":
+    module_name: str = getattr(item, "__module__", None)
+    if module_name in ("typing", "typing_extensions"):
         return True
     return False
 
@@ -243,13 +251,32 @@ def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, T
                 return flatten(
                     (parse_typedef(argument) for argument in typedef.__args__), eager=True
                 )
+            if typedef.__origin__ is Literal:
+                if not typedef.__args__:
+                    raise NotImplementedError("Literals must be non-empty!")
+                items = []
+                for cls, arg in zip(
+                    (create_custom_type(typedef, arg) for arg in typedef.__args__), typedef.__args__
+                ):
+                    if isinstance(arg, str):
+                        cls.set_name(f'"{arg}"')
+                    else:
+                        cls.set_name(f"{arg}")
+                    items.append(cls)
+                return flatten(items, eager=True)
             raise NotImplementedError(
                 f"The type definition for {typedef} is not supported, report as an issue."
             )
         if hasattr(typedef, "_special"):
             if not typedef._special:  # this typedef is specific!
                 cls = create_custom_type(typedef.__origin__, *typedef.__args__)
-                cls.set_name(str(typedef).replace("typing.", ""))
+                custom_name = str(typedef)
+                if custom_name.startswith(("typing.", "typing_extensions.")):
+                    if custom_name.startswith("typing."):
+                        custom_name = custom_name.replace("typing.", "")
+                    else:
+                        custom_name = custom_name.replace("typing_extensions.", "")
+                cls.set_name(custom_name)
                 return cls
         return (typedef.__origin__,)
     raise NotImplementedError(
