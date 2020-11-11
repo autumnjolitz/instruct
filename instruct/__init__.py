@@ -42,7 +42,7 @@ import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
-from .typedef import parse_typedef, has_collect_class, ismetasubclass
+from .typedef import parse_typedef, has_collect_class, ismetasubclass, is_typing_definition
 from .typing import T
 
 __version__  # Silence unused import warning.
@@ -591,6 +591,60 @@ def unpack_coerce_mappings(mappings):
             yield key, value
 
 
+def create_coerce_to_subclass_func(parent_cls, child_cls, coerce_function=None):
+    def coerce_value(value):
+        if coerce_function is not None:
+            value = coerce_function(value)
+        if isinstance(value, parent_cls) and not isinstance(value, child_cls):
+            value = child_cls(**value)
+        return value
+
+    return coerce_value
+
+
+def apply_skip_keys(
+    skip_key_fields: Union[FrozenSet[str], Set[str], Dict[str, Any]],
+    current_definition: Atomic,
+    current_coerce: Optional[Tuple[Any, Callable[[Any], Any]]],
+) -> Tuple[Any, Optional[Tuple[Any, Callable[[Any], Any]]]]:
+    """
+    If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.
+
+    So we will cast the base class to it's child class as the child should be compatible.
+
+    Current issues:
+        - How do we unpack a Tuple[Union[Atomic1, Atomic2], ...] and transform to
+            Tuple[Union[Atomic1 - skip_fields, Atomic2 - skip_fields]] ?
+        - How do we handle Dict[str, Atomic1] -> Dict[str, Atomic1 - skip_fields] ?
+
+    Basically this has to traverse the graph, branching out and replacing nodes.
+    """
+    if issubclass(type(current_definition), Atomic):
+        parent_cls = current_definition
+        modified_class = current_definition - skip_key_fields
+        if parent_cls is modified_class:
+            return parent_cls, None
+        if current_coerce is not None:
+            types, existing_coerce_function = current_coerce
+            if is_typing_definition(types):
+                types = Union[parent_cls, types]
+            elif isinstance(types, tuple):
+                types = types + (parent_cls,)
+            elif isinstance(types, type):
+                types = (types, parent_cls)
+        else:
+            existing_coerce_function = None
+            types = (parent_cls,)
+        new_coerce_function = create_coerce_to_subclass_func(
+            parent_cls, modified_class, existing_coerce_function
+        )
+        return modified_class, (types, new_coerce_function)
+    else:
+        raise NotImplementedError(
+            f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
+        )
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
@@ -620,19 +674,77 @@ class Atomic(type):
     def __iter__(self):
         yield from self._columns.keys()
 
-    def __sub__(self, other: Union[Set[str], List[str], Tuple[str], FrozenSet[str]]):
-        assert isinstance(other, (list, frozenset, set, tuple)), other
-        other = frozenset(other)
+    def __and__(
+        self: Atomic,
+        include_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
+    ) -> Atomic:
+        assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str))
+        raise NotImplementedError
+
+    def __sub__(
+        self: Atomic,
+        skip_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
+    ) -> Atomic:
+        assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str))
+
         cls = type(self)
         cls = getattr(self, "_parent", self)
-        unrecognized_keys = other - self._columns.keys()
+        if isinstance(skip_fields, str):
+            skip_fields = frozenset((skip_fields,))
+
+        if not skip_fields:
+            return self
+
+        unrecognized_keys = frozenset(skip_fields) - self._columns.keys()
         if unrecognized_keys:
             unrecognized_keys_friendly = ", ".join(str(x) for x in unrecognized_keys)
             raise TypeError(f"Unrecognized fields on {cls}: {unrecognized_keys_friendly}")
-        fieldnames = "And".join(other)
-        return type(
-            f"{cls.__name__}Minus{fieldnames}", (cls,), {"__slots__": ()}, skip_fields=other
-        )
+        redefinitions = None
+        redefine_coerce = None
+
+        if isinstance(skip_fields, dict):
+            possible_redefinition_fields = skip_fields
+            skip_fields = frozenset(skip_fields)
+
+            redefinitions = {}
+            redefine_coerce = {}
+            for key, key_specific_strip_keys in possible_redefinition_fields.items():
+                if key_specific_strip_keys is None:
+                    continue
+                if isinstance(key_specific_strip_keys, str):
+                    key_specific_strip_keys = frozenset((key_specific_strip_keys,))
+
+                current_definition = self._column_types[key]
+                current_coerce = None
+                if key in self.__coerce__:
+                    current_coerce = self.__coerce__[key]
+                redefined_definition, redefined_coerce_definition = apply_skip_keys(
+                    key_specific_strip_keys, current_definition, current_coerce
+                )
+                if redefined_definition is not None:
+                    redefinitions[key] = redefined_definition
+                if redefined_coerce_definition is not None:
+                    redefine_coerce[key] = redefined_coerce_definition
+            skip_fields -= redefinitions.keys()
+
+        if not isinstance(skip_fields, frozenset):
+            skip_fields = frozenset(skip_fields)
+
+        attrs = {"__slots__": ()}
+
+        if redefinitions:
+            attrs["__slots__"] = redefinitions
+        if redefine_coerce:
+            attrs["__coerce__"] = redefine_coerce
+
+        changes = ""
+        if skip_fields:
+            changes = "Minus{}".format("And".join(skip_fields))
+        if redefinitions:
+            changes = "{}Modified{}".format(changes, "And".join(sorted(redefinitions)))
+        if not changes:
+            return self
+        return type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_fields)
 
     def __new__(
         klass,
@@ -643,6 +755,7 @@ class Atomic(type):
         fast=None,
         concrete_class=False,
         skip_fields=EMPTY_FROZEN_SET,
+        include_fields=EMPTY_FROZEN_SET,
         **mixins,
     ):
         if concrete_class:
@@ -651,7 +764,14 @@ class Atomic(type):
                 cls.__hash__ = object.__hash__
             assert cls.__hash__ is not None
             return cls
-        assert isinstance(skip_fields, frozenset)
+        assert isinstance(
+            skip_fields, frozenset
+        ), f"Expect skip_fields to be a frozenset, not a {type(skip_fields).__name__}"
+        assert isinstance(
+            include_fields, frozenset
+        ), f"Expect include_fields to be a frozenset, not a {type(include_fields).__name__}"
+        if include_fields and skip_fields:
+            raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
         for key in (
             "__iter__",
@@ -837,15 +957,26 @@ class Atomic(type):
             current_class_columns[key] = combined_columns[key] = parse_typedef(value)
 
         no_op_skip_keys = []
-        for key in combined_columns.keys() & skip_fields:
-            no_op_skip_keys.append(key)
-            del combined_columns[key]
-            del combined_slots[key]
+        if skip_fields:
+            for key in combined_columns.keys() & skip_fields:
+                no_op_skip_keys.append(key)
+                del combined_columns[key]
+                del combined_slots[key]
 
-        for key in current_class_columns.keys() & skip_fields:
-            no_op_skip_keys.append(key)
-            del current_class_slots[key]
-            del current_class_columns[key]
+            for key in current_class_columns.keys() & skip_fields:
+                no_op_skip_keys.append(key)
+                del current_class_slots[key]
+                del current_class_columns[key]
+        elif include_fields:
+            for key in combined_columns.keys() - include_fields:
+                no_op_skip_keys.append(key)
+                del combined_columns[key]
+                del combined_slots[key]
+
+            for key in current_class_columns.keys() - include_fields:
+                no_op_skip_keys.append(key)
+                del current_class_slots[key]
+                del current_class_columns[key]
 
         # Gather listeners:
         listeners, post_coerce_failure_handlers = gather_listeners(
