@@ -839,3 +839,47 @@ def test_bytes_base64():
     assert f.to_json() == {"foo": "foobar", "item": "AO__"}
     assert json.dumps(f.to_json(), sort_keys=True) == '{"foo": "foobar", "item": "AO__"}'
     assert f == Baz.from_json(json.dumps(f.to_json(), sort_keys=True))
+
+
+def test_complex_skip_keys_simple():
+    class Item(Base):
+        foo: str
+        bar: int
+
+    class Container(Base):
+        baz: Item
+        name: str
+
+        __coerce__ = {"baz": (Union[Dict[str, Union[str, int]], str], Item.from_json)}
+
+    c = Container({"foo": "abc", "bar": 1}, "hello")
+
+    cls = Container - {"baz": {"foo"}}
+    c2 = cls.from_json(c.to_json())
+    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+
+    c2.baz = {"foo": "s", "bar": 1}
+    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+    c2.baz = Item(**{"foo": "s", "bar": 1})
+    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+
+    cls = Container - {"baz"}
+    c2 = cls.from_json(c.to_json())
+    assert c2.to_json() == {"name": "hello"}
+
+    class Item(Base):
+        foo: str
+        bar: int
+
+    ItemType = Union[Dict[str, Union[str, int]], str]
+
+    class Container(Base):
+        bazes: Tuple[Item, ...]
+        name: str
+
+        __coerce__ = {"bazes": (Union[List[ItemType], Tuple[ItemType, ...]], Item.from_many_json)}
+
+    c = Container([{"foo": "abc", "bar": 1}], "hello")
+
+    with pytest.raises(NotImplementedError):
+        cls = Container - {"bazes": "foo"}
