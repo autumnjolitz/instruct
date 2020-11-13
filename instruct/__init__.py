@@ -36,13 +36,13 @@ from typing import (
     Union,
     NamedTuple,
 )
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, WeakValueDictionary
 
 import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
-from .typedef import parse_typedef, has_collect_class, ismetasubclass, is_typing_definition
+from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
 from .typing import T
 
 __version__  # Silence unused import warning.
@@ -619,7 +619,8 @@ def apply_skip_keys(
 
     Basically this has to traverse the graph, branching out and replacing nodes.
     """
-    if issubclass(type(current_definition), Atomic):
+
+    if isinstance(current_definition, type) and ismetasubclass(current_definition, Atomic):
         parent_cls = current_definition
         modified_class = current_definition - skip_key_fields
         if parent_cls is modified_class:
@@ -639,6 +640,16 @@ def apply_skip_keys(
             parent_cls, modified_class, existing_coerce_function
         )
         return modified_class, (types, new_coerce_function)
+    elif is_typing_definition(current_definition) or isinstance(current_definition, tuple):
+        gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
+        try:
+            result = None
+            while True:
+                result = gen.send(result)
+                result = result - skip_key_fields
+        except StopIteration as e:
+            current_definition = e.value
+        return current_definition, None
     else:
         raise NotImplementedError(
             f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
@@ -649,6 +660,7 @@ class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
     MIXINS = ReadOnly({})
+    SKIPPED_FIELDS: Mapping[FrozenSet[str], Atomic] = WeakValueDictionary()
 
     if TYPE_CHECKING:
         _data_class: Atomic
@@ -660,7 +672,7 @@ class Atomic(type):
         _configuration: AttrsDict
         _all_accessible_fields: typing.collections.KeysView[str]
         # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
-        _nested_atomic_collection_keys: Tuple[str]
+        _nested_atomic_collection_keys: Mapping[str, Tuple[Atomic, ...]]
 
     @classmethod
     def register_mixin(cls, name, klass):
@@ -687,7 +699,7 @@ class Atomic(type):
     ) -> Atomic:
         assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str))
 
-        cls = type(self)
+        root_class = type(self)
         cls = getattr(self, "_parent", self)
         if isinstance(skip_fields, str):
             skip_fields = frozenset((skip_fields,))
@@ -695,10 +707,24 @@ class Atomic(type):
         if not skip_fields:
             return self
 
+        currently_skipped_fields = self._skipped_fields
+        if not isinstance(skip_fields, dict):
+            effective_skipped_fields = frozenset(skip_fields | currently_skipped_fields)
+            try:
+                return root_class.SKIPPED_FIELDS[(self.__qualname__, effective_skipped_fields)]
+            except KeyError:
+                pass
+
         unrecognized_keys = frozenset(skip_fields) - self._columns.keys()
         if unrecognized_keys:
-            unrecognized_keys_friendly = ", ".join(str(x) for x in unrecognized_keys)
-            raise TypeError(f"Unrecognized fields on {cls}: {unrecognized_keys_friendly}")
+            if isinstance(skip_fields, dict):
+                for key in unrecognized_keys:
+                    del skip_fields[key]
+            else:
+                skip_fields -= unrecognized_keys
+        if not skip_fields:
+            return self
+
         redefinitions = None
         redefine_coerce = None
 
@@ -709,18 +735,20 @@ class Atomic(type):
             redefinitions = {}
             redefine_coerce = {}
             for key, key_specific_strip_keys in possible_redefinition_fields.items():
-                if key_specific_strip_keys is None:
+                if not key_specific_strip_keys:
                     continue
+
                 if isinstance(key_specific_strip_keys, str):
                     key_specific_strip_keys = frozenset((key_specific_strip_keys,))
 
-                current_definition = self._column_types[key]
+                current_definition = self._slots[key]
                 current_coerce = None
-                if key in self.__coerce__:
+                if self.__coerce__ and key in self.__coerce__:
                     current_coerce = self.__coerce__[key]
                 redefined_definition, redefined_coerce_definition = apply_skip_keys(
                     key_specific_strip_keys, current_definition, current_coerce
                 )
+
                 if redefined_definition is not None:
                     redefinitions[key] = redefined_definition
                 if redefined_coerce_definition is not None:
@@ -744,7 +772,9 @@ class Atomic(type):
             changes = "{}Modified{}".format(changes, "And".join(sorted(redefinitions)))
         if not changes:
             return self
-        return type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_fields)
+        value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_fields)
+        root_class.SKIPPED_FIELDS[(self.__qualname__, value._skipped_fields)] = value
+        return value
 
     def __new__(
         klass,
@@ -796,17 +826,22 @@ class Atomic(type):
                 types.SimpleNamespace(**support_cls_attrs), module.__dict__, globals()
             )
             support_cls_attrs["__slots__"] = hints
+
         if "__slots__" not in support_cls_attrs:
-            raise TypeError(
-                f"You must define __slots__ for {class_name} to constrain the typespace"
-            )
+            # Infer a support class w/o __annotations__ or __slots__ as being an implicit
+            # mixin class.
+            support_cls_attrs["__slots__"] = FrozenMapping()
 
         coerce_mappings: Optional[CoerceMapping] = None
-        if "__coerce__" in support_cls_attrs and support_cls_attrs["__coerce__"] is not None:
-            coerce_mappings: AbstractMapping = support_cls_attrs["__coerce__"]
-            if isinstance(coerce_mappings, ReadOnly):
-                # Unwrap
-                coerce_mappings = coerce_mappings.value
+        if "__coerce__" in support_cls_attrs:
+            if support_cls_attrs["__coerce__"] is not None:
+                coerce_mappings: AbstractMapping = support_cls_attrs["__coerce__"]
+                if isinstance(coerce_mappings, ReadOnly):
+                    # Unwrap
+                    coerce_mappings = coerce_mappings.value
+        else:
+            support_cls_attrs["__coerce__"] = None
+
         if coerce_mappings is not None:
             if not isinstance(coerce_mappings, AbstractMapping):
                 raise TypeError(
@@ -838,7 +873,7 @@ class Atomic(type):
 
         combined_columns = {}
         combined_slots = {}
-        nested_atomic_collections: List[str] = []
+        nested_atomic_collections: Dict[str, Atomic] = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
         column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
 
@@ -906,11 +941,11 @@ class Atomic(type):
                 if cls._column_types:
                     column_types.update(cls._column_types)
                 if cls._nested_atomic_collection_keys:
-                    for key in cls._nested_atomic_collection_keys:
+                    for key, value in cls._nested_atomic_collection_keys.items():
                         # Override of this collection definition, so don't inherit!
                         if key in combined_columns:
                             continue
-                        nested_atomic_collections.append(key)
+                        nested_atomic_collections[key] = value
 
                 if cls._columns:
                     combined_columns.update(cls._columns)
@@ -951,29 +986,40 @@ class Atomic(type):
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
                 derived_classes[key] = value
-            if has_collect_class(value, Atomic, metaclass=True):
-                nested_atomic_collections.append(key)
+            if not ismetasubclass(value, Atomic):
+                nested_atomics = tuple(find_class_in_definition(value, Atomic, metaclass=True))
+                if nested_atomics:
+                    nested_atomic_collections[key] = nested_atomics
+                del nested_atomics
             current_class_slots[key] = combined_slots[key] = value
             current_class_columns[key] = combined_columns[key] = parse_typedef(value)
 
         no_op_skip_keys = []
         if skip_fields:
-            for key in combined_columns.keys() & skip_fields:
+            for key in tuple(combined_columns.keys()):
+                if key not in skip_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
 
-            for key in current_class_columns.keys() & skip_fields:
+            for key in tuple(current_class_columns.keys()):
+                if key not in skip_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del current_class_slots[key]
                 del current_class_columns[key]
         elif include_fields:
-            for key in combined_columns.keys() - include_fields:
+            for key in tuple(combined_columns.keys()):
+                if key in include_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
 
-            for key in current_class_columns.keys() - include_fields:
+            for key in tuple(current_class_columns.keys()):
+                if key in include_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del current_class_slots[key]
                 del current_class_columns[key]
@@ -1182,11 +1228,16 @@ class Atomic(type):
 
         support_cls_attrs["_columns"] = ReadOnly(FrozenMapping(combined_columns))
         support_cls_attrs["_no_op_properties"] = tuple(no_op_skip_keys)
+        # The original typing.py mappings here:
         support_cls_attrs["_slots"] = ReadOnly(FrozenMapping(combined_slots))
+
         support_cls_attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         support_cls_attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
         support_cls_attrs["_support_columns"] = tuple(support_columns)
-        support_cls_attrs["_nested_atomic_collection_keys"] = tuple(nested_atomic_collections)
+        support_cls_attrs["_nested_atomic_collection_keys"] = FrozenMapping(
+            nested_atomic_collections
+        )
+        support_cls_attrs["_skipped_fields"] = skip_fields
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
