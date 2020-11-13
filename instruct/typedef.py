@@ -1,5 +1,6 @@
 from __future__ import annotations
 import collections.abc
+import copy
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
@@ -90,6 +91,102 @@ def has_collect_class(
                     elif has_collect_class(child, root_cls, _recursing=True, metaclass=metaclass):
                         return True
     return False
+
+
+def find_class_in_definition(
+    type_hints: Union[Type, Tuple[Type, ...], List[Type]],
+    root_cls: Type,
+    *,
+    _recursing=False,
+    metaclass=False,
+):
+    if type_hints is Ellipsis:
+        return
+    assert (
+        isinstance(type_hints, tuple)
+        or is_typing_definition(type_hints)
+        or isinstance(type_hints, type)
+    ), f"{type_hints} is a {type(type_hints)}"
+
+    if is_typing_definition(type_hints):
+        type_cls: Type = cast(Type, type_hints)
+        type_cls_copied: bool = False
+        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
+            if _recursing:
+                args = type_cls.__args__[:]
+                for index, child in enumerate(args):
+                    if isinstance(child, type) and issubormetasubclass(
+                        child, root_cls, metaclass=metaclass
+                    ):
+                        replacement = yield child
+                    else:
+                        replacement = yield from find_class_in_definition(
+                            child, root_cls, _recursing=True, metaclass=metaclass
+                        )
+                    if replacement is not None:
+                        args = args[:index] + (replacement,) + args[index + 1 :]
+                if args != type_cls.__args__:
+                    type_cls = type_cls.copy_with(args)
+                    type_cls_copied = True
+
+        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
+            issubclass(type_cls.__origin__, collections.abc.Iterable)
+            and issubclass(type_cls.__origin__, collections.abc.Container)
+        ):
+            if issubclass(type_cls.__origin__, collections.abc.Mapping):
+                key_type, value_type = args = type_cls.__args__
+                if isinstance(value_type, type) and issubormetasubclass(
+                    value_type, root_cls, metaclass=metaclass
+                ):
+                    replacement = yield value_type
+                else:
+                    replacement = yield from find_class_in_definition(
+                        value_type, root_cls, _recursing=True, metaclass=metaclass
+                    )
+                if replacement is not None:
+                    args = (key_type, replacement)
+                if args != type_cls.__args__:
+                    type_cls = type_cls.copy_with(args)
+                    type_cls_copied = True
+            else:
+                args = type_cls.__args__[:]
+                for index, child in enumerate(args):
+                    if isinstance(child, type) and issubormetasubclass(
+                        child, root_cls, metaclass=metaclass
+                    ):
+                        replacement = yield child
+                    else:
+                        replacement = yield from find_class_in_definition(
+                            child, root_cls, _recursing=True, metaclass=metaclass
+                        )
+                    if replacement is not None:
+                        args = args[:index] + (replacement,) + args[index + 1 :]
+                if args != type_cls.__args__:
+                    type_cls = type_cls.copy_with(args)
+                    type_cls_copied = True
+        if type_cls_copied:
+            return type_cls
+        return None
+
+    if isinstance(type_hints, type):
+        if issubormetasubclass(type_hints, root_cls, metaclass=metaclass):
+            replacement = yield type_hints
+            if replacement is not None:
+                return replacement
+        return None
+
+    for index, type_cls in enumerate(type_hints[:]):
+        if isinstance(type_cls, type) and issubormetasubclass(
+            type_cls, root_cls, metaclass=metaclass
+        ):
+            replacement = yield type_cls
+        else:
+            replacement = yield from find_class_in_definition(
+                type_cls, root_cls, _recursing=True, metaclass=metaclass
+            )
+        if replacement is not None:
+            type_hints = type_hints[:index] + (replacement,) + type_hints[index + 1 :]
+    return type_hints
 
 
 def create_custom_type(container_type, *args):

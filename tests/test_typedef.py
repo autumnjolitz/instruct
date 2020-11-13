@@ -1,7 +1,12 @@
 import pytest
 from enum import Enum
-from instruct.typedef import parse_typedef, make_custom_typecheck, has_collect_class
-from instruct import Base
+from instruct.typedef import (
+    parse_typedef,
+    make_custom_typecheck,
+    has_collect_class,
+    find_class_in_definition,
+)
+from instruct import Base, Atomic
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
 
 try:
@@ -131,3 +136,26 @@ def test_collection_detection():
     assert not has_collect_class(Dict[str, Dict[str, Foo]], Base)
     assert has_collect_class(Dict[str, Dict[str, List[Foo]]], Base)
     assert has_collect_class(Dict[str, Tuple[Union[str, List[Foo]]]], Base)
+
+
+def test_find_atomic_classes():
+    class Item(Base):
+        foo: str
+
+    class Bar(Base):
+        field: Item
+
+    assert (Item,) == tuple(find_class_in_definition(Item, Atomic, metaclass=True))
+    # find_class_in_definition only goes one level and will always return the immediate atomic level
+    assert (Bar,) == tuple(find_class_in_definition(Bar, Atomic, metaclass=True))
+
+    type_hints = Tuple[Item, ...]
+    items = tuple(find_class_in_definition(type_hints, Atomic, metaclass=True))
+    assert items == (Item,)
+    assert items[0] is Item
+    items = tuple(find_class_in_definition(Tuple[Tuple[Item, Item], ...], Atomic, metaclass=True))
+    assert items == (Item, Item)
+    items = tuple(
+        find_class_in_definition(Tuple[Tuple[Dict[str, Item], int], ...], Atomic, metaclass=True)
+    )
+    assert items == (Item,)
