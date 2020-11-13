@@ -27,10 +27,13 @@ Current Capabilities:
     - ``bytes``/``bytearray`` are urlsafe base64 encoded by default, can override per field via a class level ``BINARY_JSON_ENCODERS = {key: encoding_function}`` [Done]
     - Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Done]
     - Allow use of ``Literal`` in the type (exact match of a value to a vector of values) [Done]
+    - Allow subtraction of properties like ``(F - {"a", "b"}).keys() == F_without_a_b.keys()`` [Done]
+        + This will allow one to slim down a class to a restricted subtype, like for use in a DAO system to load/hold less data.
+    - Allow subtraction of properties like ``(F - {"a": {"b"}).keys() == F_a_without_b.keys()`` [Done]
+        + This allows for one to remove fields that are unused prior to class initialization.
 
 Next Goals:
-    - Allow subtraction of properties like ``(F - {"a", "b"}).keys() == F_without_a_b.keys()``
-        + This will allow one to slim down a class to a restricted subtype, like for use in a DAO system to load/hold less data.
+    - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtrations
     - Allow subtration of properties via an inclusive list like ``(F & {"a", "b"}).keys() == F_with_only_a_and_b.keys()``
     - Allow subtration to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))``
         + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
