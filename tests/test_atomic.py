@@ -631,12 +631,12 @@ def test_embedded_collection_tracking():
     class Barter(Base):
         __slots__ = {"mapping": Dict[str, Bar]}
 
-    assert Barter._nested_atomic_collection_keys == ()
+    assert Barter._nested_atomic_collection_keys.keys() == {"mapping"}
 
     class CollectableBarter(Barter):
         __slots__ = {"others": Dict[str, Dict[int, List[Barter]]]}
 
-    assert CollectableBarter._nested_atomic_collection_keys == ("others",)
+    assert CollectableBarter._nested_atomic_collection_keys.keys() == {"others", "mapping"}
 
     class InheritedBarter(CollectableBarter, Bar, Foo):
         __slots__ = {"key": str}
@@ -841,6 +841,30 @@ def test_bytes_base64():
     assert f == Baz.from_json(json.dumps(f.to_json(), sort_keys=True))
 
 
+def test_skip_keys_simple():
+    class F(Base):
+        foo: str
+
+    class Q(Base):
+        bar: str
+
+    class F2(Base):
+        foo: str
+
+    f_minus = F - {"foo"}
+    f2_minus = F2 - {"foo"}
+    assert f_minus is not f2_minus
+
+    q_minus = Q - {"bar"}
+    assert q_minus is not Q
+
+    assert F - {"foo"} is F - {"foo"}
+    assert F - {"foo"} is not F
+    assert Q - {"foo"} is Q - {"foo"}
+    assert Q - {"bar"} is Q - {"bar"}
+    assert Q - {"bar"} is not Q
+
+
 def test_complex_skip_keys_simple():
     class Item(Base):
         foo: str
@@ -881,5 +905,57 @@ def test_complex_skip_keys_simple():
 
     c = Container([{"foo": "abc", "bar": 1}], "hello")
 
-    with pytest.raises(NotImplementedError):
-        cls = Container - {"bazes": "foo"}
+
+def test_skip_keys_complex():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+    job_id = 1
+    supervisor_id = 2
+    worker_id = 456
+    regular_people = Position(
+        id=job_id,
+        supervisor=(Person(id=supervisor_id, name="Joe", created_date="0"),),
+        worker=Person(id=worker_id, name="worker", created_date="0"),
+        task_name="enginseer",
+    )
+    assert Person.to_json(regular_people) == {
+        "id": 1,
+        "supervisor": [{"created_date": "0", "id": 2, "name": "Joe"}],
+        "task_name": "enginseer",
+        "worker": {"created_date": "0", "id": 456, "name": "worker"},
+    }
+
+    # Let's pretend they're anonymized:
+    FacelessPerson: Type[Person] = Person - {"name", "created_date"}
+    FacelessPosition: Type[Position] = Position - {
+        "supervisor": {"name", "created_date"},
+        "worker": {"name", "created_date"},
+    }
+
+    faceless_people = FacelessPosition(
+        id=job_id,
+        supervisor=(FacelessPerson(id=supervisor_id, name="SupervisorName", created_date="0"),),
+        worker=FacelessPerson(id=worker_id, name="worker", created_date="0"),
+        task_name="servitor",
+    )
+    assert faceless_people.id == job_id
+    assert faceless_people.supervisor[0].id == supervisor_id
+    assert faceless_people.worker.id == worker_id
+    # Are we sure they don't have names?
+    assert faceless_people.worker.name is None
+    assert faceless_people.supervisor[0].name is None
+    assert Person.to_json(faceless_people) == {
+        "id": 1,
+        "supervisor": [{"id": 2}],
+        "worker": {"id": 456},
+        "task_name": "servitor",
+    }
