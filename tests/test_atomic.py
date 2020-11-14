@@ -1,5 +1,5 @@
 import json
-from typing import Union, List, Tuple, Optional, Dict, Any
+from typing import Union, List, Tuple, Optional, Dict, Any, Type
 from enum import Enum
 import datetime
 import base64
