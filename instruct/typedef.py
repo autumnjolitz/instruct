@@ -8,6 +8,10 @@ try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
 
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
