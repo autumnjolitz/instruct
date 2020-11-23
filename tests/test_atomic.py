@@ -1,6 +1,12 @@
 import json
 from typing import Union, List, Tuple, Optional, Dict, Any, Type
-from enum import Enum
+
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
+
+    from enum import Enum
 import datetime
 import base64
 import pickle
@@ -923,15 +929,15 @@ def test_skip_keys_complex():
     worker_id = 456
     regular_people = Position(
         id=job_id,
-        supervisor=(Person(id=supervisor_id, name="Joe", created_date="0"),),
-        worker=Person(id=worker_id, name="worker", created_date="0"),
-        task_name="enginseer",
+        supervisor=(Person(id=2, name="John", created_date="0"),),
+        worker=Person(id=456, name="Sam", created_date="0"),
+        task_name="Business Partnerships",
     )
     assert Person.to_json(regular_people) == {
         "id": 1,
-        "supervisor": [{"created_date": "0", "id": 2, "name": "Joe"}],
-        "task_name": "enginseer",
-        "worker": {"created_date": "0", "id": 456, "name": "worker"},
+        "supervisor": [{"created_date": "0", "id": 2, "name": "John"}],
+        "task_name": "Business Partnerships",
+        "worker": {"created_date": "0", "id": 456, "name": "Sam"},
     }
 
     # Let's pretend they're anonymized:
