@@ -965,3 +965,6 @@ def test_skip_keys_complex():
         "worker": {"id": 456},
         "task_name": "servitor",
     }
+
+    assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
+    assert FacelessPerson is FacelessPosition._slots["worker"]
