@@ -3,9 +3,8 @@ import logging
 import os
 import tempfile
 import time
-import types
+from types import CodeType, FunctionType, SimpleNamespace
 import typing
-from collections import UserDict
 from collections.abc import (
     Mapping as AbstractMapping,
     Sequence,
@@ -36,14 +35,23 @@ from typing import (
     Union,
     NamedTuple,
 )
-from weakref import WeakKeyDictionary, WeakValueDictionary
+from weakref import WeakValueDictionary
 
-import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
 from .typing import T
+from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
+from .utils import flatten_fields
+
+from .exceptions import (
+    OrphanedListenersError,
+    MissingGetterSetterTemplateError,
+    InvalidPostCoerceAttributeNames,
+    CoerceMappingValueError,
+    ClassCreationFailed,
+)
 
 __version__  # Silence unused import warning.
 
@@ -55,26 +63,6 @@ env.globals["tuple"] = tuple
 env.globals["repr"] = repr
 env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
-
-
-class ClassDefinitionError(ValueError):
-    ...
-
-
-class OrphanedListenersError(ClassDefinitionError):
-    ...
-
-
-class MissingGetterSetterTemplateError(ClassDefinitionError):
-    ...
-
-
-class InvalidPostCoerceAttributeNames(ClassDefinitionError):
-    ...
-
-
-class CoerceMappingValueError(ClassDefinitionError):
-    ...
 
 
 class ItemsView(_ItemsView):
@@ -112,88 +100,6 @@ class AtomicKeysView(MappingView, AbstractSet):
 
     def __iter__(self):
         yield from keys(self._mapping.__class__)
-
-
-def _convert_exception_to_json(item):
-    assert isinstance(item, Exception), f"item {item!r} ({type(item)}) is not an exception!"
-    if hasattr(item, "to_json"):
-        return item.to_json()
-    return {"type": inflection.titleize(type(item).__name__), "message": str(item)}
-
-
-class ClassCreationFailed(ValueError, TypeError):
-    def __init__(self, message, *errors):
-        assert len(errors) > 0, "Must have varargs of errors!"
-        self.errors = errors
-        self.message = message
-        super().__init__(message, *errors)
-
-    def to_json(self):
-        stack = list(self.errors)
-        results = []
-        while stack:
-            item = stack.pop(0)
-            if hasattr(item, "errors"):
-                stack.extend(item.to_json())
-                continue
-            if isinstance(item, Exception):
-                item = _convert_exception_to_json(item)
-            item["parent_message"] = self.message
-            item["parent_type"] = inflection.titleize(type(self).__name__)
-            results.append(item)
-        return tuple(results)
-
-
-class AttrsDict(UserDict):
-    def __getattr__(self, key):
-        try:
-            return self.data[key]
-        except KeyError:
-            self.data[key] = None
-            return None
-
-
-class FrozenMapping(AbstractMapping):
-    __slots__ = ("_value",)
-
-    def keys(self):
-        return self._value.keys()
-
-    def __repr__(self):
-        return f"FrozenMapping<{self._value!r}>"
-
-    def __str__(self):
-        return str(self._value)
-
-    def __init__(self, value=None):
-        if value is None:
-            value = {}
-        self._value = value
-
-    def __getitem__(self, key):
-        return self._value[key]
-
-    def __len__(self):
-        return len(self._value)
-
-    def __contains__(self, key):
-        return key in self._value
-
-    def items(self):
-        return self._value.items()
-
-    def __iter__(self):
-        return iter(self.keys())
-
-
-class ReadOnly:
-    __slots__ = ("value",)
-
-    def __init__(self, value):
-        self.value = value
-
-    def __get__(self, obj, objtype=None):
-        return self.value
 
 
 def make_fast_clear(fields, set_block, class_name):
@@ -265,7 +171,7 @@ def _set_defaults(self):
 
 
 def insert_class_closure(
-    klass: Type, function: Optional[types.FunctionType], *, memory: Optional[dict] = None
+    klass: Type, function: Optional[FunctionType], *, memory: Optional[dict] = None
 ) -> Optional[Callable]:
     if function is None:
         return None
@@ -285,7 +191,7 @@ def insert_class_closure(
         index = len(co_closure)
     else:
         index = co_closure.index("__class__")
-    code = types.CodeType(
+    code = CodeType(
         code.co_argcount,
         code.co_kwonlyargcount,
         code.co_nlocals,
@@ -314,7 +220,7 @@ def insert_class_closure(
         if memory is not None:
             memory[klass] = Derived
 
-    source_func = cast(types.FunctionType, Derived.dummy)
+    source_func = cast(FunctionType, Derived.dummy)
 
     class_cell = source_func.__closure__[0]
     class_cell.cell_contents = klass
@@ -329,7 +235,7 @@ def insert_class_closure(
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
     co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
-    new_function = types.FunctionType(
+    new_function = FunctionType(
         code, new_globals, function.__name__, function.__defaults__, co_freevars_values
     )
     new_function.__kwdefaults__ = function.__kwdefaults__
@@ -690,73 +596,67 @@ class Atomic(type):
         self: Atomic,
         include_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
     ) -> Atomic:
-        assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str))
+        assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
+        # include_fields: FrozenMapping = flatten_fields.collect(include_fields)
+        # include_fields -= self._skipped_fields
+        # if not include_fields:
+        #     return self
         raise NotImplementedError
 
-    def __sub__(
-        self: Atomic,
-        skip_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
-    ) -> Atomic:
-        assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str))
+    def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
+        assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
 
         root_class = type(self)
         cls = getattr(self, "_parent", self)
+
+        if not skip_fields:
+            return self
+
         if isinstance(skip_fields, str):
             skip_fields = frozenset((skip_fields,))
 
-        if not skip_fields:
-            return self
-
-        currently_skipped_fields = self._skipped_fields
-        if not isinstance(skip_fields, dict):
-            effective_skipped_fields = frozenset(skip_fields | currently_skipped_fields)
-            try:
-                return root_class.SKIPPED_FIELDS[(self.__qualname__, effective_skipped_fields)]
-            except KeyError:
-                pass
-
+        skip_fields: FrozenMapping = flatten_fields.collect(skip_fields)
         unrecognized_keys = frozenset(skip_fields) - self._columns.keys()
-        if unrecognized_keys:
-            if isinstance(skip_fields, dict):
-                for key in unrecognized_keys:
-                    del skip_fields[key]
-            else:
-                skip_fields -= unrecognized_keys
-        if not skip_fields:
+        skip_fields -= unrecognized_keys
+
+        currently_skipped_fields = FrozenMapping(self._skipped_fields)
+        effective_skipped_fields: FrozenMapping = skip_fields | currently_skipped_fields
+        if not effective_skipped_fields:
             return self
+        try:
+            return root_class.SKIPPED_FIELDS[(self.__qualname__, effective_skipped_fields)]
+        except KeyError:
+            pass
 
         redefinitions = None
         redefine_coerce = None
 
-        if isinstance(skip_fields, dict):
-            possible_redefinition_fields = skip_fields
-            skip_fields = frozenset(skip_fields)
+        skip_entire_keys = set()
 
-            redefinitions = {}
-            redefine_coerce = {}
-            for key, key_specific_strip_keys in possible_redefinition_fields.items():
-                if not key_specific_strip_keys:
-                    continue
+        redefinitions = {}
+        redefine_coerce = {}
+        for key, key_specific_strip_keys in skip_fields.items():
+            if not key_specific_strip_keys:
+                skip_entire_keys.add(key)
+                continue
 
-                if isinstance(key_specific_strip_keys, str):
-                    key_specific_strip_keys = frozenset((key_specific_strip_keys,))
+            if isinstance(key_specific_strip_keys, str):
+                key_specific_strip_keys = frozenset((key_specific_strip_keys,))
 
-                current_definition = self._slots[key]
-                current_coerce = None
-                if self.__coerce__ and key in self.__coerce__:
-                    current_coerce = self.__coerce__[key]
-                redefined_definition, redefined_coerce_definition = apply_skip_keys(
-                    key_specific_strip_keys, current_definition, current_coerce
-                )
+            current_definition = self._slots[key]
+            current_coerce = None
+            if self.__coerce__ and key in self.__coerce__:
+                current_coerce = self.__coerce__[key]
+            redefined_definition, redefined_coerce_definition = apply_skip_keys(
+                key_specific_strip_keys, current_definition, current_coerce
+            )
 
-                if redefined_definition is not None:
-                    redefinitions[key] = redefined_definition
-                if redefined_coerce_definition is not None:
-                    redefine_coerce[key] = redefined_coerce_definition
-            skip_fields -= redefinitions.keys()
+            if redefined_definition is not None:
+                redefinitions[key] = redefined_definition
+            if redefined_coerce_definition is not None:
+                redefine_coerce[key] = redefined_coerce_definition
 
-        if not isinstance(skip_fields, frozenset):
-            skip_fields = frozenset(skip_fields)
+        skip_entire_keys = FrozenMapping(skip_entire_keys)
 
         attrs = {"__slots__": ()}
 
@@ -766,13 +666,13 @@ class Atomic(type):
             attrs["__coerce__"] = redefine_coerce
 
         changes = ""
-        if skip_fields:
-            changes = "Minus{}".format("And".join(skip_fields))
+        if skip_entire_keys:
+            changes = "Minus{}".format("And".join(skip_entire_keys))
         if redefinitions:
             changes = "{}Modified{}".format(changes, "And".join(sorted(redefinitions)))
         if not changes:
             return self
-        value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_fields)
+        value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_entire_keys)
         root_class.SKIPPED_FIELDS[(self.__qualname__, value._skipped_fields)] = value
         return value
 
@@ -784,8 +684,8 @@ class Atomic(type):
         *,
         fast=None,
         concrete_class=False,
-        skip_fields=EMPTY_FROZEN_SET,
-        include_fields=EMPTY_FROZEN_SET,
+        skip_fields=FrozenMapping(),
+        include_fields=FrozenMapping(),
         **mixins,
     ):
         if concrete_class:
@@ -795,11 +695,11 @@ class Atomic(type):
             assert cls.__hash__ is not None
             return cls
         assert isinstance(
-            skip_fields, frozenset
-        ), f"Expect skip_fields to be a frozenset, not a {type(skip_fields).__name__}"
+            skip_fields, FrozenMapping
+        ), f"Expect skip_fields to be a FrozenMapping, not a {type(skip_fields).__name__}"
         assert isinstance(
-            include_fields, frozenset
-        ), f"Expect include_fields to be a frozenset, not a {type(include_fields).__name__}"
+            include_fields, FrozenMapping
+        ), f"Expect include_fields to be a FrozenMapping, not a {type(include_fields).__name__}"
         if include_fields and skip_fields:
             raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
@@ -822,9 +722,7 @@ class Atomic(type):
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             module = import_module(support_cls_attrs["__module__"])
-            hints = get_type_hints(
-                types.SimpleNamespace(**support_cls_attrs), module.__dict__, globals()
-            )
+            hints = get_type_hints(SimpleNamespace(**support_cls_attrs), module.__dict__, globals())
             support_cls_attrs["__slots__"] = hints
 
         if "__slots__" not in support_cls_attrs:
@@ -1141,9 +1039,9 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-            class_cell_fixups.append(("_asdict", cast(types.FunctionType, ns_globals["_asdict"])))
-            class_cell_fixups.append(("_astuple", cast(types.FunctionType, ns_globals["_astuple"])))
-            class_cell_fixups.append(("_aslist", cast(types.FunctionType, ns_globals["_aslist"])))
+            class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
+            class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
+            class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
             exec(
                 compile(
                     make_fast_getset_item(
@@ -1191,7 +1089,7 @@ class Atomic(type):
                 ns_globals,
             )
             support_cls_attrs["__new__"] = ns_globals["__new__"]
-            class_cell_fixups.append(("__new__", cast(types.FunctionType, ns_globals["__new__"])))
+            class_cell_fixups.append(("__new__", cast(FunctionType, ns_globals["__new__"])))
         for key in (
             "__iter__",
             "__getstate__",
@@ -1263,7 +1161,7 @@ class Atomic(type):
                     insert_class_closure(support_cls, value.fget, memory=cache),
                     insert_class_closure(support_cls, value.fset, memory=cache),
                 )
-            elif isinstance(value, types.FunctionType):
+            elif isinstance(value, FunctionType):
                 value = insert_class_closure(support_cls, value, memory=cache)
             else:
                 continue
@@ -1445,30 +1343,6 @@ DEFAULTS = """{%- for field in fields %}
 result._{{field}}_ = None
 {%- endfor %}
 """
-
-
-class ClassOrInstanceFuncsDescriptor:
-    __slots__ = "_class_function", "_instance_function", "_classes"
-
-    def __init__(self, class_function=None, instance_function=None):
-        self._classes = WeakKeyDictionary()
-        self._class_function = class_function
-        self._instance_function = instance_function
-
-    def instance_function(self, instance_function):
-        return type(self)(self._class_function, instance_function)
-
-    def class_function(self, class_function):
-        return type(self)(class_function, self._instance_function)
-
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            try:
-                return self._classes[owner]
-            except KeyError:
-                value = self._classes[owner] = types.MethodType(self._class_function, owner)
-                return value
-        return types.MethodType(self._instance_function, instance)
 
 
 class IMapping(metaclass=Atomic):
