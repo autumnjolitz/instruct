@@ -562,6 +562,20 @@ def apply_skip_keys(
         )
 
 
+def show_all_fields(cls):
+    all_fields = {}
+    for key, value in cls._slots.items():
+        all_fields[key] = {}
+        if key in cls._nested_atomic_collection_keys:
+            for item in cls._nested_atomic_collection_keys[key]:
+                all_fields[key].update(show_all_fields(item))
+        elif ismetasubclass(value, Atomic):
+            all_fields[key].update(show_all_fields(value))
+        if not all_fields[key]:
+            all_fields[key] = None
+    return all_fields
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
@@ -597,11 +611,12 @@ class Atomic(type):
         include_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
     ) -> Atomic:
         assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
-        # include_fields: FrozenMapping = flatten_fields.collect(include_fields)
-        # include_fields -= self._skipped_fields
-        # if not include_fields:
-        #     return self
-        raise NotImplementedError
+        include_fields: FrozenMapping = flatten_fields.collect(include_fields)
+        include_fields -= self._skipped_fields
+        if not include_fields:
+            return self
+        skip_fields = show_all_fields(self) - include_fields
+        return self - skip_fields
 
     def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
         assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
