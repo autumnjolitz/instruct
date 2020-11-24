@@ -170,6 +170,80 @@ def _set_defaults(self):
     return code
 
 
+def replace_class_reference(
+    klass: Type, newklass: Type, function: Callable[[Any], Any], *, memory: Optional[dict] = None
+):
+    if function is None:
+        return None
+
+    Derived = None
+    if memory is not None:
+        try:
+            Derived = memory[klass]
+        except KeyError:
+            Derived = None
+
+    code = function.__code__
+    co_closure = code.co_freevars
+    klass_name = klass.__name__
+
+    if klass_name not in code.co_freevars:
+        co_closure += (klass_name,)
+        index = len(co_closure)
+    else:
+        index = co_closure.index(klass_name)
+    code = CodeType(
+        code.co_argcount,
+        code.co_kwonlyargcount,
+        code.co_nlocals,
+        code.co_stacksize,
+        code.co_flags,
+        code.co_code,
+        code.co_consts,
+        code.co_names,
+        code.co_varnames,
+        code.co_filename,
+        code.co_name,
+        code.co_firstlineno,
+        code.co_lnotab,
+        co_closure,
+        code.co_cellvars,
+    )
+
+    if Derived is None:
+
+        class Derived(newklass, concrete_class=True):
+            __slots__ = ()
+
+            def dummy(self):
+                return __class__  # noqa
+
+        if memory is not None:
+            memory[newklass] = Derived
+
+    source_func = cast(FunctionType, Derived.dummy)
+
+    class_cell = source_func.__closure__[0]
+    class_cell.cell_contents = newklass
+    current_closure = function.__closure__
+    if current_closure is None:
+        current_closure = ()
+    new_globals = globals()
+    if function.__module__:
+        module = import_module(function.__module__)
+        new_globals = module.__dict__
+
+    # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
+    # This will allow for overridden functions to be called with super()
+    co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
+    new_function = FunctionType(
+        code, new_globals, function.__name__, function.__defaults__, co_freevars_values
+    )
+    new_function.__kwdefaults__ = function.__kwdefaults__
+    new_function.__annotations__ = function.__annotations__
+    return new_function
+
+
 def insert_class_closure(
     klass: Type, function: Optional[FunctionType], *, memory: Optional[dict] = None
 ) -> Optional[Callable]:
@@ -548,14 +622,40 @@ def apply_skip_keys(
         return modified_class, (types, new_coerce_function)
     elif is_typing_definition(current_definition) or isinstance(current_definition, tuple):
         gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
+        replace_class_refs = []
         try:
             result = None
             while True:
                 result = gen.send(result)
+                before = result
                 result = result - skip_key_fields
+                after = result
+                if before is not after:
+                    replace_class_refs.append((before, after))
         except StopIteration as e:
             current_definition = e.value
-        return current_definition, None
+        if replace_class_refs:
+            if len(replace_class_refs) > 1:
+                parent_cls = Union[tuple(before for before, _ in replace_class_refs)]
+            else:
+                (parent_cls, _), = replace_class_refs
+        if current_coerce is not None:
+            types, existing_coerce_function = current_coerce
+            if is_typing_definition(types):
+                types = Union[parent_cls, types]
+            elif isinstance(types, tuple):
+                types = types + (parent_cls,)
+            elif isinstance(types, type):
+                types = (types, parent_cls)
+        else:
+            existing_coerce_function = None
+            types = (parent_cls,)
+
+        for before, after in replace_class_refs:
+            existing_coerce_function = replace_class_reference(
+                before, after, existing_coerce_function
+            )
+        return current_definition, (types, existing_coerce_function)
     else:
         raise NotImplementedError(
             f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"

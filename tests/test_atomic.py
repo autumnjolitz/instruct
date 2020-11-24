@@ -1014,3 +1014,38 @@ def test_include_keys_complex():
 
     assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
     assert FacelessPerson is FacelessPosition._slots["worker"]
+
+
+def test_skip_keys_coerce():
+    def parse_supervisors(values):
+        return tuple(Person(**value) for value in values)
+
+    def parse_person(value):
+        return Person(**value)
+
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], parse_supervisors),
+            "worker": (Dict[str, Union[int, str]], parse_person),
+        }
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
+    fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    assert fp.supervisor[0].name is None
+    fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
