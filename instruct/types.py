@@ -1,5 +1,9 @@
 from collections import UserDict
-from collections.abc import Mapping as AbstractMapping, Sequence as AbstractSequence
+from collections.abc import (
+    Mapping as AbstractMapping,
+    Sequence as AbstractSequence,
+    Container as AbstractContainer,
+)
 from types import MethodType
 from weakref import WeakKeyDictionary, WeakValueDictionary
 from typing import Any, Dict
@@ -71,7 +75,24 @@ class FrozenMapping(AbstractMapping):
         return new_frozen_hash
 
     def __sub__(self, other):
-        return type(self)({key: value for key, value in self.items() if key not in other})
+        # format: self - other
+        if isinstance(other, str):
+            other = frozenset((other,))
+        if isinstance(other, AbstractContainer):
+            if not isinstance(other, FrozenMapping):
+                other = FrozenMapping(other)
+            return deep_subtract_mappings(self, other, cls=type(self))
+        return NotImplemented
+
+    def __rsub__(self, other):
+        # format: other - self
+        if isinstance(other, str):
+            other = frozenset((other,))
+        if isinstance(other, AbstractContainer):
+            if not isinstance(other, FrozenMapping):
+                other = FrozenMapping(other)
+            return deep_subtract_mappings(other, self, cls=type(self))
+        return NotImplemented
 
     def __or__(self, other):
         # format: self | other
@@ -152,6 +173,35 @@ def deep_merge_mappings(left: FrozenMapping, right: FrozenMapping, *, cls=dict) 
         else:
             merged[key] = right_value
     return cls(merged)
+
+
+def deep_subtract_mappings(left: FrozenMapping, right: FrozenMapping, *, cls=dict) -> FrozenMapping:
+    diverged = {}
+    unique_left = left.keys() - right.keys()
+    shared_keys = left.keys() & right.keys()
+    for key in unique_left:
+        diverged[key] = left[key]
+    for key in shared_keys:
+        left_value = left[key]
+        right_value = right[key]
+        if left_value in EMPTY_TERMINUS:
+            continue
+        elif right_value in EMPTY_TERMINUS:
+            continue
+        if isinstance(left_value, (AbstractMapping, AbstractSequence)):
+            if not isinstance(left_value, cls):
+                left_value = cls(left_value)
+        if isinstance(right_value, (AbstractMapping, AbstractSequence)):
+            if not isinstance(right_value, cls):
+                right_value = cls(right_value)
+        if isinstance(left_value, cls) and isinstance(right_value, cls):
+            values = deep_subtract_mappings(left_value, right_value, cls=cls)
+            if values:
+                if values == left_value:
+                    diverged[key] = left[key]
+                else:
+                    diverged[key] = values
+    return cls(diverged)
 
 
 class ClassOrInstanceFuncsDescriptor:

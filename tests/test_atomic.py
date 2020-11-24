@@ -968,3 +968,49 @@ def test_skip_keys_complex():
 
     assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
     assert FacelessPerson is FacelessPosition._slots["worker"]
+
+
+def test_include_keys_complex():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+    job_id = 1
+    supervisor_id = 2
+    worker_id = 456
+
+    FacelessPerson = Person & "id"
+    FacelessPosition = Position & {
+        "supervisor": {"id"},
+        "worker": "id",
+        "id": None,
+        "task_name": None,
+    }
+    faceless_people = FacelessPosition(
+        id=job_id,
+        supervisor=(FacelessPerson(id=supervisor_id, name="SupervisorName", created_date="0"),),
+        worker=FacelessPerson(id=worker_id, name="worker", created_date="0"),
+        task_name="servitor",
+    )
+    assert faceless_people.id == job_id
+    assert faceless_people.supervisor[0].id == supervisor_id
+    assert faceless_people.worker.id == worker_id
+    # Are we sure they don't have names?
+    assert faceless_people.worker.name is None
+    assert faceless_people.supervisor[0].name is None
+    assert Person.to_json(faceless_people) == {
+        "id": 1,
+        "supervisor": [{"id": 2}],
+        "worker": {"id": 456},
+        "task_name": "servitor",
+    }
+
+    assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
+    assert FacelessPerson is FacelessPosition._slots["worker"]

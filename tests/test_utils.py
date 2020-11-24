@@ -35,6 +35,10 @@ def test_frozen_mapping():
     assert isinstance(f4_i, FrozenMapping)
     assert hash(f4) == hash(f4_i)
     assert f4 is f4_i
+    assert (f4 - {"foo"}) is f3
+    assert (f4 - {"foo": "baz"}) is f4_i
+    x = FrozenMapping({"a": {"b": {"c": None}, "d": 1}}) - FrozenMapping({"a": "b"})
+    assert x is FrozenMapping({"a": {"d": 1}})
 
     # Test weak refs:
     hash_code_1 = hash(f1)
