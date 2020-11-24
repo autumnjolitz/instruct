@@ -34,9 +34,9 @@ Current Capabilities:
     - Allow subtraction of properties via an inclusive list like ``(F & {"a", "b"}).keys() == F_with_only_a_and_b.keys()`` [Done]
     - Allow subtraction to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))`` [Done]
         + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
+    - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions [Done]
 
 Next Goals:
-    - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions
     - Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
         + Would be able to allow specialized subtypes
     - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field"
