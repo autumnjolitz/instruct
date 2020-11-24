@@ -176,6 +176,9 @@ def replace_class_reference(
     if function is None:
         return None
 
+    is_classmethod = hasattr(function, "__func__") and hasattr(function, "__self__")
+    if is_classmethod:
+        function = function.__func__
     Derived = None
     if memory is not None:
         try:
@@ -241,6 +244,9 @@ def replace_class_reference(
     )
     new_function.__kwdefaults__ = function.__kwdefaults__
     new_function.__annotations__ = function.__annotations__
+    if is_classmethod:
+        setattr(newklass, function.__name__, classmethod(new_function))
+        return getattr(newklass, function.__name__)
     return new_function
 
 
