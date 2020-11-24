@@ -1047,5 +1047,46 @@ def test_skip_keys_coerce():
     fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
     fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
     assert fp.supervisor[0].name is None
+    assert fp.supervisor[0].id == 2
     fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
     assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+
+
+def test_skip_keys_coerce_classmethod():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.from_json),
+        }
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
+    fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    assert fp.supervisor[0].name is None
+    assert fp.supervisor[0].id == 2
+    fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert Person.to_json(p) == {
+        "id": 1,
+        "supervisor": [{"created_date": "0", "id": 2, "name": "John"}],
+        "task_name": "Business Partnerships",
+        "worker": {"created_date": "0", "id": 456, "name": "Sam"},
+    }
