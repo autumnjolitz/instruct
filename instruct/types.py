@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import UserDict
 from collections.abc import (
     Mapping as AbstractMapping,
@@ -6,7 +7,8 @@ from collections.abc import (
 )
 from types import MethodType
 from weakref import WeakKeyDictionary, WeakValueDictionary
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Type, Generic, Callable, Union, Mapping
+from .typing import T
 
 
 class AttrsDict(UserDict):
@@ -204,21 +206,25 @@ def deep_subtract_mappings(left: FrozenMapping, right: FrozenMapping, *, cls=dic
     return cls(diverged)
 
 
-class ClassOrInstanceFuncsDescriptor:
+class ClassOrInstanceFuncsDescriptor(Generic[T]):
     __slots__ = "_class_function", "_instance_function", "_classes"
 
-    def __init__(self, class_function=None, instance_function=None):
-        self._classes = WeakKeyDictionary()
+    def __init__(
+        self,
+        class_function: Optional[Callable] = None,
+        instance_function: Optional[Callable] = None,
+    ) -> None:
+        self._classes: Mapping[Type[T], MethodType] = WeakKeyDictionary()
         self._class_function = class_function
         self._instance_function = instance_function
 
-    def instance_function(self, instance_function):
+    def instance_function(self, instance_function) -> ClassOrInstanceFuncsDescriptor[T]:
         return type(self)(self._class_function, instance_function)
 
     def class_function(self, class_function):
         return type(self)(class_function, self._instance_function)
 
-    def __get__(self, instance, owner=None):
+    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
         if instance is None:
             try:
                 return self._classes[owner]
