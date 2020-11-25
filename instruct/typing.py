@@ -1,5 +1,20 @@
 import typing
 
+try:
+    from types import CellType
+except ImportError:
+
+    def foo():
+        a = 1
+
+        def bar():
+            return a
+
+        return bar
+
+    CellType = type(foo().__closure__[0])
+    del foo
+
 if typing.TYPE_CHECKING:
     from typing import Protocol
 else:
