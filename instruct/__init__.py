@@ -41,7 +41,7 @@ from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
-from .typing import T
+from .typing import T, CellType
 from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
 from .utils import flatten_fields
 
@@ -170,31 +170,119 @@ def _set_defaults(self):
     return code
 
 
-def replace_class_reference(
-    klass: Type, newklass: Type, function: Callable[[Any], Any], *, memory: Optional[dict] = None
-):
+def _order_by_mro_position(parent_cls: Type) -> Callable[[Type], int]:
+    def key_func(item: Type) -> int:
+        return item.__mro__.index(parent_cls)
+
+    return key_func
+
+
+def make_class_cell() -> CellType:
+    """
+    Create a CellType reference through a throwaway closure, suitable
+    for replacing in a function's __closure__ definition.
+    """
+
+    def closure_maker():
+        __class__ = type
+
+        def bar():
+            return __class__
+
+        return bar
+
+    fake_function = closure_maker()
+    class_cell, = fake_function.__closure__
+    del fake_function
+    return class_cell
+
+
+KLASS_CLOSURE_BINDING_WRONG = "We should've moved this out of load_from_scope_names and into free_binding_closure_names as an atomic operation!"  # noqa
+
+
+def replace_class_references(function: Callable[[Any], Any], *references: Tuple[Type, Type]):
+    """
+    Given a vector of (generic_class, specialized_class), replace any LOAD_GLOBAL or __closure__
+    references to generic_class with specialized_class.
+    """
     if function is None:
         return None
+    if not references:
+        return function
 
+    dest_func_name = function.__name__
     is_classmethod = hasattr(function, "__func__") and hasattr(function, "__self__")
     if is_classmethod:
+        classmethod_owner = function.__self__
         function = function.__func__
-    Derived = None
-    if memory is not None:
-        try:
-            Derived = memory[klass]
-        except KeyError:
-            Derived = None
+        class_owner_descendents = tuple(
+            sorted(
+                frozenset(after for _, after in references if issubclass(after, classmethod_owner)),
+                key=_order_by_mro_position(classmethod_owner),
+            )
+        )
+        if not class_owner_descendents or class_owner_descendents[0] is classmethod_owner:
+            classmethod_dest = classmethod_owner
+            dest_func_name = f"{dest_func_name}_{hash(tuple(after for _, after in references))}"
+        else:
+            classmethod_dest = class_owner_descendents[0]
 
     code = function.__code__
-    co_closure = code.co_freevars
-    klass_name = klass.__name__
 
-    if klass_name not in code.co_freevars:
-        co_closure += (klass_name,)
-        index = len(co_closure)
+    # If our class reference is in here, it will load
+    # from the code's namespace. We will need to intercept it
+    # and move it to a closure
+    load_from_scope_names: List[str] = list(code.co_names)
+    # If our class refer is in here, it will load from a closure (and reference
+    # the value in __closure__ at the index of the co_freevars tuple name)
+    free_binding_closure_names: List[str] = list(code.co_freevars)
+
+    if function.__closure__ is None:
+        current_closures: List[CellType] = []
     else:
-        index = co_closure.index(klass_name)
+        current_closures: List[CellType] = list(function.__closure__)
+
+    changed = False
+
+    for oldklass, newklass in references:
+        if (
+            oldklass.__name__ not in free_binding_closure_names
+            and oldklass.__name__ not in load_from_scope_names
+        ):
+            continue
+
+        class_cell = make_class_cell()
+        class_cell.cell_contents = newklass
+
+        if oldklass.__name__ in load_from_scope_names:
+            assert oldklass.__name__ not in free_binding_closure_names, KLASS_CLOSURE_BINDING_WRONG
+            free_binding_closure_names.append(oldklass.__name__)
+            index = len(free_binding_closure_names)
+            current_closures.append(class_cell)
+            # Remove the load from scope names so we can use the closure instead
+            index = load_from_scope_names.index(oldklass.__name__)
+            del load_from_scope_names[index]
+            changed = True
+            continue
+
+        # Replace the reference of the old class to the new one:
+        index = free_binding_closure_names.index(oldklass.__name__)
+        current_closures[index] = class_cell
+        changed = True
+
+    if not changed:
+        if is_classmethod and classmethod_dest is not classmethod_owner:
+            return getattr(classmethod_dest, function.__name__)
+        return function
+
+    assert len(free_binding_closure_names) == len(current_closures)
+
+    if function.__module__:
+        module = import_module(function.__module__)
+        new_globals = module.__dict__
+    else:
+        new_globals = globals()
+
     code = CodeType(
         code.co_argcount,
         code.co_kwonlyargcount,
@@ -203,74 +291,67 @@ def replace_class_reference(
         code.co_flags,
         code.co_code,
         code.co_consts,
-        code.co_names,
+        tuple(load_from_scope_names),
         code.co_varnames,
         code.co_filename,
         code.co_name,
         code.co_firstlineno,
         code.co_lnotab,
-        co_closure,
+        tuple(free_binding_closure_names),
         code.co_cellvars,
     )
 
-    if Derived is None:
-
-        class Derived(newklass, concrete_class=True):
-            __slots__ = ()
-
-            def dummy(self):
-                return __class__  # noqa
-
-        if memory is not None:
-            memory[newklass] = Derived
-
-    source_func = cast(FunctionType, Derived.dummy)
-
-    class_cell = source_func.__closure__[0]
-    class_cell.cell_contents = newklass
-    current_closure = function.__closure__
-    if current_closure is None:
-        current_closure = ()
-    new_globals = globals()
-    if function.__module__:
-        module = import_module(function.__module__)
-        new_globals = module.__dict__
-
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
-    co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
     new_function = FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, co_freevars_values
+        code, new_globals, function.__name__, function.__defaults__, tuple(current_closures)
     )
     new_function.__kwdefaults__ = function.__kwdefaults__
     new_function.__annotations__ = function.__annotations__
     if is_classmethod:
-        setattr(newklass, function.__name__, classmethod(new_function))
-        return getattr(newklass, function.__name__)
+        # Assign the classmethod then return its wrapped form:
+        setattr(classmethod_dest, dest_func_name, classmethod(new_function))
+        wrapped = getattr(classmethod_dest, dest_func_name)
+        return wrapped
     return new_function
 
 
 def insert_class_closure(
-    klass: Type, function: Optional[FunctionType], *, memory: Optional[dict] = None
-) -> Optional[Callable]:
+    klass: Atomic, function: Optional[Callable[..., Any]]
+) -> Optional[Callable[..., Any]]:
+    """
+    an implicit super() works by looking at __class__ to fill in the
+    arguments, becoming super(__class__, self)
+
+    Since we're messing with the function space, __class__ is most
+    likely undefined or pointing to the incorrect specialized class
+    instead of the base/public class.
+    """
     if function is None:
         return None
 
-    Derived = None
-    if memory is not None:
-        try:
-            Derived = memory[klass]
-        except KeyError:
-            Derived = None
+    code: CodeType = function.__code__
+    # Make the cell to hold the replacement klass value:
+    class_cell: CellType = make_class_cell()
+    class_cell.cell_contents = klass
 
-    code = function.__code__
-    co_closure = code.co_freevars
+    closure_var_names: List[str] = list(code.co_freevars)
 
-    if "__class__" not in code.co_freevars:
-        co_closure += ("__class__",)
-        index = len(co_closure)
+    current_closure: List[CellType]
+    if function.__closure__ is None:
+        current_closure = []
     else:
-        index = co_closure.index("__class__")
+        current_closure = list(function.__closure__)
+
+    # Insert the class cell into the closure references:
+    if "__class__" not in code.co_freevars:
+        closure_var_names.append("__class__")
+        current_closure.append(class_cell)
+    else:
+        index = closure_var_names.index("__class__")
+        current_closure[index] = class_cell
+
+    # recreate the function using its guts
     code = CodeType(
         code.co_argcount,
         code.co_kwonlyargcount,
@@ -285,39 +366,22 @@ def insert_class_closure(
         code.co_name,
         code.co_firstlineno,
         code.co_lnotab,
-        co_closure,
+        tuple(closure_var_names),
         code.co_cellvars,
     )
 
-    if Derived is None:
-
-        class Derived(klass, concrete_class=True):
-            __slots__ = ()
-
-            def dummy(self):
-                return __class__  # noqa
-
-        if memory is not None:
-            memory[klass] = Derived
-
-    source_func = cast(FunctionType, Derived.dummy)
-
-    class_cell = source_func.__closure__[0]
-    class_cell.cell_contents = klass
-    current_closure = function.__closure__
-    if current_closure is None:
-        current_closure = ()
     new_globals = globals()
     if function.__module__:
         module = import_module(function.__module__)
         new_globals = module.__dict__
+        del module
 
-    # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
-    # This will allow for overridden functions to be called with super()
-    co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
     new_function = FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, co_freevars_values
+        code, new_globals, function.__name__, function.__defaults__, tuple(current_closure)
     )
+    # Copy the module name:
+    if function.__module__:
+        new_function.__module__ = function.__module__
     new_function.__kwdefaults__ = function.__kwdefaults__
     new_function.__annotations__ = function.__annotations__
     return new_function
@@ -627,6 +691,7 @@ def apply_skip_keys(
         )
         return modified_class, (types, new_coerce_function)
     elif is_typing_definition(current_definition) or isinstance(current_definition, tuple):
+        new_coerce_definition = None
         gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
         replace_class_refs = []
         try:
@@ -640,6 +705,7 @@ def apply_skip_keys(
                     replace_class_refs.append((before, after))
         except StopIteration as e:
             current_definition = e.value
+        new_coerce_function = None
         if replace_class_refs:
             if len(replace_class_refs) > 1:
                 parent_cls = Union[tuple(before for before, _ in replace_class_refs)]
@@ -656,27 +722,36 @@ def apply_skip_keys(
         else:
             existing_coerce_function = None
             types = (parent_cls,)
-
-        for before, after in replace_class_refs:
-            existing_coerce_function = replace_class_reference(
-                before, after, existing_coerce_function
+        if replace_class_refs:
+            new_coerce_function = replace_class_references(
+                existing_coerce_function, *replace_class_refs
             )
-        return current_definition, (types, existing_coerce_function)
+            new_coerce_definition = (types, new_coerce_function)
+        return current_definition, new_coerce_definition or current_coerce
     else:
         raise NotImplementedError(
             f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
         )
 
 
-def show_all_fields(cls):
+def show_all_fields(
+    cls: Atomic, deep_traverse_with: Optional[Mapping[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    deep_traverse_with: only descend if the same key exists in the provided mapping.
+    """
     all_fields = {}
     for key, value in cls._slots.items():
         all_fields[key] = {}
-        if key in cls._nested_atomic_collection_keys:
-            for item in cls._nested_atomic_collection_keys[key]:
-                all_fields[key].update(show_all_fields(item))
-        elif ismetasubclass(value, Atomic):
-            all_fields[key].update(show_all_fields(value))
+        if deep_traverse_with is None or key in deep_traverse_with:
+            next_deep_level = None
+            if deep_traverse_with is not None:
+                next_deep_level = deep_traverse_with[key]
+            if key in cls._nested_atomic_collection_keys:
+                for item in cls._nested_atomic_collection_keys[key]:
+                    all_fields[key].update(show_all_fields(item, next_deep_level))
+            elif ismetasubclass(value, Atomic):
+                all_fields[key].update(show_all_fields(value, next_deep_level))
         if not all_fields[key]:
             all_fields[key] = None
     return all_fields
@@ -721,7 +796,7 @@ class Atomic(type):
         include_fields -= self._skipped_fields
         if not include_fields:
             return self
-        skip_fields = show_all_fields(self) - include_fields
+        skip_fields = show_all_fields(self, include_fields) - include_fields
         return self - skip_fields
 
     def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
@@ -1275,19 +1350,17 @@ class Atomic(type):
         support_cls_attrs["_parent"] = parent_cell = ReadOnly(None)
         support_cls = super().__new__(klass, class_name, bases, support_cls_attrs)
 
-        cache = {}
         for prop_name, value in support_cls_attrs.items():
             if isinstance(value, property):
                 value = property(
-                    insert_class_closure(support_cls, value.fget, memory=cache),
-                    insert_class_closure(support_cls, value.fset, memory=cache),
+                    insert_class_closure(support_cls, value.fget),
+                    insert_class_closure(support_cls, value.fset),
                 )
             elif isinstance(value, FunctionType):
-                value = insert_class_closure(support_cls, value, memory=cache)
+                value = insert_class_closure(support_cls, value)
             else:
                 continue
             setattr(support_cls, prop_name, value)
-        del cache
 
         ns_globals["klass"] = support_cls
         dataclass_slots = (

@@ -906,10 +906,20 @@ def test_complex_skip_keys_simple():
     class Container(Base):
         bazes: Tuple[Item, ...]
         name: str
+        altname: str
+
+        @property
+        def altname(self):
+            return (self._altname_ or "y") + "x"
 
         __coerce__ = {"bazes": (Union[List[ItemType], Tuple[ItemType, ...]], Item.from_many_json)}
 
     c = Container([{"foo": "abc", "bar": 1}], "hello")
+
+    i = (Container - {"name", "altname"}).from_json(c.to_json())
+    assert i.name is None
+    assert i.altname is None
+    assert dict(i).keys() & {"altname", "name"} == set()
 
 
 def test_skip_keys_complex():
@@ -1044,6 +1054,11 @@ def test_skip_keys_coerce():
     p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
 
     FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    assert instruct.keys(FacelessPosition) == {"id", "supervisor", "worker"}
+
+    OnlyPositionId = Position & "id"
+    assert instruct.keys(OnlyPositionId) == {"id"}
+
     fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
     fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
     assert fp.supervisor[0].name is None
