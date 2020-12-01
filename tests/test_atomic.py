@@ -890,8 +890,14 @@ def test_complex_skip_keys_simple():
 
     c2.baz = {"foo": "s", "bar": 1}
     assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
-    c2.baz = Item(**{"foo": "s", "bar": 1})
-    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+
+    with pytest.raises(TypeError):
+        # Setting to a base class will not work for now.
+        # Ideally, it would be nice to be able to generate
+        # a function that would detect base class assignments
+        # then strip/coerce the base class to the final class
+        c2.baz = Item(**{"foo": "s", "bar": 1})
+        assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
 
     cls = Container - {"baz"}
     c2 = cls.from_json(c.to_json())
@@ -1073,6 +1079,13 @@ def test_skip_keys_coerce_classmethod():
         name: str
         created_date: str
 
+        @classmethod
+        def parse(cls, item):
+            assert cls is d, "class mismatch!"
+            return d(**item)
+
+    d = Person
+
     class Position(Base):
         id: int
         supervisor: Tuple[Person, ...]
@@ -1081,20 +1094,35 @@ def test_skip_keys_coerce_classmethod():
 
         __coerce__ = {
             "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
-            "worker": (Dict[str, Union[int, str]], Person.from_json),
+            "worker": (Dict[str, Union[int, str]], Person.parse),
         }
+
+        @property
+        def some_prop(self):
+            if "task_name" in type(self):
+                return self.task_name
+            return None
 
     p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
     p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
     p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
 
     FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    FacelessPerson = Person & {"id"}
+    assert FacelessPerson is FacelessPosition._slots["worker"]
     fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
     fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
     assert fp.supervisor[0].name is None
     assert fp.supervisor[0].id == 2
     fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert isinstance(fp.worker, FacelessPerson)
     assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+    assert (
+        FacelessPosition.__coerce__["worker"][1]({"created_date": "0", "id": 456, "name": "Sam"})
+        == fp.worker
+    )
+    assert fp.some_prop is None
+    assert d is Person
 
     p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
     p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
