@@ -12,6 +12,7 @@ from collections.abc import (
     MappingView,
     Set as AbstractSet,
     KeysView,
+    Collection as AbstractCollection,
 )
 from base64 import urlsafe_b64encode
 from enum import IntEnum
@@ -63,6 +64,8 @@ env.globals["tuple"] = tuple
 env.globals["repr"] = repr
 env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
+
+AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 
 
 class ItemsView(_ItemsView):
@@ -198,9 +201,35 @@ def make_class_cell() -> CellType:
 
 
 KLASS_CLOSURE_BINDING_WRONG = "We should've moved this out of load_from_scope_names and into free_binding_closure_names as an atomic operation!"  # noqa
+NOT_SET = object()
 
 
-def replace_class_references(function: Callable[[Any], Any], *references: Tuple[Type, Type]):
+def find_class_in_cell(classes: Iterable[Type], cell: CellType) -> Optional[Type]:
+    if not classes:
+        return None
+    for cls in classes:
+        if class_in_cell(cls, cell):
+            return cls
+    return None
+
+
+def find_class_in_value(classes: Iterable[Type], value: Any) -> Optional[Type]:
+    if not classes:
+        return None
+    for cls in classes:
+        if cls is value:
+            return cls
+    return None
+
+
+def class_in_cell(cls: Type, cell: CellType) -> bool:
+    value: Any = cell.cell_contents
+    return cls is value
+
+
+def replace_class_references(
+    function: Callable[[Any], Any], *references: Tuple[Type, Type], return_classmethod=False
+):
     """
     Given a vector of (generic_class, specialized_class), replace any LOAD_GLOBAL or __closure__
     references to generic_class with specialized_class.
@@ -228,6 +257,7 @@ def replace_class_references(function: Callable[[Any], Any], *references: Tuple[
             classmethod_dest = class_owner_descendents[0]
 
     code = function.__code__
+    function_globals: Mapping[str, Any] = function.__globals__
 
     # If our class reference is in here, it will load
     # from the code's namespace. We will need to intercept it
@@ -243,45 +273,54 @@ def replace_class_references(function: Callable[[Any], Any], *references: Tuple[
         current_closures: List[CellType] = list(function.__closure__)
 
     changed = False
+    old_klass_refs = {old: new for old, new in references}
+    old_klass_names = {old.__name__: old for old in old_klass_refs}
 
-    for oldklass, newklass in references:
-        if (
-            oldklass.__name__ not in free_binding_closure_names
-            and oldklass.__name__ not in load_from_scope_names
-        ):
+    for index, cell in enumerate(current_closures):
+        closure_name: str = free_binding_closure_names[index]
+        oldklass: Optional[Type] = None
+        if closure_name in old_klass_names:
+            oldklass = old_klass_names[closure_name]
+        else:
+            oldklass = find_class_in_cell(old_klass_refs.keys(), cell)
+        if oldklass is None:
             continue
-
+        newklass = old_klass_refs[oldklass]
+        # okay, we'll need to spawn a new class cell and rebind
+        # the closure
         class_cell = make_class_cell()
         class_cell.cell_contents = newklass
-
-        if oldklass.__name__ in load_from_scope_names:
-            assert oldklass.__name__ not in free_binding_closure_names, KLASS_CLOSURE_BINDING_WRONG
-            free_binding_closure_names.append(oldklass.__name__)
-            index = len(free_binding_closure_names)
-            current_closures.append(class_cell)
-            # Remove the load from scope names so we can use the closure instead
-            index = load_from_scope_names.index(oldklass.__name__)
-            del load_from_scope_names[index]
-            changed = True
-            continue
-
         # Replace the reference of the old class to the new one:
-        index = free_binding_closure_names.index(oldklass.__name__)
         current_closures[index] = class_cell
+        changed = True
+
+    for index, global_varname in enumerate(load_from_scope_names):
+        oldklass = None
+        if global_varname in old_klass_names:
+            oldklass = old_klass_names[global_varname]
+        else:
+            try:
+                global_varvalue = function_globals[global_varname]
+            except KeyError:
+                continue
+            oldklass = find_class_in_value(old_klass_refs.keys(), global_varvalue)
+        if oldklass is None:
+            continue
+        newklass = old_klass_refs[oldklass]
+        # In this case, we need to change the global load name
+        # to the specialized one and ensure the clobbered name is in global()
+        # scope for the function
+        # Warning: Creates strong reference.
+        # TODO: Bytecode rewrite to change from `expr(oldklass)` to `expr((oldklass - fields))`.
+        new_name = f"{oldklass.__name__}->{hash(newklass)}"
+        function_globals[new_name] = newklass
+        load_from_scope_names[index] = new_name
         changed = True
 
     if not changed:
         if is_classmethod and classmethod_dest is not classmethod_owner:
             return getattr(classmethod_dest, function.__name__)
         return function
-
-    assert len(free_binding_closure_names) == len(current_closures)
-
-    if function.__module__:
-        module = import_module(function.__module__)
-        new_globals = module.__dict__
-    else:
-        new_globals = globals()
 
     code = CodeType(
         code.co_argcount,
@@ -304,11 +343,13 @@ def replace_class_references(function: Callable[[Any], Any], *references: Tuple[
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
     new_function = FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, tuple(current_closures)
+        code, function_globals, function.__name__, function.__defaults__, tuple(current_closures)
     )
     new_function.__kwdefaults__ = function.__kwdefaults__
     new_function.__annotations__ = function.__annotations__
     if is_classmethod:
+        if return_classmethod:
+            return classmethod(new_function)
         # Assign the classmethod then return its wrapped form:
         setattr(classmethod_dest, dest_func_name, classmethod(new_function))
         wrapped = getattr(classmethod_dest, dest_func_name)
@@ -370,14 +411,8 @@ def insert_class_closure(
         code.co_cellvars,
     )
 
-    new_globals = globals()
-    if function.__module__:
-        module = import_module(function.__module__)
-        new_globals = module.__dict__
-        del module
-
     new_function = FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, tuple(current_closure)
+        code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )
     # Copy the module name:
     if function.__module__:
@@ -459,10 +494,25 @@ def gather_listeners(class_name, attrs, class_columns, combined_class_columns, i
     return listeners, post_coerce_failure_handlers
 
 
-def is_debug_mode() -> bool:
-    return (
-        os.environ.get("INSTRUCT_DEBUG_CODEGEN", "").lower().startswith(("1", "true", "yes", "y"))
-    )
+def is_debug_mode(mode=None, class_name=None, field=None) -> bool:
+    if os.environ.get("INSTRUCT_DEBUG", "").lower() in AFFIRMATIVE:
+        return True
+    mode_debug: str = os.environ.get(f"INSTRUCT_DEBUG_{mode.upper()}", "").lower()
+    if mode_debug in AFFIRMATIVE:
+        return True
+    if field is None:
+        field = "*"
+    if class_name is None:
+        return False
+    if "." in mode_debug:
+        debug_class_name, debug_field = mode_debug.split(".")
+    else:
+        debug_class_name = mode_debug
+        debug_field = "*"
+    if class_name == debug_class_name:
+        if field == debug_field or debug_field == "*":
+            return True
+    return False
 
 
 def create_proxy_property(
@@ -496,7 +546,7 @@ def create_proxy_property(
         has_coercion=isinstance_compatible_coerce_type is not None,
     )
     filename = "<getter-setter>"
-    if is_debug_mode():
+    if is_debug_mode("codegen", class_name, key):
         with tempfile.NamedTemporaryFile(
             delete=False, mode="w", prefix=f"{class_name}-{key}", suffix=".py", encoding="utf8"
         ) as fh:
@@ -652,11 +702,17 @@ def create_coerce_to_subclass_func(parent_cls, child_cls, coerce_function=None):
     return coerce_value
 
 
+class ModifiedSkipTypes(NamedTuple):
+    replacement_type_definition: Atomic
+    replacement_coerce_definition: Optional[Tuple[Any, Callable]]
+    mutant_classes: FrozenSet[Tuple[Atomic, Atomic]]
+
+
 def apply_skip_keys(
     skip_key_fields: Union[FrozenSet[str], Set[str], Dict[str, Any]],
     current_definition: Atomic,
     current_coerce: Optional[Tuple[Any, Callable[[Any], Any]]],
-) -> Tuple[Any, Optional[Tuple[Any, Callable[[Any], Any]]]]:
+) -> ModifiedSkipTypes:
     """
     If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.
 
@@ -670,27 +726,12 @@ def apply_skip_keys(
     Basically this has to traverse the graph, branching out and replacing nodes.
     """
 
-    if isinstance(current_definition, type) and ismetasubclass(current_definition, Atomic):
-        parent_cls = current_definition
-        modified_class = current_definition - skip_key_fields
-        if parent_cls is modified_class:
-            return parent_cls, None
-        if current_coerce is not None:
-            types, existing_coerce_function = current_coerce
-            if is_typing_definition(types):
-                types = Union[parent_cls, types]
-            elif isinstance(types, tuple):
-                types = types + (parent_cls,)
-            elif isinstance(types, type):
-                types = (types, parent_cls)
-        else:
-            existing_coerce_function = None
-            types = (parent_cls,)
-        new_coerce_function = create_coerce_to_subclass_func(
-            parent_cls, modified_class, existing_coerce_function
-        )
-        return modified_class, (types, new_coerce_function)
-    elif is_typing_definition(current_definition) or isinstance(current_definition, tuple):
+    if (
+        isinstance(current_definition, type)
+        and ismetasubclass(current_definition, Atomic)
+        or is_typing_definition(current_definition)
+        or isinstance(current_definition, tuple)
+    ):
         new_coerce_definition = None
         gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
         replace_class_refs = []
@@ -706,28 +747,17 @@ def apply_skip_keys(
         except StopIteration as e:
             current_definition = e.value
         new_coerce_function = None
-        if replace_class_refs:
-            if len(replace_class_refs) > 1:
-                parent_cls = Union[tuple(before for before, _ in replace_class_refs)]
-            else:
-                (parent_cls, _), = replace_class_refs
-        if current_coerce is not None:
-            types, existing_coerce_function = current_coerce
-            if is_typing_definition(types):
-                types = Union[parent_cls, types]
-            elif isinstance(types, tuple):
-                types = types + (parent_cls,)
-            elif isinstance(types, type):
-                types = (types, parent_cls)
-        else:
-            existing_coerce_function = None
-            types = (parent_cls,)
-        if replace_class_refs:
+        if current_coerce is not None and replace_class_refs:
+            existing_coerce_match_types, existing_coerce_function = current_coerce
             new_coerce_function = replace_class_references(
                 existing_coerce_function, *replace_class_refs
             )
-            new_coerce_definition = (types, new_coerce_function)
-        return current_definition, new_coerce_definition or current_coerce
+            new_coerce_definition = (existing_coerce_match_types, new_coerce_function)
+        return ModifiedSkipTypes(
+            current_definition,
+            new_coerce_definition or current_coerce,
+            frozenset(replace_class_refs),
+        )
     else:
         raise NotImplementedError(
             f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
@@ -755,6 +785,34 @@ def show_all_fields(
         if not all_fields[key]:
             all_fields[key] = None
     return all_fields
+
+
+def list_callables(cls):
+    for key in dir(cls):
+        value = getattr(cls, key)
+        if isinstance(value, type):
+            continue
+        elif not callable(value):
+            continue
+        yield key, value
+
+
+def find_users_of(mutant_class_parent_names, in_cls):
+    ignore_functions = frozenset()
+    for parent_cls in in_cls.__bases__:
+        ignore_functions |= frozenset(
+            value
+            for key, value in list_callables(parent_cls)
+            if not (key.startswith("__") and key.endswith("__"))
+        )
+    functions_to_scan = (
+        (key, value) for key, value in list_callables(in_cls) if not key.startswith("__")
+    )
+    for key, value in functions_to_scan:
+        external_names = frozenset(value.__code__.co_names) | frozenset(value.__code__.co_freevars)
+        matches = external_names & mutant_class_parent_names
+        if matches:
+            yield (key, value), matches
 
 
 class Atomic(type):
@@ -801,6 +859,7 @@ class Atomic(type):
 
     def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
         assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
+        debug_mode = is_debug_mode("skip")
 
         root_class = type(self)
         cls = getattr(self, "_parent", self)
@@ -831,6 +890,7 @@ class Atomic(type):
 
         redefinitions = {}
         redefine_coerce = {}
+        mutant_classes = set()
         for key, key_specific_strip_keys in skip_fields.items():
             if not key_specific_strip_keys:
                 skip_entire_keys.add(key)
@@ -843,18 +903,37 @@ class Atomic(type):
             current_coerce = None
             if self.__coerce__ and key in self.__coerce__:
                 current_coerce = self.__coerce__[key]
-            redefined_definition, redefined_coerce_definition = apply_skip_keys(
+            redefined_definition, redefined_coerce_definition, new_mutants = apply_skip_keys(
                 key_specific_strip_keys, current_definition, current_coerce
             )
+            mutant_classes |= new_mutants
 
             if redefined_definition is not None:
                 redefinitions[key] = redefined_definition
             if redefined_coerce_definition is not None:
                 redefine_coerce[key] = redefined_coerce_definition
 
-        skip_entire_keys = FrozenMapping(skip_entire_keys)
+        mutant_class_parent_names = {
+            parent.__name__: (parent, child) for parent, child in mutant_classes
+        }
+        if debug_mode:
+            print(f"Mutants: {mutant_class_parent_names}")
 
         attrs = {"__slots__": ()}
+
+        for (function_name, function_value), parents_to_replace in find_users_of(
+            mutant_class_parent_names.keys(), cls
+        ):
+            mutated_function_value = replace_class_references(
+                function_value,
+                return_classmethod=True,
+                *[mutant_class_parent_names[parent_name] for parent_name in parents_to_replace],
+            )
+            if debug_mode:
+                print(f"{function_name} has {parents_to_replace}")
+            attrs[function_name] = mutated_function_value
+
+        skip_entire_keys = FrozenMapping(skip_entire_keys)
 
         if redefinitions:
             attrs["__slots__"] = redefinitions
@@ -1177,7 +1256,7 @@ class Atomic(type):
                 all_coercions[key] = (coerce_types, coerce_func)
             derived_class = derived_classes.get(key)
             if disabled_derived and derived_class is not None:
-                if is_debug_mode():
+                if is_debug_mode("derived"):
                     logger.debug(
                         f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
                     )
