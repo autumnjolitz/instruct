@@ -31,6 +31,27 @@ def identity(item: T) -> T:
     return item
 
 
+def handle_union(*functions):
+    """
+    Since our approach is to create depth-first cast functions,
+    we will need to make traces that will do exactly what we want.
+
+    Union[Type, Type] complicate this. If we assume a trace is unique,
+    then we can simply run both traces from the difference point
+    and expect that it will only mutate the appropriate members.
+
+    In effect, this function assumes an embedded function set will only
+    mutate if it precisely matches.
+    """
+
+    def handler(item):
+        for function in functions:
+            item = function(item)
+        return item
+
+    return handler
+
+
 @curry
 def handle_object(cls, cast_function=identity):
     assert issubclass(cls, object)
