@@ -116,10 +116,10 @@ def test_mapping_function_composition(Item, SubItem):
 
     cast_func = handle_mapping(
         dict,
-        handle_object(str, handle_object(int)),
-        handle_collection(
-            Tuple[Item, ...],
-            handle_instruct(Item, SubItem, handle_collection(tuple, handle_object(str))),
+        handle_union(handle_object(str), handle_object(int)),
+        handle_union(
+            handle_collection(tuple, handle_instruct(Item, SubItem)),
+            handle_collection(tuple, handle_object(str)),
         ),
     )
     from_value = {
