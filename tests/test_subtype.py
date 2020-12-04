@@ -21,13 +21,12 @@ assert value.field.b == 2
 
 from pytest import fixture
 from typing import Tuple, Mapping, Union, List
-from instruct import SimpleBase, keys
+from instruct import SimpleBase, keys, transform_typing_to_coerce, Atomic
 from instruct.subtype import (
     handle_instruct,
     handle_collection,
     handle_object,
     handle_mapping,
-    transform_typing_to_coerce,
     handle_union,
 )
 
@@ -69,7 +68,7 @@ def test_simple_function_composition(Item, SubItem):
     Item -> Item - {...}
     """
 
-    cast_func = handle_instruct(Item, SubItem)
+    cast_func = handle_instruct(Atomic, Item, SubItem)
     from_value = Item(field="my value", value=123)
     to_value = SubItem(field="my value", value=123)
     assert cast_func(from_value) == to_value
@@ -77,7 +76,7 @@ def test_simple_function_composition(Item, SubItem):
 
     # test currying
 
-    cast_func = handle_instruct(Item)(SubItem)
+    cast_func = handle_instruct(Atomic, Item)(SubItem)
     assert cast_func(from_value) == to_value
     assert isinstance(cast_func(from_value), SubItem)
 
@@ -90,7 +89,7 @@ def test_collection_function_composition(Item, SubItem):
     Tuple[Item, ...] -> Tuple[SubItem, ...]
     Tuple[Item, str] -> Tuple[SubItem, str]
     """
-    cast_func = handle_collection(list, handle_instruct(Item, SubItem))
+    cast_func = handle_collection(list, handle_instruct(Atomic, Item, SubItem))
     from_value = [Item(field="my value", value=123)]
     to_value = [SubItem(field="my value", value=123)]
     mutated_value = cast_func(from_value)
@@ -98,7 +97,7 @@ def test_collection_function_composition(Item, SubItem):
     assert isinstance(mutated_value, list)
     assert all(isinstance(x, SubItem) for x in mutated_value)
 
-    cast_func = handle_collection(tuple, handle_instruct(Item, SubItem))
+    cast_func = handle_collection(tuple, handle_instruct(Atomic, Item, SubItem))
     from_value = (Item(field="my value", value=123),)
     to_value = (SubItem(field="my value", value=123),)
     mutated_value = cast_func(from_value)
@@ -106,7 +105,7 @@ def test_collection_function_composition(Item, SubItem):
     assert isinstance(mutated_value, tuple)
     assert all(isinstance(x, SubItem) for x in mutated_value)
 
-    cast_func = handle_collection(tuple, handle_instruct(Item, SubItem, handle_object(str)))
+    cast_func = handle_collection(tuple, handle_instruct(Atomic, Item, SubItem, handle_object(str)))
     from_value = (Item(field="my value", value=123), "abcdef")
     to_value = (SubItem(field="my value", value=123), "abcdef")
     mutated_value = cast_func(from_value)
@@ -123,25 +122,35 @@ def test_mapping_function_composition(Item, SubItem):
     Mapping[str, Tuple[str, Item]] -> Mapping[str, Tuple[str, SubItem]]
     Mapping[Union[str, int], Union[Tuple[Item, ...], Tuple[str, ...]]]
     """
-    cast_func = handle_mapping(dict, str, handle_mapping(dict, str, handle_instruct(Item, SubItem)))
+
+    # Mapping[str, Mapping[str, Item]] -> Mapping[str, Mapping[str, SubItem]]
+    cast_func = handle_mapping(
+        dict, str, handle_mapping(dict, str, handle_instruct(Atomic, Item, SubItem))
+    )
     from_value = {"a": {"b": Item(field="my value", value=1234)}}
     to_value = {"a": {"b": SubItem(field="my value", value=1234)}}
     mutated_value = cast_func(from_value)
     assert mutated_value == to_value
 
+    # Mapping[str, Tuple[str, Item]] -> Mapping[str, Tuple[str, SubItem]]
     cast_func = handle_mapping(
-        dict, str, handle_collection(tuple, handle_object(str, handle_instruct(Item, SubItem)))
+        dict,
+        str,
+        handle_collection(tuple, handle_object(str), handle_instruct(Atomic, Item, SubItem)),
     )
     from_value = {"a": ("b", Item(field="my value", value=1234))}
     to_value = {"a": ("b", SubItem(field="my value", value=1234))}
     mutated_value = cast_func(from_value)
     assert mutated_value == to_value
 
+    # Mapping[Union[str, int], Union[Tuple[Item, ...], Tuple[str, ...]]]
     cast_func = handle_mapping(
         dict,
-        handle_union(handle_object(str), handle_object(int)),
+        handle_union(str, handle_object(str), int, handle_object(int)),
         handle_union(
-            handle_collection(tuple, handle_instruct(Item, SubItem)),
+            Tuple[Item, ...],
+            handle_collection(tuple, handle_instruct(Atomic, Item, SubItem)),
+            Tuple[str, ...],
             handle_collection(tuple, handle_object(str)),
         ),
     )
@@ -181,7 +190,9 @@ def test_transform_typing_to_coerce(Item, SubItem, ComplexItem):
     assert isinstance(mutated_value, tuple)
     assert all(isinstance(x, SubItem) for x in mutated_value)
 
-    cls = ComplexItem - {"mapping": "value", "vector": "value", "vector_map": "field"}
+    kill_keys = {"mapping": "value", "vector": "value", "vector_map": "field"}
+
+    cls = ComplexItem - kill_keys
 
     from_value = ComplexItem(
         {"a": {"b": 1, "c": Item(field="value mine", value=321)}},
@@ -196,14 +207,26 @@ def test_transform_typing_to_coerce(Item, SubItem, ComplexItem):
     kwargs = {}
     for key, type_hints in ComplexItem._slots.items():
         coerce_types, coerce_function = transform_typing_to_coerce(
-            type_hints, {Item: cls._nested_atomic_collection_keys[key][0]}
+            type_hints, {Item: Item - kill_keys[key]}
         )
         assert coerce_types is type_hints
         kwargs[key] = coerce_function(getattr(from_value, key))
     assert cls(**kwargs) == to_value
 
-    # TODO: Make this work:
-    # assert cls(**dict(from_value)) == to_value
+
+def test_downcoerce(Item, SubItem, ComplexItem):
+    cls = ComplexItem - {"mapping": "value", "vector": "value", "vector_map": "field"}
+    from_value = ComplexItem(
+        {"a": {"b": 1, "c": Item(field="value mine", value=321)}},
+        [Item("", 1), Item("a", 2)],
+        ({1: (Item("unique", 233), Item("None", 3144))},),
+    )
+    to_value = cls(
+        {"a": {"b": 1, "c": (Item - "value")("value mine")}},
+        [(Item - "value")(""), (Item - "value")("a")],
+        ({1: ((Item - "field")(233), (Item - "field")(3144))},),
+    )
+    assert cls(**dict(from_value)) == to_value
 
 
 # More todo:
