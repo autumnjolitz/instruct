@@ -4,7 +4,7 @@ Approaches for automatic subtype specialization through nested type conversion.
 import collections.abc
 import functools
 import inspect
-from typing import Type, Any, Callable, TypeVar, Iterable, Mapping
+from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union
 from copy import copy
 
 from . import Atomic
@@ -82,6 +82,8 @@ def handle_instruct(from_cls: Type[T], to_cls: Type[U], cast_function=identity):
 def handle_mapping(
     cls, key_cast_function=identity, value_cast_function=identity
 ) -> Callable[[Mapping[Any, Any]], Mapping[Any, Any]]:
+    if cls.__module__ == "collections.abc":
+        cls = dict
     check_cls = collections.abc.Mapping
     if is_typing_definition(cls):
         assert issubclass(cls.__origin__, check_cls)
@@ -103,6 +105,8 @@ def handle_mapping(
 
 @curry
 def handle_collection(cls: Type[T], cast_function=identity) -> Callable[[Iterable[T]], Iterable[T]]:
+    if cls.__module__ == "collections.abc":
+        cls = list
     check_cls = collections.abc.Collection
     if is_typing_definition(cls):
         assert issubclass(cls.__origin__, check_cls)
@@ -119,14 +123,41 @@ def handle_collection(cls: Type[T], cast_function=identity) -> Callable[[Iterabl
     return handler
 
 
-def chain(*functions):
-    result = functions[-1]
-    for func in functions[:-1][::-1]:
-        result = func(result)
-    return result
+def wrapper_for_type(type_hint, class_mapping):
+    if is_typing_definition(type_hint):
+        if hasattr(type_hint, "_name") and type_hint._name is None:
+            if type_hint.__origin__ is Union:
+                return handle_union(
+                    *[
+                        wrapper_for_type(arg, class_mapping=class_mapping)
+                        for arg in type_hint.__args__
+                    ]
+                )
+        container_type = getattr(type_hint, "__origin__", None)
+        if isinstance(container_type, type) and issubclass(
+            container_type, collections.abc.Container
+        ):
+            if issubclass(container_type, collections.abc.Mapping):
+                return handle_mapping(
+                    container_type,
+                    wrapper_for_type(type_hint.__args__[0], class_mapping=class_mapping),
+                    wrapper_for_type(type_hint.__args__[1], class_mapping=class_mapping),
+                )
+            else:
+                return handle_collection(
+                    container_type,
+                    wrapper_for_type(type_hint.__args__[0], class_mapping=class_mapping),
+                )
+        else:
+            raise NotImplementedError(f"{type_hint} unsupported!")
+    elif isinstance(type_hint, type) and issubclass(type(type_hint), Atomic):
+        return handle_instruct(type_hint, class_mapping[type_hint])
+    return handle_object(type_hint)
 
 
-def transform_typing_to_coerce(type_hints, mappings: Mapping[Type, Type]) -> Callable[[Any], Any]:
+def transform_typing_to_coerce(
+    type_hints, class_mapping: Mapping[Type, Type]
+) -> Callable[[Any], Any]:
     """
     Given an origin mapping type like:
 
@@ -135,7 +166,7 @@ def transform_typing_to_coerce(type_hints, mappings: Mapping[Type, Type]) -> Cal
     - Dict[str, Tuple[Item, ...]]
     - Dict[str, Tuple[Union[Item, str], ...]]
 
-    where mappings is like:
+    where class_mapping is like:
         Item: Item - {"fields"}
 
     and generate a function that returns:
@@ -144,4 +175,9 @@ def transform_typing_to_coerce(type_hints, mappings: Mapping[Type, Type]) -> Cal
     - handle_mapping(dict, str, handle_collection(tuple, handle_instruct(Item, Item - {"fields"})))
     - handle_mapping(dict, str, handle_collection(tuple, handle_object(str, handle_instruct(Item, Item - {"fields"}))))
     """
-    assert is_typing_definition(type_hints)
+    if isinstance(type_hints, tuple):
+        assert all(is_typing_definition(item) or isinstance(item, type) for item in type_hints)
+        type_hints = Union[type_hints]
+    assert is_typing_definition(type_hints) or isinstance(type_hints, type)
+
+    return type_hints, wrapper_for_type(type_hints, class_mapping)
