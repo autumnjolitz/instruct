@@ -25,6 +25,7 @@ else:
 
 
 T = typing.TypeVar("T")
+U = typing.TypeVar("U")
 
 
 class ICustomTypeCheck(Protocol):
