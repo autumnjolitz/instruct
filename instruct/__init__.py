@@ -731,6 +731,8 @@ def create_union_coerce_function(
         return custom_cast_function(value)
 
     cast_values.__union_subtypes__ = (custom_cast_types, custom_cast_function)
+    if isinstance(custom_cast_types, tuple):
+        return Union[(prior_complex_type_path,) + custom_cast_types], cast_values
     return Union[prior_complex_type_path, custom_cast_types], cast_values
 
 

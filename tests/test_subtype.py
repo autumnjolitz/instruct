@@ -21,7 +21,7 @@ assert value.field.b == 2
 
 from pytest import fixture
 from typing import Tuple, Mapping, Union, List
-from instruct import SimpleBase, keys, transform_typing_to_coerce, Atomic
+from instruct import SimpleBase, keys, transform_typing_to_coerce, Atomic, asdict
 from instruct.subtype import (
     handle_instruct,
     handle_collection,
@@ -41,7 +41,7 @@ def Item():
             value = {}
             for key in keys(type(self)):
                 value[key] = getattr(self, key)
-            return f"({value!r})"
+            return f"{type(self).__name__}({value!r})"
 
     return ItemCls
 
@@ -226,10 +226,5 @@ def test_downcoerce(Item, SubItem, ComplexItem):
         [(Item - "value")(""), (Item - "value")("a")],
         ({1: ((Item - "field")(233), (Item - "field")(3144))},),
     )
-    assert cls(**dict(from_value)) == to_value
-
-
-# More todo:
-# - handle_mapping(dict, str, handle_collection(tuple, handle_instruct(Item, SubItem, handle_object(str))))
-# - handle_mapping(dict, str, handle_collection(tuple, handle_instruct(Item, SubItem)))
-# - handle_mapping(dict, str, handle_collection(tuple, handle_object(str, handle_instruct(Item, SubItem))))
+    instance = cls(**dict(from_value))
+    assert instance == to_value
