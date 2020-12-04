@@ -589,8 +589,8 @@ def __no_op_skip_set__(self, value):
 
 
 def keys(
-    instance_or_cls: Union[Type[T], T], *, all: bool = False
-) -> Union[AtomicKeysView, KeysView]:
+    instance_or_cls: Union[Type[T], T], *property_path, all: bool = False
+) -> Union[AtomicKeysView, KeysView, Mapping[Type, KeysView]]:
     if not isinstance(instance_or_cls, type):
         cls = type(instance_or_cls)
         instance = instance_or_cls
@@ -599,11 +599,20 @@ def keys(
         instance = None
     if not isinstance(cls, Atomic):
         raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
-    if instance is not None and not all:
-        return AtomicKeysView(instance)
-    if all:
-        return cls._all_accessible_fields
-    return cls._columns.keys()
+    if not property_path:
+        if instance is not None and not all:
+            return AtomicKeysView(instance)
+        if all:
+            return cls._all_accessible_fields
+        return KeysView(tuple(cls._slots))
+    if len(property_path) == 1:
+        key, = property_path
+        if key not in cls._nested_atomic_collection_keys:
+            return keys(cls._slots[key])
+        if len(cls._nested_atomic_collection_keys[key]) == 1:
+            return keys(cls._nested_atomic_collection_keys[key][0])
+        return {type_cls: keys(type_cls) for type_cls in cls._nested_atomic_collection_keys[key]}
+    return keys(cls._nested_atomic_collection_keys[property_path[0]], *property_path[1:])
 
 
 def values(instance) -> AtomicValuesView:
