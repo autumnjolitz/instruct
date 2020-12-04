@@ -20,9 +20,16 @@ assert value.field.b == 2
 """
 
 from pytest import fixture
-from typing import Tuple
-from instruct import SimpleBase
-from instruct.subtype import *
+from typing import Tuple, Mapping, Union, List
+from instruct import SimpleBase, keys
+from instruct.subtype import (
+    handle_instruct,
+    handle_collection,
+    handle_object,
+    handle_mapping,
+    transform_typing_to_coerce,
+    handle_union,
+)
 
 
 @fixture(scope="session")
@@ -31,12 +38,28 @@ def Item():
         field: str
         value: int
 
+        def __repr__(self):
+            value = {}
+            for key in keys(type(self)):
+                value[key] = getattr(self, key)
+            return f"({value!r})"
+
     return ItemCls
 
 
 @fixture(scope="session")
 def SubItem(Item):
     return Item - {"field"}
+
+
+@fixture(scope="session")
+def ComplexItem(Item):
+    class ComplexItemImpl(SimpleBase):
+        mapping: Mapping[str, Mapping[str, Union[Item, int]]]
+        vector: List[Item]
+        vector_map: Tuple[Mapping[int, Tuple[Item, ...]]]
+
+    return ComplexItemImpl
 
 
 def test_simple_function_composition(Item, SubItem):
@@ -136,6 +159,51 @@ def test_mapping_function_composition(Item, SubItem):
     }
     mutated_value = cast_func(from_value)
     assert mutated_value == to_value
+
+
+def test_transform_typing_to_coerce(Item, SubItem, ComplexItem):
+    type_hints = Item
+    coerce_types, cast_func = transform_typing_to_coerce(type_hints, {Item: SubItem})
+    assert type_hints is coerce_types
+
+    from_value = Item(field="my value", value=123)
+    to_value = SubItem(field="my value", value=123)
+    assert cast_func(from_value) == to_value
+    assert isinstance(cast_func(from_value), SubItem)
+
+    type_hints = Tuple[Item, ...]
+    coerce_types, cast_func = transform_typing_to_coerce(type_hints, {Item: SubItem})
+    assert type_hints is coerce_types
+    from_value = (Item(field="my value", value=123),)
+    to_value = (SubItem(field="my value", value=123),)
+    mutated_value = cast_func(from_value)
+    assert mutated_value == to_value
+    assert isinstance(mutated_value, tuple)
+    assert all(isinstance(x, SubItem) for x in mutated_value)
+
+    cls = ComplexItem - {"mapping": "value", "vector": "value", "vector_map": "field"}
+
+    from_value = ComplexItem(
+        {"a": {"b": 1, "c": Item(field="value mine", value=321)}},
+        [Item("", 1), Item("a", 2)],
+        ({1: (Item("unique", 233), Item("None", 3144))},),
+    )
+    to_value = cls(
+        {"a": {"b": 1, "c": (Item - "value")("value mine")}},
+        [(Item - "value")(""), (Item - "value")("a")],
+        ({1: ((Item - "field")(233), (Item - "field")(3144))},),
+    )
+    kwargs = {}
+    for key, type_hints in ComplexItem._slots.items():
+        coerce_types, coerce_function = transform_typing_to_coerce(
+            type_hints, {Item: cls._nested_atomic_collection_keys[key][0]}
+        )
+        assert coerce_types is type_hints
+        kwargs[key] = coerce_function(getattr(from_value, key))
+    assert cls(**kwargs) == to_value
+
+    # TODO: Make this work:
+    # assert cls(**dict(from_value)) == to_value
 
 
 # More todo:
