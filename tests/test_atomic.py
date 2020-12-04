@@ -1129,6 +1129,35 @@ def test_skip_keys_coerce_classmethod():
     }
 
 
+def test_skip_keys_keys():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+        hierarchy: Tuple[Person, Person - {"name"}]
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.from_json),
+        }
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    assert tuple(instruct.keys(FacelessPosition)) == ("id", "supervisor", "worker")
+    assert tuple(instruct.keys(FacelessPosition, "supervisor")) == ("id",)
+    assert tuple(instruct.keys(FacelessPosition, "worker")) == ("id",)
+
+    assert instruct.keys(FacelessPosition, "hierarchy") == {
+        Person - "name": instruct.keys(Person - "name"),
+        Person: instruct.keys(Person),
+    }
+
+
 def test_absurd_custom_collections():
     """
     Currently we've no way of apply skip keys to a mapping type thaat's overridden
