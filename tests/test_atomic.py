@@ -10,7 +10,7 @@ except ImportError:
 import datetime
 import base64
 import pickle
-from collections.abc import Mapping
+from collections.abc import Mapping as AbstractMapping
 
 import pytest
 import instruct
@@ -128,7 +128,7 @@ def test_inheritance():
 def test_mapping():
     l1 = LinkedFields(id=2, name="Ben")
     assert len(l1) == 2
-    assert isinstance(l1, Mapping)
+    assert isinstance(l1, AbstractMapping)
 
 
 def test_pickle():
@@ -1133,3 +1133,46 @@ def test_skip_keys_coerce_classmethod():
         "task_name": "Business Partnerships",
         "worker": {"created_date": "0", "id": 456, "name": "Sam"},
     }
+
+
+def test_absurd_custom_collections():
+    """
+    Currently we've no way of apply skip keys to a mapping type thaat's overridden
+    like below. As a note, it escapes the current checks, allowing for some absurdities
+
+    The cause is that inheriting something like Dict[str, str] means the original
+    information of Dict[str, str] is lost (except inside the field ``__orig_bases__``)
+
+    We could consider enforcing it by extracting out from ``__orig_bases__``, however that field
+    is meant for Generics, which normally you'd do the decent thing of:
+
+    class SomeCustomMapping(Dict[T, U]):
+        ...
+
+    class Foo:
+        mapping: SomeCustomMapping[str, Union[Item, Tuple[str, ...]]]
+    """
+
+    class Item(Base):
+        field: str
+
+    _SomeCustomMapping = Dict[str, Union[Item, Tuple[str, ...]]]
+
+    class SomeCustomMapping(_SomeCustomMapping):
+        __slots__ = ()
+
+    class Foo(SimpleBase):
+        mapping: SomeCustomMapping
+        __coerce__ = {"mapping": (str, lambda obj: SomeCustomMapping(json.loads(obj)))}
+
+    # Absurdity #1 - class is same class
+    assert Foo - {"mapping": {"field"}} is Foo
+
+    # Absurdity #2 - should explode (fail type check)
+    f = Foo("[[1, 2]]")
+    assert f.mapping.keys() == {1}
+
+    with pytest.raises(TypeError):
+        # Absurdity #3
+        # It basically rejects a valid assignment:
+        f.mapping = {"Bar": Item("abc")}
