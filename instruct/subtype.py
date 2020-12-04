@@ -4,14 +4,12 @@ Approaches for automatic subtype specialization through nested type conversion.
 import collections.abc
 import functools
 import inspect
-from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union
+import itertools
 from copy import copy
+from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union
 
-from . import Atomic
-from .typedef import is_typing_definition, parse_typedef
-
-T = TypeVar("T")
-U = TypeVar("U")
+from .typedef import is_typing_definition, parse_typedef, ismetasubclass
+from .typing import T, U
 
 
 def curry(function):
@@ -31,7 +29,7 @@ def identity(item: T) -> T:
     return item
 
 
-def handle_union(*functions):
+def handle_union(*type_function_pairs):
     """
     Since our approach is to create depth-first cast functions,
     we will need to make traces that will do exactly what we want.
@@ -43,10 +41,30 @@ def handle_union(*functions):
     In effect, this function assumes an embedded function set will only
     mutate if it precisely matches.
     """
+    pairings = []
+    pairs_to_zip = []
+    for item in type_function_pairs:
+        if isinstance(item, tuple):
+            pairings.append(item)
+        else:
+            pairs_to_zip.append(item)
+    if pairs_to_zip:
+        if len(pairs_to_zip) % 2 != 0:
+            raise TypeError("Must provide an even number of type/callable pairings")
+        pairings.extend((left, right) for left, right in zip(pairs_to_zip[::2], pairs_to_zip[1::2]))
+    for index, (type_cls, func) in enumerate(pairings):
+        if is_typing_definition(type_cls):
+            pairings[index] = (parse_typedef(type_cls), func)
+    type_callable_pairs = tuple(pairings)
+    del pairings, pairs_to_zip
+
+    if not all((isinstance(left, type)) and callable(right) for left, right in type_callable_pairs):
+        raise TypeError("Must be a type/callable pairings!")
 
     def handler(item):
-        for function in functions:
-            item = function(item)
+        for type_cls, function in type_callable_pairs:
+            if isinstance(item, type_cls):
+                return function(item)
         return item
 
     return handler
@@ -59,21 +77,21 @@ def handle_object(cls, cast_function=identity):
     def handler(item):
         if isinstance(item, cls):
             return cls(cast_function(item))
-        return cast_function(item)
+        return item
 
     return handler
 
 
 @curry
-def handle_instruct(from_cls: Type[T], to_cls: Type[U], cast_function=identity):
-    assert issubclass(type(from_cls), Atomic)
+def handle_instruct(metaclass: Type, from_cls: Type[T], to_cls: Type[U], cast_function=identity):
+    assert ismetasubclass(from_cls, metaclass)
     assert issubclass(to_cls, from_cls), f"{to_cls} is not a child of {from_cls}"
     assert to_cls is not from_cls
 
     def handler(item: T) -> U:
         if isinstance(item, from_cls):
             return to_cls(**dict(iter(cast_function(item))))
-        return cast_function(item)
+        return item
 
     return handler
 
@@ -98,13 +116,12 @@ def handle_mapping(
                 (key_cast_function(k), value_cast_function(v))
                 for k, v in ((key, item[key]) for key in item)
             )
-        return value_cast_function(key_cast_function(item))
+        return item
 
     return handler
 
 
-@curry
-def handle_collection(cls: Type[T], cast_function=identity) -> Callable[[Iterable[T]], Iterable[T]]:
+def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], Iterable[T]]:
     if cls.__module__ == "collections.abc":
         cls = list
     check_cls = collections.abc.Collection
@@ -114,49 +131,28 @@ def handle_collection(cls: Type[T], cast_function=identity) -> Callable[[Iterabl
         cls = cls.__origin__
     else:
         assert issubclass(cls, check_cls)
+    if not cast_functions:
+        cast_functions = (identity,)
+    if len(cast_functions) == 2 and cast_functions[-1] == Ellipsis:
+        cast_functions = (cast_functions[0],)
+    if not all(callable(function) for function in cast_functions):
+        raise TypeError("handle_collection expects cast_functions to be all callables")
 
     def handler(item):
         if isinstance(item, check_cls):
-            return cls(cast_function(x) for x in item)
-        return cast_function(item)
+            return cls(
+                cast_function(value)
+                for value, cast_function in itertools.zip_longest(
+                    item, cast_functions, fillvalue=cast_functions[-1]
+                )
+            )
+        return item
 
     return handler
 
 
-def wrapper_for_type(type_hint, class_mapping):
-    if is_typing_definition(type_hint):
-        if hasattr(type_hint, "_name") and type_hint._name is None:
-            if type_hint.__origin__ is Union:
-                return handle_union(
-                    *[
-                        wrapper_for_type(arg, class_mapping=class_mapping)
-                        for arg in type_hint.__args__
-                    ]
-                )
-        container_type = getattr(type_hint, "__origin__", None)
-        if isinstance(container_type, type) and issubclass(
-            container_type, collections.abc.Container
-        ):
-            if issubclass(container_type, collections.abc.Mapping):
-                return handle_mapping(
-                    container_type,
-                    wrapper_for_type(type_hint.__args__[0], class_mapping=class_mapping),
-                    wrapper_for_type(type_hint.__args__[1], class_mapping=class_mapping),
-                )
-            else:
-                return handle_collection(
-                    container_type,
-                    wrapper_for_type(type_hint.__args__[0], class_mapping=class_mapping),
-                )
-        else:
-            raise NotImplementedError(f"{type_hint} unsupported!")
-    elif isinstance(type_hint, type) and issubclass(type(type_hint), Atomic):
-        return handle_instruct(type_hint, class_mapping[type_hint])
-    return handle_object(type_hint)
-
-
-def transform_typing_to_coerce(
-    type_hints, class_mapping: Mapping[Type, Type]
+def wrapper_for_type(
+    type_hint, class_mapping: Mapping[Type[T], Type[T]], metaclass: Type[T]
 ) -> Callable[[Any], Any]:
     """
     Given an origin mapping type like:
@@ -175,9 +171,45 @@ def transform_typing_to_coerce(
     - handle_mapping(dict, str, handle_collection(tuple, handle_instruct(Item, Item - {"fields"})))
     - handle_mapping(dict, str, handle_collection(tuple, handle_object(str, handle_instruct(Item, Item - {"fields"}))))
     """
-    if isinstance(type_hints, tuple):
-        assert all(is_typing_definition(item) or isinstance(item, type) for item in type_hints)
-        type_hints = Union[type_hints]
-    assert is_typing_definition(type_hints) or isinstance(type_hints, type)
 
-    return type_hints, wrapper_for_type(type_hints, class_mapping)
+    if type_hint is Ellipsis:
+        return type_hint
+    if is_typing_definition(type_hint):
+        if hasattr(type_hint, "_name") and type_hint._name is None:
+            if type_hint.__origin__ is Union:
+                return handle_union(
+                    *[
+                        (parse_typedef(arg), wrapper_for_type(arg, class_mapping, metaclass))
+                        for arg in type_hint.__args__
+                    ]
+                )
+        container_type = getattr(type_hint, "__origin__", None)
+        if isinstance(container_type, type) and issubclass(
+            container_type, collections.abc.Container
+        ):
+            if issubclass(container_type, collections.abc.Mapping):
+                assert len(type_hint.__args__) == 2
+                return handle_mapping(
+                    container_type,
+                    wrapper_for_type(type_hint.__args__[0], class_mapping, metaclass),
+                    wrapper_for_type(type_hint.__args__[1], class_mapping, metaclass),
+                )
+            else:
+                return handle_collection(
+                    container_type,
+                    *(
+                        wrapper_for_type(arg, class_mapping, metaclass)
+                        for arg in type_hint.__args__
+                    ),
+                )
+        else:
+            raise NotImplementedError(f"{type_hint} unsupported!")
+    elif isinstance(type_hint, type) and ismetasubclass(type_hint, metaclass):
+        try:
+            from_cls, to_cls = type_hint, class_mapping[type_hint]
+        except KeyError as e:
+            raise ValueError(
+                f"Unable to find the counterpart for {type_hint}! Currently have {class_mapping}"
+            ) from e
+        return handle_instruct(metaclass, from_cls, to_cls)
+    return handle_object(type_hint)
