@@ -759,9 +759,7 @@ def apply_skip_keys(
             frozenset(replace_class_refs),
         )
     else:
-        raise NotImplementedError(
-            f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
-        )
+        return None, None, EMPTY_FROZEN_SET
 
 
 def show_all_fields(
