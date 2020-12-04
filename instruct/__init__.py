@@ -45,6 +45,7 @@ from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_c
 from .typing import T, CellType
 from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
 from .utils import flatten_fields
+from .subtype import wrapper_for_type
 
 from .exceptions import (
     OrphanedListenersError,
@@ -691,21 +692,46 @@ def unpack_coerce_mappings(mappings):
             yield key, value
 
 
-def create_coerce_to_subclass_func(parent_cls, child_cls, coerce_function=None):
-    def coerce_value(value):
-        if coerce_function is not None:
-            value = coerce_function(value)
-        if isinstance(value, parent_cls) and not isinstance(value, child_cls):
-            value = child_cls(**value)
-        return value
+def transform_typing_to_coerce(
+    type_hints: T, class_mapping: Mapping[Type, Type]
+) -> Tuple[T, Callable[[Any], Any]]:
+    """
+    Use for consuming the prior slotted trace and returning a tuple
+    suitable for Union[coerce_type, current_coerce_types] with a callable function.
+    """
+    if isinstance(type_hints, tuple):
+        assert all(is_typing_definition(item) or isinstance(item, type) for item in type_hints)
+        type_hints = Union[type_hints]
+    assert is_typing_definition(type_hints) or isinstance(type_hints, type)
 
-    return coerce_value
+    return type_hints, wrapper_for_type(type_hints, class_mapping, Atomic)
 
 
 class ModifiedSkipTypes(NamedTuple):
     replacement_type_definition: Atomic
     replacement_coerce_definition: Optional[Tuple[Any, Callable]]
     mutant_classes: FrozenSet[Tuple[Atomic, Atomic]]
+
+
+def create_union_coerce_function(
+    prior_complex_type_path: T,
+    complex_type_cast: Callable,
+    custom_cast_types: Optional[T],
+    custom_cast_function: Optional[Callable],
+):
+    if custom_cast_types is None:
+        complex_type_cast.__only_parent_cast__ = True
+        return prior_complex_type_path, complex_type_cast
+
+    cast_type_cls = parse_typedef(prior_complex_type_path)
+
+    def cast_values(value):
+        if isinstance(value, cast_type_cls):
+            return complex_type_cast(value)
+        return custom_cast_function(value)
+
+    cast_values.__union_subtypes__ = (custom_cast_types, custom_cast_function)
+    return Union[prior_complex_type_path, custom_cast_types], cast_values
 
 
 def apply_skip_keys(
@@ -726,6 +752,21 @@ def apply_skip_keys(
     Basically this has to traverse the graph, branching out and replacing nodes.
     """
 
+    if current_coerce is not None:
+        current_coerce_types, current_coerce_cast_function = current_coerce
+        # Unpack to the original cast type, coerce function (in case we're subtracting a subtraction)
+
+        if hasattr(current_coerce_cast_function, "__only_parent_cast__"):
+            # If this is only for casting a parent typecls function, kill it.
+            current_coerce = None
+        else:
+            while hasattr(current_coerce_cast_function, "__union_subtypes__"):
+                current_coerce_types, current_coerce_cast_function = (
+                    current_coerce_cast_function.__union_subtypes__
+                )
+            current_coerce = (current_coerce_types, current_coerce_cast_function)
+            del current_coerce_types, current_coerce_cast_function
+
     if (
         isinstance(current_definition, type)
         and ismetasubclass(current_definition, Atomic)
@@ -733,6 +774,7 @@ def apply_skip_keys(
         or isinstance(current_definition, tuple)
     ):
         new_coerce_definition = None
+        original_definition = current_definition
         gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
         replace_class_refs = []
         try:
@@ -746,13 +788,25 @@ def apply_skip_keys(
                     replace_class_refs.append((before, after))
         except StopIteration as e:
             current_definition = e.value
-        new_coerce_function = None
-        if current_coerce is not None and replace_class_refs:
-            existing_coerce_match_types, existing_coerce_function = current_coerce
-            new_coerce_function = replace_class_references(
-                existing_coerce_function, *replace_class_refs
+
+        if replace_class_refs:
+            parent_type_path, parent_type_coerce_function = transform_typing_to_coerce(
+                original_definition, dict(replace_class_refs)
             )
-            new_coerce_definition = (existing_coerce_match_types, new_coerce_function)
+            if current_coerce is not None:
+                current_coerce_types, existing_coerce_function = current_coerce
+                new_coerce_function = replace_class_references(
+                    existing_coerce_function, *replace_class_refs
+                )
+            else:
+                new_coerce_function = None
+                current_coerce_types = None
+            new_coerce_definition = create_union_coerce_function(
+                parent_type_path,
+                parent_type_coerce_function,
+                current_coerce_types,
+                new_coerce_function,
+            )
         return ModifiedSkipTypes(
             current_definition,
             new_coerce_definition or current_coerce,
