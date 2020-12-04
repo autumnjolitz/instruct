@@ -890,14 +890,8 @@ def test_complex_skip_keys_simple():
 
     c2.baz = {"foo": "s", "bar": 1}
     assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
-
-    with pytest.raises(TypeError):
-        # Setting to a base class will not work for now.
-        # Ideally, it would be nice to be able to generate
-        # a function that would detect base class assignments
-        # then strip/coerce the base class to the final class
-        c2.baz = Item(**{"foo": "s", "bar": 1})
-        assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+    c2.baz = Item(**{"foo": "s", "bar": 1})
+    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
 
     cls = Container - {"baz"}
     c2 = cls.from_json(c.to_json())
