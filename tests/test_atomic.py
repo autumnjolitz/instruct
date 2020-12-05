@@ -1160,6 +1160,42 @@ def test_skip_keys_keys():
     }
 
 
+def test_public_class():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.from_json),
+        }
+
+    class NamelessPerson(Person - {"name"}):
+        pass
+
+    me = Person(1, "Autumn", "N/A")
+    assert instruct.public_class(me) is Person
+    assert instruct.public_class(Person) is Person
+    assert instruct.public_class(Person - {"name"}) is Person
+    assert instruct.public_class((Person - {"name"})(**me)) is Person
+    assert instruct.public_class(Position, "worker") is Person
+    with pytest.raises(ValueError):
+        assert instruct.public_class(Position, "worker", "nonexistent") is Person
+    # Note this difference:
+    # This is because there was an inheritance declaration of a new class inheriting the
+    # skipped type, making it distinct
+    assert instruct.public_class(NamelessPerson) is NamelessPerson
+    assert not NamelessPerson._skipped_fields
+    assert "name" not in NamelessPerson._slots
+
+
 def test_absurd_custom_collections():
     """
     Currently we've no way of apply skip keys to a mapping type thaat's overridden

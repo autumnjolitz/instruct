@@ -1,4 +1,5 @@
 import typing
+from typing import Tuple, Dict, Type, Callable, Union
 
 try:
     from types import CellType
@@ -26,6 +27,9 @@ else:
 
 T = typing.TypeVar("T")
 U = typing.TypeVar("U")
+
+NoneType = type(None)
+CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 
 
 class ICustomTypeCheck(Protocol):
