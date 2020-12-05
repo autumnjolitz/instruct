@@ -1135,12 +1135,14 @@ def test_skip_keys_keys():
         name: str
         created_date: str
 
+    NamelessPerson = Person - "name"
+
     class Position(Base):
         id: int
         supervisor: Tuple[Person, ...]
         worker: Person
         task_name: str
-        hierarchy: Tuple[Person, Person - {"name"}]
+        hierarchy: Tuple[Person, NamelessPerson]
 
         __coerce__ = {
             "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
