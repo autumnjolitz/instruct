@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
 import time
-from types import CodeType, FunctionType, SimpleNamespace
 import typing
+
+from base64 import urlsafe_b64encode
 from collections.abc import (
     Mapping as AbstractMapping,
     Sequence,
@@ -12,12 +14,11 @@ from collections.abc import (
     MappingView,
     Set as AbstractSet,
     KeysView,
-    Collection as AbstractCollection,
 )
-from base64 import urlsafe_b64encode
 from enum import IntEnum
 from importlib import import_module
 from itertools import chain
+from types import CodeType, FunctionType, SimpleNamespace
 from typing import (
     Any,
     Callable,
@@ -28,13 +29,13 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Set,
     Tuple,
     Type,
     TYPE_CHECKING,
     Union,
-    NamedTuple,
 )
 from weakref import WeakValueDictionary
 
@@ -42,11 +43,10 @@ from jinja2 import Environment, PackageLoader
 
 from .about import __version__
 from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
-from .typing import T, CellType
+from .typing import T, CellType, CoerceMapping, NoneType
 from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
 from .utils import flatten_fields
 from .subtype import wrapper_for_type
-
 from .exceptions import (
     OrphanedListenersError,
     MissingGetterSetterTemplateError,
@@ -57,8 +57,6 @@ from .exceptions import (
 
 __version__  # Silence unused import warning.
 
-NoneType = type(None)
-
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, "templates"))
 env.globals["tuple"] = tuple
@@ -67,6 +65,147 @@ env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
 
 AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
+
+# Public helpers
+
+
+def public_class(instance_or_type: Union[Type[T], T], *property_path: str) -> Type[T]:
+    """
+    Given a data class or instance of, give us the public facing
+    class.
+    """
+    if not isinstance(instance_or_type, type):
+        cls: Type[T] = type(instance_or_type)
+    else:
+        cls: Type[T] = instance_or_type
+    if not isinstance(cls, Atomic):
+        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if property_path:
+        key, *_ = property_path
+        if key not in cls._slots:
+            raise ValueError(f"{key!r} is not a field on {cls.__name__}!")
+        next_cls = cls._slots[key]
+        if key in cls._nested_atomic_collection_keys:
+            if len(cls._nested_atomic_collection_keys[key]) > 1:
+                return tuple(
+                    public_class(typecls) for typecls in cls._nested_atomic_collection_keys[key]
+                )
+            next_cls, = cls._nested_atomic_collection_keys[key]
+        return public_class(next_cls, *property_path[1:])
+    cls = getattr(cls, "_parent", cls)
+    if cls._skipped_fields:
+        bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+        while len(bases) == 1 and bases[0]._skipped_fields:
+            bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+        if len(bases) == 1:
+            return bases[0]
+    return cls
+
+
+def keys(
+    instance_or_cls: Union[Type[T], T], *property_path: str, all: bool = False
+) -> Union[AtomicKeysView, KeysView, Mapping[Type, KeysView]]:
+    """
+    Return the public class fields on an instance or type.
+
+    If passed a field name string, then reach into it and attempt to call
+    keys(...) on it.
+    """
+    if not isinstance(instance_or_cls, type):
+        cls = type(instance_or_cls)
+        instance = instance_or_cls
+    else:
+        cls = instance_or_cls
+        instance = None
+    if not isinstance(cls, Atomic):
+        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if not property_path:
+        if instance is not None and not all:
+            return AtomicKeysView(instance)
+        if all:
+            return cls._all_accessible_fields
+        return KeysView(tuple(cls._slots))
+    if len(property_path) == 1:
+        key, = property_path
+        if key not in cls._nested_atomic_collection_keys:
+            return keys(cls._slots[key])
+        if len(cls._nested_atomic_collection_keys[key]) == 1:
+            return keys(cls._nested_atomic_collection_keys[key][0])
+        return {type_cls: keys(type_cls) for type_cls in cls._nested_atomic_collection_keys[key]}
+    return keys(cls._nested_atomic_collection_keys[property_path[0]], *property_path[1:])
+
+
+def values(instance) -> AtomicValuesView:
+    """
+    Analogous to dict.values(...)
+    """
+    cls = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return AtomicValuesView(instance)
+    raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
+
+
+def items(instance: T) -> ItemsView:
+    """
+    Analogous to dict.items(...)
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return ItemsView(instance)
+    raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+
+
+def get(instance: T, key, default=None) -> Optional[Any]:
+    """
+    Access the field at the key given, return the default value if it does not
+    exist on the type.
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is None:
+        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+    try:
+        return instance[key]
+    except KeyError:
+        return default
+
+
+def asdict(instance: T) -> Dict[str, Any]:
+    """
+    Return a dictionary version of the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._asdict()
+
+
+def astuple(instance: T) -> Tuple[Any, ...]:
+    """
+    Return a tuple of values from the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._astuple()
+
+
+def aslist(instance: T) -> List[Any]:
+    """
+    Return a list of values from the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._aslist()
+
+
+# End of public helpers
 
 
 class ItemsView(_ItemsView):
@@ -531,7 +670,7 @@ def create_proxy_property(
     *,
     fast: bool,
 ) -> Tuple[property, Type, Type]:
-    ns_globals = {"NoneType": type(None), "Flags": Flags, "typing": typing}
+    ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
     setter_template = env.get_template("setter.jinja")
     getter_template = env.get_template("getter.jinja")
 
@@ -575,7 +714,6 @@ def create_proxy_property(
     return new_property, isinstance_compatible_types
 
 
-CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 EMPTY_FROZEN_SET = frozenset()
 EMPTY_MAPPING = FrozenMapping({})
 
@@ -586,84 +724,6 @@ def __no_op_skip_get__(self):
 
 def __no_op_skip_set__(self, value):
     return
-
-
-def keys(
-    instance_or_cls: Union[Type[T], T], *property_path, all: bool = False
-) -> Union[AtomicKeysView, KeysView, Mapping[Type, KeysView]]:
-    if not isinstance(instance_or_cls, type):
-        cls = type(instance_or_cls)
-        instance = instance_or_cls
-    else:
-        cls = instance_or_cls
-        instance = None
-    if not isinstance(cls, Atomic):
-        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
-    if not property_path:
-        if instance is not None and not all:
-            return AtomicKeysView(instance)
-        if all:
-            return cls._all_accessible_fields
-        return KeysView(tuple(cls._slots))
-    if len(property_path) == 1:
-        key, = property_path
-        if key not in cls._nested_atomic_collection_keys:
-            return keys(cls._slots[key])
-        if len(cls._nested_atomic_collection_keys[key]) == 1:
-            return keys(cls._nested_atomic_collection_keys[key][0])
-        return {type_cls: keys(type_cls) for type_cls in cls._nested_atomic_collection_keys[key]}
-    return keys(cls._nested_atomic_collection_keys[property_path[0]], *property_path[1:])
-
-
-def values(instance) -> AtomicValuesView:
-    cls = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is not None:
-        return AtomicValuesView(instance)
-    raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
-
-
-def items(instance: T) -> ItemsView:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is not None:
-        return ItemsView(instance)
-    raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-
-
-def get(instance: T, key, default=None) -> Optional[Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is None:
-        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-    try:
-        return instance[key]
-    except KeyError:
-        return default
-
-
-def asdict(instance: T) -> Dict[str, Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._asdict()
-
-
-def astuple(instance: T) -> Tuple[Any, ...]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._astuple()
-
-
-def aslist(instance: T) -> List[Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._aslist()
 
 
 def unpack_coerce_mappings(mappings):
@@ -925,7 +985,7 @@ class Atomic(type):
         debug_mode = is_debug_mode("skip")
 
         root_class = type(self)
-        cls = getattr(self, "_parent", self)
+        cls = public_class(self)
 
         if not skip_fields:
             return self
@@ -1353,7 +1413,7 @@ class Atomic(type):
         # Support columns are left as-is for slots
         support_columns = tuple(_dedupe(support_columns))
 
-        ns_globals = {"NoneType": type(None), "Flags": Flags, "typing": typing}
+        ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         ns_globals[class_name] = ReadOnly(None)
         if combined_columns:
             exec(
@@ -1922,3 +1982,35 @@ class Base(SimpleBase, mapping=True, json=True):
 
 
 AbstractMapping.register(Base)  # pytype: disable=attribute-error
+
+__all__ = [
+    # Instruct utilities:
+    "public_class",
+    "keys",
+    "values",
+    "items",
+    "get",
+    "asdict",
+    "astuple",
+    "aslist",
+    # default end-user base classes
+    "SimpleBase",
+    "Base",
+    # class event listeners:
+    "add_event_listener",
+    "handle_type_error",
+    # class instantiation status:
+    "Flags",
+    # metaclass
+    "Atomic",
+    # history
+    "History",
+    "Delta",
+    "LoggedDelta",
+    # mapping support
+    "IMapping",
+    # json support
+    "JSONSerializable",
+    # misc
+    "UNDEFINED",
+]  # noqa
