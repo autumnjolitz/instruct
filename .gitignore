@@ -9,3 +9,5 @@ dist/
 .DS_Store
 python/
 .pytest_cache/
+build/*
+.pytype/*

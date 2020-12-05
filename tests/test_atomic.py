@@ -1,10 +1,16 @@
 import json
-from typing import Union, List, Tuple, Optional, Dict, Any
-from enum import Enum
+from typing import Union, List, Tuple, Optional, Dict, Any, Type
+
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
+
+    from enum import Enum
 import datetime
 import base64
 import pickle
-from collections.abc import Mapping
+from collections.abc import Mapping as AbstractMapping
 
 import pytest
 import instruct
@@ -122,7 +128,7 @@ def test_inheritance():
 def test_mapping():
     l1 = LinkedFields(id=2, name="Ben")
     assert len(l1) == 2
-    assert isinstance(l1, Mapping)
+    assert isinstance(l1, AbstractMapping)
 
 
 def test_pickle():
@@ -631,12 +637,12 @@ def test_embedded_collection_tracking():
     class Barter(Base):
         __slots__ = {"mapping": Dict[str, Bar]}
 
-    assert Barter._nested_atomic_collection_keys == ()
+    assert Barter._nested_atomic_collection_keys.keys() == {"mapping"}
 
     class CollectableBarter(Barter):
         __slots__ = {"others": Dict[str, Dict[int, List[Barter]]]}
 
-    assert CollectableBarter._nested_atomic_collection_keys == ("others",)
+    assert CollectableBarter._nested_atomic_collection_keys.keys() == {"others", "mapping"}
 
     class InheritedBarter(CollectableBarter, Bar, Foo):
         __slots__ = {"key": str}
@@ -841,6 +847,30 @@ def test_bytes_base64():
     assert f == Baz.from_json(json.dumps(f.to_json(), sort_keys=True))
 
 
+def test_skip_keys_simple():
+    class F(Base):
+        foo: str
+
+    class Q(Base):
+        bar: str
+
+    class F2(Base):
+        foo: str
+
+    f_minus = F - {"foo"}
+    f2_minus = F2 - {"foo"}
+    assert f_minus is not f2_minus
+
+    q_minus = Q - {"bar"}
+    assert q_minus is not Q
+
+    assert F - {"foo"} is F - {"foo"}
+    assert F - {"foo"} is not F
+    assert Q - {"foo"} is Q - {"foo"}
+    assert Q - {"bar"} is Q - {"bar"}
+    assert Q - {"bar"} is not Q
+
+
 def test_complex_skip_keys_simple():
     class Item(Base):
         foo: str
@@ -876,10 +906,334 @@ def test_complex_skip_keys_simple():
     class Container(Base):
         bazes: Tuple[Item, ...]
         name: str
+        altname: str
+
+        @property
+        def altname(self):
+            return (self._altname_ or "y") + "x"
 
         __coerce__ = {"bazes": (Union[List[ItemType], Tuple[ItemType, ...]], Item.from_many_json)}
 
     c = Container([{"foo": "abc", "bar": 1}], "hello")
 
-    with pytest.raises(NotImplementedError):
-        cls = Container - {"bazes": "foo"}
+    i = (Container - {"name", "altname"}).from_json(c.to_json())
+    assert i.name is None
+    assert i.altname is None
+    assert dict(i).keys() & {"altname", "name"} == set()
+
+
+def test_skip_keys_complex():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+    job_id = 1
+    supervisor_id = 2
+    worker_id = 456
+    regular_people = Position(
+        id=job_id,
+        supervisor=(Person(id=2, name="John", created_date="0"),),
+        worker=Person(id=456, name="Sam", created_date="0"),
+        task_name="Business Partnerships",
+    )
+    assert Person.to_json(regular_people) == {
+        "id": 1,
+        "supervisor": [{"created_date": "0", "id": 2, "name": "John"}],
+        "task_name": "Business Partnerships",
+        "worker": {"created_date": "0", "id": 456, "name": "Sam"},
+    }
+
+    # Let's pretend they're anonymized:
+    FacelessPerson: Type[Person] = Person - {"name", "created_date"}
+    FacelessPosition: Type[Position] = Position - {
+        "supervisor": {"name", "created_date"},
+        "worker": {"name", "created_date"},
+    }
+
+    faceless_people = FacelessPosition(
+        id=job_id,
+        supervisor=(FacelessPerson(id=supervisor_id, name="SupervisorName", created_date="0"),),
+        worker=FacelessPerson(id=worker_id, name="worker", created_date="0"),
+        task_name="servitor",
+    )
+    assert faceless_people.id == job_id
+    assert faceless_people.supervisor[0].id == supervisor_id
+    assert faceless_people.worker.id == worker_id
+    # Are we sure they don't have names?
+    assert faceless_people.worker.name is None
+    assert faceless_people.supervisor[0].name is None
+    assert Person.to_json(faceless_people) == {
+        "id": 1,
+        "supervisor": [{"id": 2}],
+        "worker": {"id": 456},
+        "task_name": "servitor",
+    }
+
+    assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
+    assert FacelessPerson is FacelessPosition._slots["worker"]
+
+
+def test_include_keys_complex():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+    job_id = 1
+    supervisor_id = 2
+    worker_id = 456
+
+    FacelessPerson = Person & "id"
+    FacelessPosition = Position & {
+        "supervisor": {"id"},
+        "worker": "id",
+        "id": None,
+        "task_name": None,
+    }
+    faceless_people = FacelessPosition(
+        id=job_id,
+        supervisor=(FacelessPerson(id=supervisor_id, name="SupervisorName", created_date="0"),),
+        worker=FacelessPerson(id=worker_id, name="worker", created_date="0"),
+        task_name="servitor",
+    )
+    assert faceless_people.id == job_id
+    assert faceless_people.supervisor[0].id == supervisor_id
+    assert faceless_people.worker.id == worker_id
+    # Are we sure they don't have names?
+    assert faceless_people.worker.name is None
+    assert faceless_people.supervisor[0].name is None
+    assert Person.to_json(faceless_people) == {
+        "id": 1,
+        "supervisor": [{"id": 2}],
+        "worker": {"id": 456},
+        "task_name": "servitor",
+    }
+
+    assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
+    assert FacelessPerson is FacelessPosition._slots["worker"]
+
+
+def test_skip_keys_coerce():
+    def parse_supervisors(values):
+        return tuple(Person(**value) for value in values)
+
+    def parse_person(value):
+        return Person(**value)
+
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], parse_supervisors),
+            "worker": (Dict[str, Union[int, str]], parse_person),
+        }
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    assert instruct.keys(FacelessPosition) == {"id", "supervisor", "worker"}
+
+    OnlyPositionId = Position & "id"
+    assert instruct.keys(OnlyPositionId) == {"id"}
+
+    fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
+    fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    assert fp.supervisor[0].name is None
+    assert fp.supervisor[0].id == 2
+    fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+
+
+def test_skip_keys_coerce_classmethod():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+        @classmethod
+        def parse(cls, item):
+            assert cls is d, "class mismatch!"
+            return d(**item)
+
+    d = Person
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.parse),
+        }
+
+        @property
+        def some_prop(self):
+            if "task_name" in type(self):
+                return self.task_name
+            return None
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    FacelessPerson = Person & {"id"}
+    assert FacelessPerson is FacelessPosition._slots["worker"]
+    fp = FacelessPosition.from_json({"id": 1, "task_name": "Business Partnerships"})
+    fp.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    assert fp.supervisor[0].name is None
+    assert fp.supervisor[0].id == 2
+    fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert isinstance(fp.worker, FacelessPerson)
+    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+    assert (
+        FacelessPosition.__coerce__["worker"][1]({"created_date": "0", "id": 456, "name": "Sam"})
+        == fp.worker
+    )
+    assert fp.some_prop is None
+    assert d is Person
+
+    p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
+    p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
+    p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert Person.to_json(p) == {
+        "id": 1,
+        "supervisor": [{"created_date": "0", "id": 2, "name": "John"}],
+        "task_name": "Business Partnerships",
+        "worker": {"created_date": "0", "id": 456, "name": "Sam"},
+    }
+
+
+def test_skip_keys_keys():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    NamelessPerson = Person - "name"
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+        hierarchy: Tuple[Person, NamelessPerson]
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.from_json),
+        }
+
+    FacelessPosition = Position & {"id": None, "supervisor": {"id"}, "worker": {"id"}}
+    assert tuple(instruct.keys(FacelessPosition)) == ("id", "supervisor", "worker")
+    assert tuple(instruct.keys(FacelessPosition, "supervisor")) == ("id",)
+    assert tuple(instruct.keys(FacelessPosition, "worker")) == ("id",)
+
+    assert instruct.keys(FacelessPosition, "hierarchy") == {
+        Person - "name": instruct.keys(Person - "name"),
+        Person: instruct.keys(Person),
+    }
+
+
+def test_public_class():
+    class Person(Base):
+        id: int
+        name: str
+        created_date: str
+
+    class Position(Base):
+        id: int
+        supervisor: Tuple[Person, ...]
+        worker: Person
+        task_name: str
+
+        __coerce__ = {
+            "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
+            "worker": (Dict[str, Union[int, str]], Person.from_json),
+        }
+
+    class NamelessPerson(Person - {"name"}):
+        pass
+
+    me = Person(1, "Autumn", "N/A")
+    assert instruct.public_class(me) is Person
+    assert instruct.public_class(Person) is Person
+    assert instruct.public_class(Person - {"name"}) is Person
+    assert instruct.public_class((Person - {"name"})(**me)) is Person
+    assert instruct.public_class(Position, "worker") is Person
+    with pytest.raises(ValueError):
+        assert instruct.public_class(Position, "worker", "nonexistent") is Person
+    # Note this difference:
+    # This is because there was an inheritance declaration of a new class inheriting the
+    # skipped type, making it distinct
+    assert instruct.public_class(NamelessPerson) is NamelessPerson
+    assert not NamelessPerson._skipped_fields
+    assert "name" not in NamelessPerson._slots
+
+
+def test_absurd_custom_collections():
+    """
+    Currently we've no way of apply skip keys to a mapping type thaat's overridden
+    like below. As a note, it escapes the current checks, allowing for some absurdities
+
+    The cause is that inheriting something like Dict[str, str] means the original
+    information of Dict[str, str] is lost (except inside the field ``__orig_bases__``)
+
+    We could consider enforcing it by extracting out from ``__orig_bases__``, however that field
+    is meant for Generics, which normally you'd do the decent thing of:
+
+    class SomeCustomMapping(Dict[T, U]):
+        ...
+
+    class Foo:
+        mapping: SomeCustomMapping[str, Union[Item, Tuple[str, ...]]]
+    """
+
+    class Item(Base):
+        field: str
+
+    _SomeCustomMapping = Dict[str, Union[Item, Tuple[str, ...]]]
+
+    class SomeCustomMapping(_SomeCustomMapping):
+        __slots__ = ()
+
+    class Foo(SimpleBase):
+        mapping: SomeCustomMapping
+        __coerce__ = {"mapping": (str, lambda obj: SomeCustomMapping(json.loads(obj)))}
+
+    # Absurdity #1 - class is same class
+    assert Foo - {"mapping": {"field"}} is Foo
+
+    # Absurdity #2 - should explode (fail type check)
+    f = Foo("[[1, 2]]")
+    assert f.mapping.keys() == {1}
+
+    with pytest.raises(TypeError):
+        # Absurdity #3
+        # It basically rejects a valid assignment:
+        f.mapping = {"Bar": Item("abc")}

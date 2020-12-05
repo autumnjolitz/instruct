@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
 import time
-import types
 import typing
-from collections import UserDict
+
+from base64 import urlsafe_b64encode
 from collections.abc import (
     Mapping as AbstractMapping,
     Sequence,
@@ -14,10 +15,10 @@ from collections.abc import (
     Set as AbstractSet,
     KeysView,
 )
-from base64 import urlsafe_b64encode
 from enum import IntEnum
 from importlib import import_module
 from itertools import chain
+from types import CodeType, FunctionType, SimpleNamespace
 from typing import (
     Any,
     Callable,
@@ -28,26 +29,33 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Set,
     Tuple,
     Type,
     TYPE_CHECKING,
     Union,
-    NamedTuple,
 )
-from weakref import WeakKeyDictionary
+from weakref import WeakValueDictionary
 
-import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
-from .typedef import parse_typedef, has_collect_class, ismetasubclass, is_typing_definition
-from .typing import T
+from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
+from .typing import T, CellType, CoerceMapping, NoneType
+from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
+from .utils import flatten_fields
+from .subtype import wrapper_for_type
+from .exceptions import (
+    OrphanedListenersError,
+    MissingGetterSetterTemplateError,
+    InvalidPostCoerceAttributeNames,
+    CoerceMappingValueError,
+    ClassCreationFailed,
+)
 
 __version__  # Silence unused import warning.
-
-NoneType = type(None)
 
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, "templates"))
@@ -56,25 +64,148 @@ env.globals["repr"] = repr
 env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
 
+AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 
-class ClassDefinitionError(ValueError):
-    ...
-
-
-class OrphanedListenersError(ClassDefinitionError):
-    ...
+# Public helpers
 
 
-class MissingGetterSetterTemplateError(ClassDefinitionError):
-    ...
+def public_class(instance_or_type: Union[Type[T], T], *property_path: str) -> Type[T]:
+    """
+    Given a data class or instance of, give us the public facing
+    class.
+    """
+    if not isinstance(instance_or_type, type):
+        cls: Type[T] = type(instance_or_type)
+    else:
+        cls: Type[T] = instance_or_type
+    if not isinstance(cls, Atomic):
+        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if property_path:
+        key, *_ = property_path
+        if key not in cls._slots:
+            raise ValueError(f"{key!r} is not a field on {cls.__name__}!")
+        next_cls = cls._slots[key]
+        if key in cls._nested_atomic_collection_keys:
+            if len(cls._nested_atomic_collection_keys[key]) > 1:
+                return tuple(
+                    public_class(typecls) for typecls in cls._nested_atomic_collection_keys[key]
+                )
+            next_cls, = cls._nested_atomic_collection_keys[key]
+        return public_class(next_cls, *property_path[1:])
+    cls = getattr(cls, "_parent", cls)
+    if cls._skipped_fields:
+        bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+        while len(bases) == 1 and bases[0]._skipped_fields:
+            bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+        if len(bases) == 1:
+            return bases[0]
+    return cls
 
 
-class InvalidPostCoerceAttributeNames(ClassDefinitionError):
-    ...
+def keys(
+    instance_or_cls: Union[Type[T], T], *property_path: str, all: bool = False
+) -> Union[AtomicKeysView, KeysView, Mapping[Type, KeysView]]:
+    """
+    Return the public class fields on an instance or type.
+
+    If passed a field name string, then reach into it and attempt to call
+    keys(...) on it.
+    """
+    if not isinstance(instance_or_cls, type):
+        cls = type(instance_or_cls)
+        instance = instance_or_cls
+    else:
+        cls = instance_or_cls
+        instance = None
+    if not isinstance(cls, Atomic):
+        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if not property_path:
+        if instance is not None and not all:
+            return AtomicKeysView(instance)
+        if all:
+            return cls._all_accessible_fields
+        return KeysView(tuple(cls._slots))
+    if len(property_path) == 1:
+        key, = property_path
+        if key not in cls._nested_atomic_collection_keys:
+            return keys(cls._slots[key])
+        if len(cls._nested_atomic_collection_keys[key]) == 1:
+            return keys(cls._nested_atomic_collection_keys[key][0])
+        return {type_cls: keys(type_cls) for type_cls in cls._nested_atomic_collection_keys[key]}
+    return keys(cls._nested_atomic_collection_keys[property_path[0]], *property_path[1:])
 
 
-class CoerceMappingValueError(ClassDefinitionError):
-    ...
+def values(instance) -> AtomicValuesView:
+    """
+    Analogous to dict.values(...)
+    """
+    cls = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return AtomicValuesView(instance)
+    raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
+
+
+def items(instance: T) -> ItemsView:
+    """
+    Analogous to dict.items(...)
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is not None:
+        return ItemsView(instance)
+    raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+
+
+def get(instance: T, key, default=None) -> Optional[Any]:
+    """
+    Access the field at the key given, return the default value if it does not
+    exist on the type.
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if instance is None:
+        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
+    try:
+        return instance[key]
+    except KeyError:
+        return default
+
+
+def asdict(instance: T) -> Dict[str, Any]:
+    """
+    Return a dictionary version of the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._asdict()
+
+
+def astuple(instance: T) -> Tuple[Any, ...]:
+    """
+    Return a tuple of values from the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._astuple()
+
+
+def aslist(instance: T) -> List[Any]:
+    """
+    Return a list of values from the instance
+    """
+    cls: Type[T] = type(instance)
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    return instance._aslist()
+
+
+# End of public helpers
 
 
 class ItemsView(_ItemsView):
@@ -112,88 +243,6 @@ class AtomicKeysView(MappingView, AbstractSet):
 
     def __iter__(self):
         yield from keys(self._mapping.__class__)
-
-
-def _convert_exception_to_json(item):
-    assert isinstance(item, Exception), f"item {item!r} ({type(item)}) is not an exception!"
-    if hasattr(item, "to_json"):
-        return item.to_json()
-    return {"type": inflection.titleize(type(item).__name__), "message": str(item)}
-
-
-class ClassCreationFailed(ValueError, TypeError):
-    def __init__(self, message, *errors):
-        assert len(errors) > 0, "Must have varargs of errors!"
-        self.errors = errors
-        self.message = message
-        super().__init__(message, *errors)
-
-    def to_json(self):
-        stack = list(self.errors)
-        results = []
-        while stack:
-            item = stack.pop(0)
-            if hasattr(item, "errors"):
-                stack.extend(item.to_json())
-                continue
-            if isinstance(item, Exception):
-                item = _convert_exception_to_json(item)
-            item["parent_message"] = self.message
-            item["parent_type"] = inflection.titleize(type(self).__name__)
-            results.append(item)
-        return tuple(results)
-
-
-class AttrsDict(UserDict):
-    def __getattr__(self, key):
-        try:
-            return self.data[key]
-        except KeyError:
-            self.data[key] = None
-            return None
-
-
-class FrozenMapping(AbstractMapping):
-    __slots__ = ("_value",)
-
-    def keys(self):
-        return self._value.keys()
-
-    def __repr__(self):
-        return f"FrozenMapping<{self._value!r}>"
-
-    def __str__(self):
-        return str(self._value)
-
-    def __init__(self, value=None):
-        if value is None:
-            value = {}
-        self._value = value
-
-    def __getitem__(self, key):
-        return self._value[key]
-
-    def __len__(self):
-        return len(self._value)
-
-    def __contains__(self, key):
-        return key in self._value
-
-    def items(self):
-        return self._value.items()
-
-    def __iter__(self):
-        return iter(self.keys())
-
-
-class ReadOnly:
-    __slots__ = ("value",)
-
-    def __init__(self, value):
-        self.value = value
-
-    def __get__(self, obj, objtype=None):
-        return self.value
 
 
 def make_fast_clear(fields, set_block, class_name):
@@ -264,28 +313,227 @@ def _set_defaults(self):
     return code
 
 
+def _order_by_mro_position(parent_cls: Type) -> Callable[[Type], int]:
+    def key_func(item: Type) -> int:
+        return item.__mro__.index(parent_cls)
+
+    return key_func
+
+
+def make_class_cell() -> CellType:
+    """
+    Create a CellType reference through a throwaway closure, suitable
+    for replacing in a function's __closure__ definition.
+    """
+
+    def closure_maker():
+        __class__ = type
+
+        def bar():
+            return __class__
+
+        return bar
+
+    fake_function = closure_maker()
+    class_cell, = fake_function.__closure__
+    del fake_function
+    return class_cell
+
+
+KLASS_CLOSURE_BINDING_WRONG = "We should've moved this out of load_from_scope_names and into free_binding_closure_names as an atomic operation!"  # noqa
+NOT_SET = object()
+
+
+def find_class_in_cell(classes: Iterable[Type], cell: CellType) -> Optional[Type]:
+    if not classes:
+        return None
+    for cls in classes:
+        if class_in_cell(cls, cell):
+            return cls
+    return None
+
+
+def find_class_in_value(classes: Iterable[Type], value: Any) -> Optional[Type]:
+    if not classes:
+        return None
+    for cls in classes:
+        if cls is value:
+            return cls
+    return None
+
+
+def class_in_cell(cls: Type, cell: CellType) -> bool:
+    value: Any = cell.cell_contents
+    return cls is value
+
+
+def replace_class_references(
+    function: Callable[[Any], Any], *references: Tuple[Type, Type], return_classmethod=False
+):
+    """
+    Given a vector of (generic_class, specialized_class), replace any LOAD_GLOBAL or __closure__
+    references to generic_class with specialized_class.
+    """
+    if function is None:
+        return None
+    if not references:
+        return function
+
+    dest_func_name = function.__name__
+    is_classmethod = hasattr(function, "__func__") and hasattr(function, "__self__")
+    if is_classmethod:
+        classmethod_owner = function.__self__
+        function = function.__func__
+        class_owner_descendents = tuple(
+            sorted(
+                frozenset(after for _, after in references if issubclass(after, classmethod_owner)),
+                key=_order_by_mro_position(classmethod_owner),
+            )
+        )
+        if not class_owner_descendents or class_owner_descendents[0] is classmethod_owner:
+            classmethod_dest = classmethod_owner
+            dest_func_name = f"{dest_func_name}_{hash(tuple(after for _, after in references))}"
+        else:
+            classmethod_dest = class_owner_descendents[0]
+
+    code = function.__code__
+    function_globals: Mapping[str, Any] = function.__globals__
+
+    # If our class reference is in here, it will load
+    # from the code's namespace. We will need to intercept it
+    # and move it to a closure
+    load_from_scope_names: List[str] = list(code.co_names)
+    # If our class refer is in here, it will load from a closure (and reference
+    # the value in __closure__ at the index of the co_freevars tuple name)
+    free_binding_closure_names: List[str] = list(code.co_freevars)
+
+    if function.__closure__ is None:
+        current_closures: List[CellType] = []
+    else:
+        current_closures: List[CellType] = list(function.__closure__)
+
+    changed = False
+    old_klass_refs = {old: new for old, new in references}
+    old_klass_names = {old.__name__: old for old in old_klass_refs}
+
+    for index, cell in enumerate(current_closures):
+        closure_name: str = free_binding_closure_names[index]
+        oldklass: Optional[Type] = None
+        if closure_name in old_klass_names:
+            oldklass = old_klass_names[closure_name]
+        else:
+            oldklass = find_class_in_cell(old_klass_refs.keys(), cell)
+        if oldklass is None:
+            continue
+        newklass = old_klass_refs[oldklass]
+        # okay, we'll need to spawn a new class cell and rebind
+        # the closure
+        class_cell = make_class_cell()
+        class_cell.cell_contents = newklass
+        # Replace the reference of the old class to the new one:
+        current_closures[index] = class_cell
+        changed = True
+
+    for index, global_varname in enumerate(load_from_scope_names):
+        oldklass = None
+        if global_varname in old_klass_names:
+            oldklass = old_klass_names[global_varname]
+        else:
+            try:
+                global_varvalue = function_globals[global_varname]
+            except KeyError:
+                continue
+            oldklass = find_class_in_value(old_klass_refs.keys(), global_varvalue)
+        if oldklass is None:
+            continue
+        newklass = old_klass_refs[oldklass]
+        # In this case, we need to change the global load name
+        # to the specialized one and ensure the clobbered name is in global()
+        # scope for the function
+        # Warning: Creates strong reference.
+        # TODO: Bytecode rewrite to change from `expr(oldklass)` to `expr((oldklass - fields))`.
+        new_name = f"{oldklass.__name__}->{hash(newklass)}"
+        function_globals[new_name] = newklass
+        load_from_scope_names[index] = new_name
+        changed = True
+
+    if not changed:
+        if is_classmethod and classmethod_dest is not classmethod_owner:
+            return getattr(classmethod_dest, function.__name__)
+        return function
+
+    code = CodeType(
+        code.co_argcount,
+        code.co_kwonlyargcount,
+        code.co_nlocals,
+        code.co_stacksize,
+        code.co_flags,
+        code.co_code,
+        code.co_consts,
+        tuple(load_from_scope_names),
+        code.co_varnames,
+        code.co_filename,
+        code.co_name,
+        code.co_firstlineno,
+        code.co_lnotab,
+        tuple(free_binding_closure_names),
+        code.co_cellvars,
+    )
+
+    # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
+    # This will allow for overridden functions to be called with super()
+    new_function = FunctionType(
+        code, function_globals, function.__name__, function.__defaults__, tuple(current_closures)
+    )
+    new_function.__kwdefaults__ = function.__kwdefaults__
+    new_function.__annotations__ = function.__annotations__
+    if is_classmethod:
+        if return_classmethod:
+            return classmethod(new_function)
+        # Assign the classmethod then return its wrapped form:
+        setattr(classmethod_dest, dest_func_name, classmethod(new_function))
+        wrapped = getattr(classmethod_dest, dest_func_name)
+        return wrapped
+    return new_function
+
+
 def insert_class_closure(
-    klass: Type, function: Optional[types.FunctionType], *, memory: Optional[dict] = None
-) -> Optional[Callable]:
+    klass: Atomic, function: Optional[Callable[..., Any]]
+) -> Optional[Callable[..., Any]]:
+    """
+    an implicit super() works by looking at __class__ to fill in the
+    arguments, becoming super(__class__, self)
+
+    Since we're messing with the function space, __class__ is most
+    likely undefined or pointing to the incorrect specialized class
+    instead of the base/public class.
+    """
     if function is None:
         return None
 
-    Derived = None
-    if memory is not None:
-        try:
-            Derived = memory[klass]
-        except KeyError:
-            Derived = None
+    code: CodeType = function.__code__
+    # Make the cell to hold the replacement klass value:
+    class_cell: CellType = make_class_cell()
+    class_cell.cell_contents = klass
 
-    code = function.__code__
-    co_closure = code.co_freevars
+    closure_var_names: List[str] = list(code.co_freevars)
 
-    if "__class__" not in code.co_freevars:
-        co_closure += ("__class__",)
-        index = len(co_closure)
+    current_closure: List[CellType]
+    if function.__closure__ is None:
+        current_closure = []
     else:
-        index = co_closure.index("__class__")
-    code = types.CodeType(
+        current_closure = list(function.__closure__)
+
+    # Insert the class cell into the closure references:
+    if "__class__" not in code.co_freevars:
+        closure_var_names.append("__class__")
+        current_closure.append(class_cell)
+    else:
+        index = closure_var_names.index("__class__")
+        current_closure[index] = class_cell
+
+    # recreate the function using its guts
+    code = CodeType(
         code.co_argcount,
         code.co_kwonlyargcount,
         code.co_nlocals,
@@ -299,39 +547,16 @@ def insert_class_closure(
         code.co_name,
         code.co_firstlineno,
         code.co_lnotab,
-        co_closure,
+        tuple(closure_var_names),
         code.co_cellvars,
     )
 
-    if Derived is None:
-
-        class Derived(klass, concrete_class=True):
-            __slots__ = ()
-
-            def dummy(self):
-                return __class__  # noqa
-
-        if memory is not None:
-            memory[klass] = Derived
-
-    source_func = cast(types.FunctionType, Derived.dummy)
-
-    class_cell = source_func.__closure__[0]
-    class_cell.cell_contents = klass
-    current_closure = function.__closure__
-    if current_closure is None:
-        current_closure = ()
-    new_globals = globals()
-    if function.__module__:
-        module = import_module(function.__module__)
-        new_globals = module.__dict__
-
-    # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
-    # This will allow for overridden functions to be called with super()
-    co_freevars_values = (*current_closure[:index], class_cell, *current_closure[index + 1 :])
-    new_function = types.FunctionType(
-        code, new_globals, function.__name__, function.__defaults__, co_freevars_values
+    new_function = FunctionType(
+        code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )
+    # Copy the module name:
+    if function.__module__:
+        new_function.__module__ = function.__module__
     new_function.__kwdefaults__ = function.__kwdefaults__
     new_function.__annotations__ = function.__annotations__
     return new_function
@@ -409,10 +634,25 @@ def gather_listeners(class_name, attrs, class_columns, combined_class_columns, i
     return listeners, post_coerce_failure_handlers
 
 
-def is_debug_mode() -> bool:
-    return (
-        os.environ.get("INSTRUCT_DEBUG_CODEGEN", "").lower().startswith(("1", "true", "yes", "y"))
-    )
+def is_debug_mode(mode=None, class_name=None, field=None) -> bool:
+    if os.environ.get("INSTRUCT_DEBUG", "").lower() in AFFIRMATIVE:
+        return True
+    mode_debug: str = os.environ.get(f"INSTRUCT_DEBUG_{mode.upper()}", "").lower()
+    if mode_debug in AFFIRMATIVE:
+        return True
+    if field is None:
+        field = "*"
+    if class_name is None:
+        return False
+    if "." in mode_debug:
+        debug_class_name, debug_field = mode_debug.split(".")
+    else:
+        debug_class_name = mode_debug
+        debug_field = "*"
+    if class_name == debug_class_name:
+        if field == debug_field or debug_field == "*":
+            return True
+    return False
 
 
 def create_proxy_property(
@@ -430,7 +670,7 @@ def create_proxy_property(
     *,
     fast: bool,
 ) -> Tuple[property, Type, Type]:
-    ns_globals = {"NoneType": type(None), "Flags": Flags, "typing": typing}
+    ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
     setter_template = env.get_template("setter.jinja")
     getter_template = env.get_template("getter.jinja")
 
@@ -446,7 +686,7 @@ def create_proxy_property(
         has_coercion=isinstance_compatible_coerce_type is not None,
     )
     filename = "<getter-setter>"
-    if is_debug_mode():
+    if is_debug_mode("codegen", class_name, key):
         with tempfile.NamedTemporaryFile(
             delete=False, mode="w", prefix=f"{class_name}-{key}", suffix=".py", encoding="utf8"
         ) as fh:
@@ -474,7 +714,6 @@ def create_proxy_property(
     return new_property, isinstance_compatible_types
 
 
-CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 EMPTY_FROZEN_SET = frozenset()
 EMPTY_MAPPING = FrozenMapping({})
 
@@ -485,75 +724,6 @@ def __no_op_skip_get__(self):
 
 def __no_op_skip_set__(self, value):
     return
-
-
-def keys(
-    instance_or_cls: Union[Type[T], T], *, all: bool = False
-) -> Union[AtomicKeysView, KeysView]:
-    if not isinstance(instance_or_cls, type):
-        cls = type(instance_or_cls)
-        instance = instance_or_cls
-    else:
-        cls = instance_or_cls
-        instance = None
-    if not isinstance(cls, Atomic):
-        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
-    if instance is not None and not all:
-        return AtomicKeysView(instance)
-    if all:
-        return cls._all_accessible_fields
-    return cls._columns.keys()
-
-
-def values(instance) -> AtomicValuesView:
-    cls = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is not None:
-        return AtomicValuesView(instance)
-    raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
-
-
-def items(instance: T) -> ItemsView:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is not None:
-        return ItemsView(instance)
-    raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-
-
-def get(instance: T, key, default=None) -> Optional[Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
-    if instance is None:
-        raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
-    try:
-        return instance[key]
-    except KeyError:
-        return default
-
-
-def asdict(instance: T) -> Dict[str, Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._asdict()
-
-
-def astuple(instance: T) -> Tuple[Any, ...]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._astuple()
-
-
-def aslist(instance: T) -> List[Any]:
-    cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
-    return instance._aslist()
 
 
 def unpack_coerce_mappings(mappings):
@@ -591,22 +761,55 @@ def unpack_coerce_mappings(mappings):
             yield key, value
 
 
-def create_coerce_to_subclass_func(parent_cls, child_cls, coerce_function=None):
-    def coerce_value(value):
-        if coerce_function is not None:
-            value = coerce_function(value)
-        if isinstance(value, parent_cls) and not isinstance(value, child_cls):
-            value = child_cls(**value)
-        return value
+def transform_typing_to_coerce(
+    type_hints: T, class_mapping: Mapping[Type, Type]
+) -> Tuple[T, Callable[[Any], Any]]:
+    """
+    Use for consuming the prior slotted trace and returning a tuple
+    suitable for Union[coerce_type, current_coerce_types] with a callable function.
+    """
+    if isinstance(type_hints, tuple):
+        assert all(is_typing_definition(item) or isinstance(item, type) for item in type_hints)
+        type_hints = Union[type_hints]
+    assert is_typing_definition(type_hints) or isinstance(type_hints, type)
 
-    return coerce_value
+    return type_hints, wrapper_for_type(type_hints, class_mapping, Atomic)
+
+
+class ModifiedSkipTypes(NamedTuple):
+    replacement_type_definition: Atomic
+    replacement_coerce_definition: Optional[Tuple[Any, Callable]]
+    mutant_classes: FrozenSet[Tuple[Atomic, Atomic]]
+
+
+def create_union_coerce_function(
+    prior_complex_type_path: T,
+    complex_type_cast: Callable,
+    custom_cast_types: Optional[T],
+    custom_cast_function: Optional[Callable],
+):
+    if custom_cast_types is None:
+        complex_type_cast.__only_parent_cast__ = True
+        return prior_complex_type_path, complex_type_cast
+
+    cast_type_cls = parse_typedef(prior_complex_type_path)
+
+    def cast_values(value):
+        if isinstance(value, cast_type_cls):
+            return complex_type_cast(value)
+        return custom_cast_function(value)
+
+    cast_values.__union_subtypes__ = (custom_cast_types, custom_cast_function)
+    if isinstance(custom_cast_types, tuple):
+        return Union[(prior_complex_type_path,) + custom_cast_types], cast_values
+    return Union[prior_complex_type_path, custom_cast_types], cast_values
 
 
 def apply_skip_keys(
     skip_key_fields: Union[FrozenSet[str], Set[str], Dict[str, Any]],
     current_definition: Atomic,
     current_coerce: Optional[Tuple[Any, Callable[[Any], Any]]],
-) -> Tuple[Any, Optional[Tuple[Any, Callable[[Any], Any]]]]:
+) -> ModifiedSkipTypes:
     """
     If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.
 
@@ -619,36 +822,127 @@ def apply_skip_keys(
 
     Basically this has to traverse the graph, branching out and replacing nodes.
     """
-    if issubclass(type(current_definition), Atomic):
-        parent_cls = current_definition
-        modified_class = current_definition - skip_key_fields
-        if parent_cls is modified_class:
-            return parent_cls, None
-        if current_coerce is not None:
-            types, existing_coerce_function = current_coerce
-            if is_typing_definition(types):
-                types = Union[parent_cls, types]
-            elif isinstance(types, tuple):
-                types = types + (parent_cls,)
-            elif isinstance(types, type):
-                types = (types, parent_cls)
+
+    if current_coerce is not None:
+        current_coerce_types, current_coerce_cast_function = current_coerce
+        # Unpack to the original cast type, coerce function (in case we're subtracting a subtraction)
+
+        if hasattr(current_coerce_cast_function, "__only_parent_cast__"):
+            # If this is only for casting a parent typecls function, kill it.
+            current_coerce = None
         else:
-            existing_coerce_function = None
-            types = (parent_cls,)
-        new_coerce_function = create_coerce_to_subclass_func(
-            parent_cls, modified_class, existing_coerce_function
+            while hasattr(current_coerce_cast_function, "__union_subtypes__"):
+                current_coerce_types, current_coerce_cast_function = (
+                    current_coerce_cast_function.__union_subtypes__
+                )
+            current_coerce = (current_coerce_types, current_coerce_cast_function)
+            del current_coerce_types, current_coerce_cast_function
+
+    if (
+        isinstance(current_definition, type)
+        and ismetasubclass(current_definition, Atomic)
+        or is_typing_definition(current_definition)
+        or isinstance(current_definition, tuple)
+    ):
+        new_coerce_definition = None
+        original_definition = current_definition
+        gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
+        replace_class_refs = []
+        try:
+            result = None
+            while True:
+                result = gen.send(result)
+                before = result
+                result = result - skip_key_fields
+                after = result
+                if before is not after:
+                    replace_class_refs.append((before, after))
+        except StopIteration as e:
+            current_definition = e.value
+
+        if replace_class_refs:
+            parent_type_path, parent_type_coerce_function = transform_typing_to_coerce(
+                original_definition, dict(replace_class_refs)
+            )
+            if current_coerce is not None:
+                current_coerce_types, existing_coerce_function = current_coerce
+                new_coerce_function = replace_class_references(
+                    existing_coerce_function, *replace_class_refs
+                )
+            else:
+                new_coerce_function = None
+                current_coerce_types = None
+            new_coerce_definition = create_union_coerce_function(
+                parent_type_path,
+                parent_type_coerce_function,
+                current_coerce_types,
+                new_coerce_function,
+            )
+        return ModifiedSkipTypes(
+            current_definition,
+            new_coerce_definition or current_coerce,
+            frozenset(replace_class_refs),
         )
-        return modified_class, (types, new_coerce_function)
     else:
-        raise NotImplementedError(
-            f"Subtraction of {current_definition} ({type(current_definition)}) unsupported"
+        return None, None, EMPTY_FROZEN_SET
+
+
+def show_all_fields(
+    cls: Atomic, deep_traverse_with: Optional[Mapping[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    deep_traverse_with: only descend if the same key exists in the provided mapping.
+    """
+    all_fields = {}
+    for key, value in cls._slots.items():
+        all_fields[key] = {}
+        if deep_traverse_with is None or key in deep_traverse_with:
+            next_deep_level = None
+            if deep_traverse_with is not None:
+                next_deep_level = deep_traverse_with[key]
+            if key in cls._nested_atomic_collection_keys:
+                for item in cls._nested_atomic_collection_keys[key]:
+                    all_fields[key].update(show_all_fields(item, next_deep_level))
+            elif ismetasubclass(value, Atomic):
+                all_fields[key].update(show_all_fields(value, next_deep_level))
+        if not all_fields[key]:
+            all_fields[key] = None
+    return all_fields
+
+
+def list_callables(cls):
+    for key in dir(cls):
+        value = getattr(cls, key)
+        if isinstance(value, type):
+            continue
+        elif not callable(value):
+            continue
+        yield key, value
+
+
+def find_users_of(mutant_class_parent_names, in_cls):
+    ignore_functions = frozenset()
+    for parent_cls in in_cls.__bases__:
+        ignore_functions |= frozenset(
+            value
+            for key, value in list_callables(parent_cls)
+            if not (key.startswith("__") and key.endswith("__"))
         )
+    functions_to_scan = (
+        (key, value) for key, value in list_callables(in_cls) if not key.startswith("__")
+    )
+    for key, value in functions_to_scan:
+        external_names = frozenset(value.__code__.co_names) | frozenset(value.__code__.co_freevars)
+        matches = external_names & mutant_class_parent_names
+        if matches:
+            yield (key, value), matches
 
 
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
     MIXINS = ReadOnly({})
+    SKIPPED_FIELDS: Mapping[FrozenSet[str], Atomic] = WeakValueDictionary()
 
     if TYPE_CHECKING:
         _data_class: Atomic
@@ -660,7 +954,7 @@ class Atomic(type):
         _configuration: AttrsDict
         _all_accessible_fields: typing.collections.KeysView[str]
         # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
-        _nested_atomic_collection_keys: Tuple[str]
+        _nested_atomic_collection_keys: Mapping[str, Tuple[Atomic, ...]]
 
     @classmethod
     def register_mixin(cls, name, klass):
@@ -678,59 +972,91 @@ class Atomic(type):
         self: Atomic,
         include_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
     ) -> Atomic:
-        assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str))
-        raise NotImplementedError
+        assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
+        include_fields: FrozenMapping = flatten_fields.collect(include_fields)
+        include_fields -= self._skipped_fields
+        if not include_fields:
+            return self
+        skip_fields = show_all_fields(self, include_fields) - include_fields
+        return self - skip_fields
 
-    def __sub__(
-        self: Atomic,
-        skip_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
-    ) -> Atomic:
-        assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str))
+    def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
+        assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
+        debug_mode = is_debug_mode("skip")
 
-        cls = type(self)
-        cls = getattr(self, "_parent", self)
-        if isinstance(skip_fields, str):
-            skip_fields = frozenset((skip_fields,))
+        root_class = type(self)
+        cls = public_class(self)
 
         if not skip_fields:
             return self
 
+        if isinstance(skip_fields, str):
+            skip_fields = frozenset((skip_fields,))
+
+        skip_fields: FrozenMapping = flatten_fields.collect(skip_fields)
         unrecognized_keys = frozenset(skip_fields) - self._columns.keys()
-        if unrecognized_keys:
-            unrecognized_keys_friendly = ", ".join(str(x) for x in unrecognized_keys)
-            raise TypeError(f"Unrecognized fields on {cls}: {unrecognized_keys_friendly}")
+        skip_fields -= unrecognized_keys
+
+        currently_skipped_fields = FrozenMapping(self._skipped_fields)
+        effective_skipped_fields: FrozenMapping = skip_fields | currently_skipped_fields
+        if not effective_skipped_fields:
+            return self
+        try:
+            return root_class.SKIPPED_FIELDS[(self.__qualname__, effective_skipped_fields)]
+        except KeyError:
+            pass
+
         redefinitions = None
         redefine_coerce = None
 
-        if isinstance(skip_fields, dict):
-            possible_redefinition_fields = skip_fields
-            skip_fields = frozenset(skip_fields)
+        skip_entire_keys = set()
 
-            redefinitions = {}
-            redefine_coerce = {}
-            for key, key_specific_strip_keys in possible_redefinition_fields.items():
-                if key_specific_strip_keys is None:
-                    continue
-                if isinstance(key_specific_strip_keys, str):
-                    key_specific_strip_keys = frozenset((key_specific_strip_keys,))
+        redefinitions = {}
+        redefine_coerce = {}
+        mutant_classes = set()
+        for key, key_specific_strip_keys in skip_fields.items():
+            if not key_specific_strip_keys:
+                skip_entire_keys.add(key)
+                continue
 
-                current_definition = self._column_types[key]
-                current_coerce = None
-                if key in self.__coerce__:
-                    current_coerce = self.__coerce__[key]
-                redefined_definition, redefined_coerce_definition = apply_skip_keys(
-                    key_specific_strip_keys, current_definition, current_coerce
-                )
-                if redefined_definition is not None:
-                    redefinitions[key] = redefined_definition
-                if redefined_coerce_definition is not None:
-                    redefine_coerce[key] = redefined_coerce_definition
-            skip_fields -= redefinitions.keys()
+            if isinstance(key_specific_strip_keys, str):
+                key_specific_strip_keys = frozenset((key_specific_strip_keys,))
 
-        if not isinstance(skip_fields, frozenset):
-            skip_fields = frozenset(skip_fields)
+            current_definition = self._slots[key]
+            current_coerce = None
+            if self.__coerce__ and key in self.__coerce__:
+                current_coerce = self.__coerce__[key]
+            redefined_definition, redefined_coerce_definition, new_mutants = apply_skip_keys(
+                key_specific_strip_keys, current_definition, current_coerce
+            )
+            mutant_classes |= new_mutants
+
+            if redefined_definition is not None:
+                redefinitions[key] = redefined_definition
+            if redefined_coerce_definition is not None:
+                redefine_coerce[key] = redefined_coerce_definition
+
+        mutant_class_parent_names = {
+            parent.__name__: (parent, child) for parent, child in mutant_classes
+        }
+        if debug_mode:
+            print(f"Mutants: {mutant_class_parent_names}")
 
         attrs = {"__slots__": ()}
+
+        for (function_name, function_value), parents_to_replace in find_users_of(
+            mutant_class_parent_names.keys(), cls
+        ):
+            mutated_function_value = replace_class_references(
+                function_value,
+                return_classmethod=True,
+                *[mutant_class_parent_names[parent_name] for parent_name in parents_to_replace],
+            )
+            if debug_mode:
+                print(f"{function_name} has {parents_to_replace}")
+            attrs[function_name] = mutated_function_value
+
+        skip_entire_keys = FrozenMapping(skip_entire_keys)
 
         if redefinitions:
             attrs["__slots__"] = redefinitions
@@ -738,13 +1064,15 @@ class Atomic(type):
             attrs["__coerce__"] = redefine_coerce
 
         changes = ""
-        if skip_fields:
-            changes = "Minus{}".format("And".join(skip_fields))
+        if skip_entire_keys:
+            changes = "Minus{}".format("And".join(skip_entire_keys))
         if redefinitions:
             changes = "{}Modified{}".format(changes, "And".join(sorted(redefinitions)))
         if not changes:
             return self
-        return type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_fields)
+        value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_entire_keys)
+        root_class.SKIPPED_FIELDS[(self.__qualname__, value._skipped_fields)] = value
+        return value
 
     def __new__(
         klass,
@@ -754,8 +1082,8 @@ class Atomic(type):
         *,
         fast=None,
         concrete_class=False,
-        skip_fields=EMPTY_FROZEN_SET,
-        include_fields=EMPTY_FROZEN_SET,
+        skip_fields=FrozenMapping(),
+        include_fields=FrozenMapping(),
         **mixins,
     ):
         if concrete_class:
@@ -765,11 +1093,11 @@ class Atomic(type):
             assert cls.__hash__ is not None
             return cls
         assert isinstance(
-            skip_fields, frozenset
-        ), f"Expect skip_fields to be a frozenset, not a {type(skip_fields).__name__}"
+            skip_fields, FrozenMapping
+        ), f"Expect skip_fields to be a FrozenMapping, not a {type(skip_fields).__name__}"
         assert isinstance(
-            include_fields, frozenset
-        ), f"Expect include_fields to be a frozenset, not a {type(include_fields).__name__}"
+            include_fields, FrozenMapping
+        ), f"Expect include_fields to be a FrozenMapping, not a {type(include_fields).__name__}"
         if include_fields and skip_fields:
             raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
@@ -792,21 +1120,24 @@ class Atomic(type):
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             module = import_module(support_cls_attrs["__module__"])
-            hints = get_type_hints(
-                types.SimpleNamespace(**support_cls_attrs), module.__dict__, globals()
-            )
+            hints = get_type_hints(SimpleNamespace(**support_cls_attrs), module.__dict__, globals())
             support_cls_attrs["__slots__"] = hints
+
         if "__slots__" not in support_cls_attrs:
-            raise TypeError(
-                f"You must define __slots__ for {class_name} to constrain the typespace"
-            )
+            # Infer a support class w/o __annotations__ or __slots__ as being an implicit
+            # mixin class.
+            support_cls_attrs["__slots__"] = FrozenMapping()
 
         coerce_mappings: Optional[CoerceMapping] = None
-        if "__coerce__" in support_cls_attrs and support_cls_attrs["__coerce__"] is not None:
-            coerce_mappings: AbstractMapping = support_cls_attrs["__coerce__"]
-            if isinstance(coerce_mappings, ReadOnly):
-                # Unwrap
-                coerce_mappings = coerce_mappings.value
+        if "__coerce__" in support_cls_attrs:
+            if support_cls_attrs["__coerce__"] is not None:
+                coerce_mappings: AbstractMapping = support_cls_attrs["__coerce__"]
+                if isinstance(coerce_mappings, ReadOnly):
+                    # Unwrap
+                    coerce_mappings = coerce_mappings.value
+        else:
+            support_cls_attrs["__coerce__"] = None
+
         if coerce_mappings is not None:
             if not isinstance(coerce_mappings, AbstractMapping):
                 raise TypeError(
@@ -838,7 +1169,7 @@ class Atomic(type):
 
         combined_columns = {}
         combined_slots = {}
-        nested_atomic_collections: List[str] = []
+        nested_atomic_collections: Dict[str, Atomic] = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
         column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
 
@@ -906,11 +1237,11 @@ class Atomic(type):
                 if cls._column_types:
                     column_types.update(cls._column_types)
                 if cls._nested_atomic_collection_keys:
-                    for key in cls._nested_atomic_collection_keys:
+                    for key, value in cls._nested_atomic_collection_keys.items():
                         # Override of this collection definition, so don't inherit!
                         if key in combined_columns:
                             continue
-                        nested_atomic_collections.append(key)
+                        nested_atomic_collections[key] = value
 
                 if cls._columns:
                     combined_columns.update(cls._columns)
@@ -951,29 +1282,40 @@ class Atomic(type):
             if isinstance(value, dict):
                 value = type("{}".format(key.capitalize()), bases, {"__slots__": value})
                 derived_classes[key] = value
-            if has_collect_class(value, Atomic, metaclass=True):
-                nested_atomic_collections.append(key)
+            if not ismetasubclass(value, Atomic):
+                nested_atomics = tuple(find_class_in_definition(value, Atomic, metaclass=True))
+                if nested_atomics:
+                    nested_atomic_collections[key] = nested_atomics
+                del nested_atomics
             current_class_slots[key] = combined_slots[key] = value
             current_class_columns[key] = combined_columns[key] = parse_typedef(value)
 
         no_op_skip_keys = []
         if skip_fields:
-            for key in combined_columns.keys() & skip_fields:
+            for key in tuple(combined_columns.keys()):
+                if key not in skip_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
 
-            for key in current_class_columns.keys() & skip_fields:
+            for key in tuple(current_class_columns.keys()):
+                if key not in skip_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del current_class_slots[key]
                 del current_class_columns[key]
         elif include_fields:
-            for key in combined_columns.keys() - include_fields:
+            for key in tuple(combined_columns.keys()):
+                if key in include_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
 
-            for key in current_class_columns.keys() - include_fields:
+            for key in tuple(current_class_columns.keys()):
+                if key in include_fields:
+                    continue
                 no_op_skip_keys.append(key)
                 del current_class_slots[key]
                 del current_class_columns[key]
@@ -1037,7 +1379,7 @@ class Atomic(type):
                 all_coercions[key] = (coerce_types, coerce_func)
             derived_class = derived_classes.get(key)
             if disabled_derived and derived_class is not None:
-                if is_debug_mode():
+                if is_debug_mode("derived"):
                     logger.debug(
                         f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
                     )
@@ -1071,7 +1413,7 @@ class Atomic(type):
         # Support columns are left as-is for slots
         support_columns = tuple(_dedupe(support_columns))
 
-        ns_globals = {"NoneType": type(None), "Flags": Flags, "typing": typing}
+        ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         ns_globals[class_name] = ReadOnly(None)
         if combined_columns:
             exec(
@@ -1095,9 +1437,9 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-            class_cell_fixups.append(("_asdict", cast(types.FunctionType, ns_globals["_asdict"])))
-            class_cell_fixups.append(("_astuple", cast(types.FunctionType, ns_globals["_astuple"])))
-            class_cell_fixups.append(("_aslist", cast(types.FunctionType, ns_globals["_aslist"])))
+            class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
+            class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
+            class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
             exec(
                 compile(
                     make_fast_getset_item(
@@ -1145,7 +1487,7 @@ class Atomic(type):
                 ns_globals,
             )
             support_cls_attrs["__new__"] = ns_globals["__new__"]
-            class_cell_fixups.append(("__new__", cast(types.FunctionType, ns_globals["__new__"])))
+            class_cell_fixups.append(("__new__", cast(FunctionType, ns_globals["__new__"])))
         for key in (
             "__iter__",
             "__getstate__",
@@ -1182,11 +1524,16 @@ class Atomic(type):
 
         support_cls_attrs["_columns"] = ReadOnly(FrozenMapping(combined_columns))
         support_cls_attrs["_no_op_properties"] = tuple(no_op_skip_keys)
+        # The original typing.py mappings here:
         support_cls_attrs["_slots"] = ReadOnly(FrozenMapping(combined_slots))
+
         support_cls_attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         support_cls_attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
         support_cls_attrs["_support_columns"] = tuple(support_columns)
-        support_cls_attrs["_nested_atomic_collection_keys"] = tuple(nested_atomic_collections)
+        support_cls_attrs["_nested_atomic_collection_keys"] = FrozenMapping(
+            nested_atomic_collections
+        )
+        support_cls_attrs["_skipped_fields"] = skip_fields
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
@@ -1205,19 +1552,17 @@ class Atomic(type):
         support_cls_attrs["_parent"] = parent_cell = ReadOnly(None)
         support_cls = super().__new__(klass, class_name, bases, support_cls_attrs)
 
-        cache = {}
         for prop_name, value in support_cls_attrs.items():
             if isinstance(value, property):
                 value = property(
-                    insert_class_closure(support_cls, value.fget, memory=cache),
-                    insert_class_closure(support_cls, value.fset, memory=cache),
+                    insert_class_closure(support_cls, value.fget),
+                    insert_class_closure(support_cls, value.fset),
                 )
-            elif isinstance(value, types.FunctionType):
-                value = insert_class_closure(support_cls, value, memory=cache)
+            elif isinstance(value, FunctionType):
+                value = insert_class_closure(support_cls, value)
             else:
                 continue
             setattr(support_cls, prop_name, value)
-        del cache
 
         ns_globals["klass"] = support_cls
         dataclass_slots = (
@@ -1394,30 +1739,6 @@ DEFAULTS = """{%- for field in fields %}
 result._{{field}}_ = None
 {%- endfor %}
 """
-
-
-class ClassOrInstanceFuncsDescriptor:
-    __slots__ = "_class_function", "_instance_function", "_classes"
-
-    def __init__(self, class_function=None, instance_function=None):
-        self._classes = WeakKeyDictionary()
-        self._class_function = class_function
-        self._instance_function = instance_function
-
-    def instance_function(self, instance_function):
-        return type(self)(self._class_function, instance_function)
-
-    def class_function(self, class_function):
-        return type(self)(class_function, self._instance_function)
-
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            try:
-                return self._classes[owner]
-            except KeyError:
-                value = self._classes[owner] = types.MethodType(self._class_function, owner)
-                return value
-        return types.MethodType(self._instance_function, instance)
 
 
 class IMapping(metaclass=Atomic):
@@ -1661,3 +1982,35 @@ class Base(SimpleBase, mapping=True, json=True):
 
 
 AbstractMapping.register(Base)  # pytype: disable=attribute-error
+
+__all__ = [
+    # Instruct utilities:
+    "public_class",
+    "keys",
+    "values",
+    "items",
+    "get",
+    "asdict",
+    "astuple",
+    "aslist",
+    # default end-user base classes
+    "SimpleBase",
+    "Base",
+    # class event listeners:
+    "add_event_listener",
+    "handle_type_error",
+    # class instantiation status:
+    "Flags",
+    # metaclass
+    "Atomic",
+    # history
+    "History",
+    "Delta",
+    "LoggedDelta",
+    # mapping support
+    "IMapping",
+    # json support
+    "JSONSerializable",
+    # misc
+    "UNDEFINED",
+]  # noqa
