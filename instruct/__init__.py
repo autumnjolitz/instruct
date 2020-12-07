@@ -214,6 +214,39 @@ def aslist(instance: T) -> List[Any]:
     return instance._aslist()
 
 
+def show_all_fields(
+    instance_or_cls: Union[T, Type[T]], *, deep_traverse_on: Optional[Mapping[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Create a tree of all the fields supported in the instruct class and any
+    embedded instruct classes.
+
+    deep_traverse_on: only descend if the same key exists in the provided mapping,
+        if None, always descend.
+    """
+    if not isinstance(instance_or_cls, type):
+        cls = type(instance_or_cls)
+    else:
+        cls = instance_or_cls
+    if not isinstance(cls, Atomic):
+        raise TypeError("Must be an Atomic-metaclassed type!")
+    all_fields = {}
+    for key, value in cls._slots.items():
+        all_fields[key] = {}
+        if deep_traverse_on is None or key in deep_traverse_on:
+            next_deep_level = None
+            if deep_traverse_on is not None:
+                next_deep_level = deep_traverse_on[key]
+            if key in cls._nested_atomic_collection_keys:
+                for item in cls._nested_atomic_collection_keys[key]:
+                    all_fields[key].update(show_all_fields(item, deep_traverse_on=next_deep_level))
+            elif ismetasubclass(value, Atomic):
+                all_fields[key].update(show_all_fields(value, deep_traverse_on=next_deep_level))
+        if not all_fields[key]:
+            all_fields[key] = None
+    return all_fields
+
+
 # End of public helpers
 
 
@@ -924,29 +957,6 @@ def apply_skip_keys(
         return None, None, EMPTY_FROZEN_SET
 
 
-def show_all_fields(
-    cls: Atomic, deep_traverse_with: Optional[Mapping[str, Any]] = None
-) -> Dict[str, Any]:
-    """
-    deep_traverse_with: only descend if the same key exists in the provided mapping.
-    """
-    all_fields = {}
-    for key, value in cls._slots.items():
-        all_fields[key] = {}
-        if deep_traverse_with is None or key in deep_traverse_with:
-            next_deep_level = None
-            if deep_traverse_with is not None:
-                next_deep_level = deep_traverse_with[key]
-            if key in cls._nested_atomic_collection_keys:
-                for item in cls._nested_atomic_collection_keys[key]:
-                    all_fields[key].update(show_all_fields(item, next_deep_level))
-            elif ismetasubclass(value, Atomic):
-                all_fields[key].update(show_all_fields(value, next_deep_level))
-        if not all_fields[key]:
-            all_fields[key] = None
-    return all_fields
-
-
 def list_callables(cls):
     for key in dir(cls):
         value = getattr(cls, key)
@@ -1014,7 +1024,9 @@ class Atomic(type):
         include_fields -= self._skipped_fields
         if not include_fields:
             return self
-        skip_fields = show_all_fields(self, include_fields) - include_fields
+        skip_fields = (
+            FrozenMapping(show_all_fields(self, deep_traverse_on=include_fields)) - include_fields
+        )
         return self - skip_fields
 
     def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
@@ -2039,6 +2051,7 @@ __all__ = [
     "asdict",
     "astuple",
     "aslist",
+    "show_all_fields",
     # default end-user base classes
     "SimpleBase",
     "Base",

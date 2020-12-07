@@ -1249,6 +1249,18 @@ def test_public_class():
     assert "name" not in NamelessPerson._slots
 
 
+def test_optional_keys():
+    class Q(SimpleBase):
+        y: int
+
+    class P(SimpleBase):
+        s: Optional[Q]
+
+    assert instruct.show_all_fields(P) == {"s": {"y": None}}
+    assert instruct.keys(P, "s") == {"y"}
+    assert instruct.keys(P) == {"s"}
+
+
 def test_absurd_custom_collections():
     """
     Currently we've no way of apply skip keys to a mapping type thaat's overridden
