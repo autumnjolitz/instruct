@@ -39,6 +39,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
+import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
@@ -69,10 +70,15 @@ AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 # Public helpers
 
 
-def public_class(instance_or_type: Union[Type[T], T], *property_path: str) -> Type[T]:
+def public_class(
+    instance_or_type: Union[Type[T], T], *property_path: str, preserve_subtraction: bool = False
+) -> Type[T]:
     """
     Given a data class or instance of, give us the public facing
     class.
+
+    preserve_subtraction indicates that we want the public facing subtracted class as opposed
+    to its root parent.
     """
     if not isinstance(instance_or_type, type):
         cls: Type[T] = type(instance_or_type)
@@ -93,6 +99,8 @@ def public_class(instance_or_type: Union[Type[T], T], *property_path: str) -> Ty
             next_cls, = cls._nested_atomic_collection_keys[key]
         return public_class(next_cls, *property_path[1:])
     cls = getattr(cls, "_parent", cls)
+    if preserve_subtraction and cls._skipped_fields:
+        return cls
     if cls._skipped_fields:
         bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
         while len(bases) == 1 and bases[0]._skipped_fields:
@@ -123,6 +131,7 @@ def keys(
         if instance is not None and not all:
             return AtomicKeysView(instance)
         if all:
+            # Known as a KeysView as well
             return cls._all_accessible_fields
         return KeysView(tuple(cls._slots))
     if len(property_path) == 1:
@@ -206,6 +215,28 @@ def aslist(instance: T) -> List[Any]:
 
 
 # End of public helpers
+
+
+def _dump_skipped_fields(cls) -> Optional[FrozenMapping[str, Any]]:
+    assert isinstance(cls, type), f"{cls} is not a class"
+    skipped = {key: None for key in cls._skipped_fields}
+    for key in cls._slots:
+        typedef = cls._slots[key]
+        if key in cls._nested_atomic_collection_keys:
+            skipped_on_typedef_merged = {}
+            for typedef in cls._nested_atomic_collection_keys[key]:
+                skipped_on_typedef = _dump_skipped_fields(typedef)
+                if skipped_on_typedef:
+                    skipped_on_typedef_merged.update(skipped_on_typedef)
+            if skipped_on_typedef_merged:
+                skipped[key] = skipped_on_typedef_merged
+        elif ismetasubclass(typedef, Atomic):
+            skipped_on_typedef = _dump_skipped_fields(typedef)
+            if skipped_on_typedef:
+                skipped[key] = skipped_on_typedef
+    if not skipped:
+        return None
+    return FrozenMapping(skipped)
 
 
 class ItemsView(_ItemsView):
@@ -796,8 +827,16 @@ def create_union_coerce_function(
 
     def cast_values(value):
         if isinstance(value, cast_type_cls):
+            # The current value is already the parent type, so apply a down coerce
+            # The function is probably not ready for encountering the parent type
+            # as normal use would be a no-op.
             return complex_type_cast(value)
-        return custom_cast_function(value)
+        value = custom_cast_function(value)
+        # Did the original coerce function make a parent type?
+        if isinstance(value, cast_type_cls):
+            # Yes, so let's down down-coerce it to the end type:
+            return complex_type_cast(value)
+        return value
 
     cast_values.__union_subtypes__ = (custom_cast_types, custom_cast_function)
     if isinstance(custom_cast_types, tuple):
@@ -861,22 +900,20 @@ def apply_skip_keys(
             current_definition = e.value
 
         if replace_class_refs:
+            # Coerce functions may produce the parent type.
+            # So what we'll do is a two pass function
+            #   - one pass that just downcoerces functions that are the
+            #     final parent type
+            #   - second pass after the original coerce that *will* produce the
+            #     parent type.
             parent_type_path, parent_type_coerce_function = transform_typing_to_coerce(
                 original_definition, dict(replace_class_refs)
             )
-            if current_coerce is not None:
-                current_coerce_types, existing_coerce_function = current_coerce
-                new_coerce_function = replace_class_references(
-                    existing_coerce_function, *replace_class_refs
-                )
-            else:
-                new_coerce_function = None
-                current_coerce_types = None
             new_coerce_definition = create_union_coerce_function(
                 parent_type_path,
                 parent_type_coerce_function,
-                current_coerce_types,
-                new_coerce_function,
+                current_coerce[0] if current_coerce else None,
+                current_coerce[1] if current_coerce else None,
             )
         return ModifiedSkipTypes(
             current_definition,
@@ -1040,7 +1077,7 @@ class Atomic(type):
             parent.__name__: (parent, child) for parent, child in mutant_classes
         }
         if debug_mode:
-            print(f"Mutants: {mutant_class_parent_names}")
+            logger.debug(f"Mutants: {mutant_class_parent_names}")
 
         attrs = {"__slots__": ()}
 
@@ -1053,7 +1090,7 @@ class Atomic(type):
                 *[mutant_class_parent_names[parent_name] for parent_name in parents_to_replace],
             )
             if debug_mode:
-                print(f"{function_name} has {parents_to_replace}")
+                logger.debug(f"{function_name} has {parents_to_replace}")
             attrs[function_name] = mutated_function_value
 
         skip_entire_keys = FrozenMapping(skip_entire_keys)
@@ -1065,9 +1102,11 @@ class Atomic(type):
 
         changes = ""
         if skip_entire_keys:
-            changes = "Minus{}".format("And".join(skip_entire_keys))
+            changes = "Without{}".format("And".join(key.capitalize() for key in skip_entire_keys))
         if redefinitions:
-            changes = "{}Modified{}".format(changes, "And".join(sorted(redefinitions)))
+            changes = "{}ButModified{}".format(
+                changes, "And".join(sorted(key.capitalize() for key in redefinitions))
+            )
         if not changes:
             return self
         value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_entire_keys)
@@ -1486,8 +1525,8 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-            support_cls_attrs["__new__"] = ns_globals["__new__"]
-            class_cell_fixups.append(("__new__", cast(FunctionType, ns_globals["__new__"])))
+            support_cls_attrs["__new__"] = new_new = ns_globals.pop("__new__")
+            class_cell_fixups.append(("__new__", cast(FunctionType, new_new)))
         for key in (
             "__iter__",
             "__getstate__",
@@ -1539,8 +1578,9 @@ class Atomic(type):
         extra_slots = tuple(_dedupe(pending_extra_slots))
         support_cls_attrs["__extra_slots__"] = ReadOnly(extra_slots)
         support_cls_attrs["_properties"] = properties = KeysView(properties)
+        # create a constant ordered keys view representing the columns and the properties
         support_cls_attrs["_all_accessible_fields"] = ReadOnly(
-            combined_columns.keys() | KeysView(properties)
+            KeysView(tuple(field for field in chain(combined_columns, properties)))
         )
         support_cls_attrs["_configuration"] = ReadOnly(conf)
 
@@ -1805,7 +1845,9 @@ def handle_type_error(*fields):
     return wrapper
 
 
-def load_cls(cls, args, kwargs):
+def load_cls(cls, args, kwargs, skip_fields: Optional[FrozenMapping] = None):
+    if skip_fields:
+        cls = cls - skip_fields
     return cls(*args, **kwargs)
 
 
@@ -1896,13 +1938,17 @@ class SimpleBase(metaclass=Atomic):
         return len(keys(self.__class__))
 
     def __contains__(self, item):
-        return item in self._all_accessible_fields
+        cls = type(self)
+        if item in cls._skipped_fields:
+            return False
+        return item in cls._all_accessible_fields
 
     def __reduce__(self):
         # Create an empty class then let __setstate__ in the autogen
         # code to handle passing raw values.
-        data_class, support_cls, *_ = self.__class__.__mro__
-        return load_cls, (support_cls, (), {}), self.__getstate__()
+        cls = public_class(type(self))
+        skipped_fields = _dump_skipped_fields(type(self))
+        return load_cls, (cls, (), {}, skipped_fields), self.__getstate__()
 
     @classmethod
     def _create_invalid_type(cls, field_name, val, val_type, types_required):
@@ -1930,7 +1976,7 @@ class SimpleBase(metaclass=Atomic):
             fields = ", ".join(unrecognized_keys)
             errors.append(self._create_invalid_value(f"Unrecognized fields {fields}"))
         if errors:
-            typename = type(self).__name__[1:]
+            typename = inflection.titleize(type(self).__name__[1:])
             if len(errors) == 1:
                 raise ClassCreationFailed(
                     f"Unable to construct {typename}, encountered {len(errors)} "
