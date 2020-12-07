@@ -7,8 +7,8 @@ from collections.abc import (
 )
 from types import MethodType
 from weakref import WeakKeyDictionary, WeakValueDictionary
-from typing import Any, Dict, Optional, Type, Generic, Callable, Union, Mapping
-from .typing import T
+from typing import Any, Dict, Optional, Type, Generic, Callable, Mapping
+from .typing import T, U
 
 
 class AttrsDict(UserDict):
@@ -38,7 +38,7 @@ def _caculate_hash(mapping):
 FROZEN_MAPPING_SINGLETONS = WeakValueDictionary()
 
 
-class FrozenMapping(AbstractMapping):
+class FrozenMapping(AbstractMapping, Mapping[T, U]):
     __slots__ = "__value", "__hashcode", "__weakref__"
 
     __value: Dict[Any, Any]

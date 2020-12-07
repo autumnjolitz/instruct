@@ -14,6 +14,7 @@ from collections.abc import Mapping as AbstractMapping
 
 import pytest
 import instruct
+import inflection
 from instruct import (
     Base,
     add_event_listener,
@@ -58,9 +59,9 @@ class LinkedFields(Base):
 
     __coerce__ = {"id": (str, lambda obj: int(obj, 10))}
 
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.id = 0
-        super().__init__(**kwargs)
+        super().__init__(*args, **kwargs)
 
     @add_event_listener("id")
     def _on_id_change(self, old, new):
@@ -136,6 +137,18 @@ def test_pickle():
     data = pickle.dumps(l1)
     l2 = pickle.loads(data)
     assert l1 == l2
+
+
+def test_subtracted_pickle():
+    cls = LinkedFields - {"id"}
+    assert instruct.keys(cls) == {"name"}
+    c = cls("Autumn")
+    assert cls._skipped_fields == {"id": None}
+    assert instruct._dump_skipped_fields(cls) == {"id": None}
+    data = pickle.dumps(c)
+    c2 = pickle.loads(data)
+    assert c == c2
+    assert instruct.public_class(c2, preserve_subtraction=True) is cls
 
 
 def test_partial_pickle():
@@ -978,6 +991,10 @@ def test_skip_keys_complex():
 
     assert FacelessPerson is FacelessPosition._nested_atomic_collection_keys["supervisor"][0]
     assert FacelessPerson is FacelessPosition._slots["worker"]
+    assert instruct._dump_skipped_fields(FacelessPosition) == {
+        "supervisor": {"name": None, "created_date": None},
+        "worker": {"name": None, "created_date": None},
+    }
 
 
 def test_include_keys_complex():
@@ -1028,9 +1045,11 @@ def test_include_keys_complex():
 
 def test_skip_keys_coerce():
     def parse_supervisors(values):
+        assert not isinstance(values, Person)
         return tuple(Person(**value) for value in values)
 
     def parse_person(value):
+        assert not isinstance(value, Person)
         return Person(**value)
 
     class Person(Base):
@@ -1065,6 +1084,13 @@ def test_skip_keys_coerce():
     assert fp.supervisor[0].id == 2
     fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
     assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+    fp.worker = Person(789, "abxdef", "0")
+    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 789}}
+    assert isinstance(fp.worker, Person)
+    assert isinstance(fp.worker, Person & "id")
+    # Allow us to check the exact type of the subtraction is the same:
+    assert instruct.public_class(fp.worker, preserve_subtraction=True) is (Person & "id")
+    assert instruct.public_class(fp.worker, preserve_subtraction=True) is not Person
 
 
 def test_skip_keys_coerce_classmethod():
@@ -1077,6 +1103,10 @@ def test_skip_keys_coerce_classmethod():
         def parse(cls, item):
             assert cls is d, "class mismatch!"
             return d(**item)
+
+        @classmethod
+        def check_class(cls, expected_clss):
+            return instruct.public_class(cls, preserve_subtraction=True) is expected_clss
 
     d = Person
 
@@ -1097,6 +1127,12 @@ def test_skip_keys_coerce_classmethod():
                 return self.task_name
             return None
 
+        @classmethod
+        def convert_to_person(cls, item):
+            if not isinstance(item, Person):
+                item = Person.from_json(item)
+            return item
+
     p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
     p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
     p.worker = {"created_date": "0", "id": 456, "name": "Sam"}
@@ -1109,6 +1145,8 @@ def test_skip_keys_coerce_classmethod():
     assert fp.supervisor[0].name is None
     assert fp.supervisor[0].id == 2
     fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
+    assert len(fp.worker) == 1
+    assert "name" not in fp.worker
     assert isinstance(fp.worker, FacelessPerson)
     assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
     assert (
@@ -1117,6 +1155,13 @@ def test_skip_keys_coerce_classmethod():
     )
     assert fp.some_prop is None
     assert d is Person
+    assert fp.worker.check_class(FacelessPerson)
+
+    # This makes use of replace_class_references:
+    #  We will replace Person in the convert_to_person function with the FacelessPerson
+    #  class reference.
+    bart = FacelessPosition.convert_to_person({"created_date": "0", "id": 912, "name": "Bart"})
+    assert isinstance(bart, FacelessPerson)
 
     p = Position.from_json({"id": 1, "task_name": "Business Partnerships"})
     p.supervisor = [{"created_date": "0", "id": 2, "name": "John"}]
@@ -1127,6 +1172,12 @@ def test_skip_keys_coerce_classmethod():
         "task_name": "Business Partnerships",
         "worker": {"created_date": "0", "id": 456, "name": "Sam"},
     }
+
+    with pytest.raises(instruct.exceptions.ClassCreationFailed) as exc:
+        FacelessPosition(farts=1)
+
+    # ensure the human friendly name is in the class error.
+    assert exc.match(inflection.titleize(instruct.public_class(FacelessPosition).__name__))
 
 
 def test_skip_keys_keys():
@@ -1179,6 +1230,8 @@ def test_public_class():
 
     class NamelessPerson(Person - {"name"}):
         pass
+
+    assert not NamelessPerson._skipped_fields
 
     me = Person(1, "Autumn", "N/A")
     assert instruct.public_class(me) is Person
