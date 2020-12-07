@@ -98,11 +98,7 @@ def has_collect_class(
 
 
 def find_class_in_definition(
-    type_hints: Union[Type, Tuple[Type, ...], List[Type]],
-    root_cls: Type,
-    *,
-    _recursing=False,
-    metaclass=False,
+    type_hints: Union[Type, Tuple[Type, ...], List[Type]], root_cls: Type, *, metaclass=False
 ):
     if type_hints is Ellipsis:
         return
@@ -116,22 +112,21 @@ def find_class_in_definition(
         type_cls: Type = cast(Type, type_hints)
         type_cls_copied: bool = False
         if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
-            if _recursing:
-                args = type_cls.__args__[:]
-                for index, child in enumerate(args):
-                    if isinstance(child, type) and issubormetasubclass(
+            args = type_cls.__args__[:]
+            for index, child in enumerate(args):
+                if isinstance(child, type) and issubormetasubclass(
+                    child, root_cls, metaclass=metaclass
+                ):
+                    replacement = yield child
+                else:
+                    replacement = yield from find_class_in_definition(
                         child, root_cls, metaclass=metaclass
-                    ):
-                        replacement = yield child
-                    else:
-                        replacement = yield from find_class_in_definition(
-                            child, root_cls, _recursing=True, metaclass=metaclass
-                        )
-                    if replacement is not None:
-                        args = args[:index] + (replacement,) + args[index + 1 :]
-                if args != type_cls.__args__:
-                    type_cls = type_cls.copy_with(args)
-                    type_cls_copied = True
+                    )
+                if replacement is not None:
+                    args = args[:index] + (replacement,) + args[index + 1 :]
+            if args != type_cls.__args__:
+                type_cls = type_cls.copy_with(args)
+                type_cls_copied = True
 
         elif isinstance(getattr(type_cls, "__origin__", None), type) and (
             issubclass(type_cls.__origin__, collections.abc.Iterable)
@@ -145,7 +140,7 @@ def find_class_in_definition(
                     replacement = yield value_type
                 else:
                     replacement = yield from find_class_in_definition(
-                        value_type, root_cls, _recursing=True, metaclass=metaclass
+                        value_type, root_cls, metaclass=metaclass
                     )
                 if replacement is not None:
                     args = (key_type, replacement)
@@ -161,7 +156,7 @@ def find_class_in_definition(
                         replacement = yield child
                     else:
                         replacement = yield from find_class_in_definition(
-                            child, root_cls, _recursing=True, metaclass=metaclass
+                            child, root_cls, metaclass=metaclass
                         )
                     if replacement is not None:
                         args = args[:index] + (replacement,) + args[index + 1 :]
@@ -186,7 +181,7 @@ def find_class_in_definition(
             replacement = yield type_cls
         else:
             replacement = yield from find_class_in_definition(
-                type_cls, root_cls, _recursing=True, metaclass=metaclass
+                type_cls, root_cls, metaclass=metaclass
             )
         if replacement is not None:
             type_hints = type_hints[:index] + (replacement,) + type_hints[index + 1 :]

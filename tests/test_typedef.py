@@ -159,3 +159,6 @@ def test_find_atomic_classes():
         find_class_in_definition(Tuple[Tuple[Dict[str, Item], int], ...], Atomic, metaclass=True)
     )
     assert items == (Item,)
+    type_hints = Optional[Bar]
+    items = tuple(find_class_in_definition(type_hints, Atomic, metaclass=True))
+    assert items == (Bar,)
