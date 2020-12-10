@@ -141,7 +141,10 @@ def keys(
         if len(cls._nested_atomic_collection_keys[key]) == 1:
             return keys(cls._nested_atomic_collection_keys[key][0])
         return {type_cls: keys(type_cls) for type_cls in cls._nested_atomic_collection_keys[key]}
-    return keys(cls._nested_atomic_collection_keys[property_path[0]], *property_path[1:])
+    key, *property_path = property_path
+    if key in cls._nested_atomic_collection_keys:
+        return keys(cls._nested_atomic_collection_keys[key], *property_path)
+    return keys(cls._slots[key], *property_path)
 
 
 def values(instance) -> AtomicValuesView:
