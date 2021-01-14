@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import tempfile
@@ -99,11 +100,11 @@ def public_class(
             next_cls, = cls._nested_atomic_collection_keys[key]
         return public_class(next_cls, *property_path[1:])
     cls = getattr(cls, "_parent", cls)
-    if preserve_subtraction and cls._skipped_fields:
+    if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
-    if cls._skipped_fields:
+    if any((cls._skipped_fields, cls._modified_fields)):
         bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
-        while len(bases) == 1 and bases[0]._skipped_fields:
+        while len(bases) == 1 and any((bases[0]._skipped_fields, bases[0]._modified_fields)):
             bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
         if len(bases) == 1:
             return bases[0]
@@ -988,6 +989,15 @@ def find_users_of(mutant_class_parent_names, in_cls):
             yield (key, value), matches
 
 
+def is_defined_coerce(cls, key):
+    for cls_item in inspect.getmro(cls):
+        coerce_mappings = getattr(cls_item, "__coerce__", None)
+        if coerce_mappings is not None:
+            if key in coerce_mappings:
+                return coerce_mappings[key]
+    return None
+
+
 class Atomic(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
@@ -1075,9 +1085,7 @@ class Atomic(type):
                 key_specific_strip_keys = frozenset((key_specific_strip_keys,))
 
             current_definition = self._slots[key]
-            current_coerce = None
-            if self.__coerce__ and key in self.__coerce__:
-                current_coerce = self.__coerce__[key]
+            current_coerce = is_defined_coerce(self, key)
             redefined_definition, redefined_coerce_definition, new_mutants = apply_skip_keys(
                 key_specific_strip_keys, current_definition, current_coerce
             )
@@ -1112,6 +1120,7 @@ class Atomic(type):
 
         if redefinitions:
             attrs["__slots__"] = redefinitions
+            attrs["_modified_fields"] = tuple(redefinitions)
         if redefine_coerce:
             attrs["__coerce__"] = redefine_coerce
 
@@ -1588,6 +1597,8 @@ class Atomic(type):
             nested_atomic_collections
         )
         support_cls_attrs["_skipped_fields"] = skip_fields
+        if "_modified_fields" not in support_cls_attrs:
+            support_cls_attrs["_modified_fields"] = ()
         conf = AttrsDict(**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
