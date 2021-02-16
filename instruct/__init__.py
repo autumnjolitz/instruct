@@ -88,17 +88,35 @@ def public_class(
     if not isinstance(cls, Atomic):
         raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
     if property_path:
-        key, *_ = property_path
+        key, *rest = property_path
         if key not in cls._slots:
             raise ValueError(f"{key!r} is not a field on {cls.__name__}!")
         next_cls = cls._slots[key]
         if key in cls._nested_atomic_collection_keys:
-            if len(cls._nested_atomic_collection_keys[key]) > 1:
-                return tuple(
-                    public_class(typecls) for typecls in cls._nested_atomic_collection_keys[key]
-                )
-            next_cls, = cls._nested_atomic_collection_keys[key]
-        return public_class(next_cls, *property_path[1:])
+            atomic_classes = cls._nested_atomic_collection_keys[key]
+            if len(atomic_classes) > 1:
+                if rest:
+                    if isinstance(rest[0], int):
+                        next_cls = atomic_classes[rest[0]]
+                        del rest[0]
+                    else:
+                        raise AttributeError(
+                            f"Unknown property {rest[0]} on class collection tuple for {key}"
+                        )
+                else:
+                    public_atomic_classes = tuple(
+                        public_class(typecls, preserve_subtraction=preserve_subtraction)
+                        for typecls in atomic_classes
+                    )
+                    if (
+                        len(frozenset(public_atomic_classes)) == 1
+                        and len(public_atomic_classes) > 1
+                    ):
+                        return public_atomic_classes[0]
+                    return public_atomic_classes
+            else:
+                next_cls, = atomic_classes
+        return public_class(next_cls, *rest, preserve_subtraction=preserve_subtraction)
     cls = getattr(cls, "_parent", cls)
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
@@ -1064,9 +1082,14 @@ class Atomic(type):
         if not effective_skipped_fields:
             return self
         try:
-            return root_class.SKIPPED_FIELDS[(self.__qualname__, effective_skipped_fields)]
+            value = root_class.SKIPPED_FIELDS[(cls.__qualname__, effective_skipped_fields)]
         except KeyError:
+            # print(f"Cache miss for {self.__qualname__}")
             pass
+        else:
+            # print(f"Cache hit for {self.__qualname__}")
+            return value
+        skip_fields = effective_skipped_fields
 
         redefinitions = None
         redefine_coerce = None
@@ -1134,7 +1157,7 @@ class Atomic(type):
         if not changes:
             return self
         value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_entire_keys)
-        root_class.SKIPPED_FIELDS[(self.__qualname__, value._skipped_fields)] = value
+        root_class.SKIPPED_FIELDS[(cls.__qualname__, value._skipped_fields)] = value
         return value
 
     def __new__(
