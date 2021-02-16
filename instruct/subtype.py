@@ -84,8 +84,12 @@ def handle_object(cls, cast_function=identity):
 
 @curry
 def handle_instruct(metaclass: Type, from_cls: Type[T], to_cls: Type[U], cast_function=identity):
+    from . import public_class
+
     assert ismetasubclass(from_cls, metaclass)
-    assert issubclass(to_cls, from_cls), f"{to_cls} is not a child of {from_cls}"
+    if not issubclass(to_cls, from_cls):
+        if public_class(to_cls) is not public_class(from_cls):
+            raise TypeError(f"{to_cls} is not a child of {from_cls}")
     assert to_cls is not from_cls
 
     def handler(item: T) -> U:

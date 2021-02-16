@@ -1217,11 +1217,23 @@ def test_public_class():
         name: str
         created_date: str
 
+    # ARJ: Anonymous bindings like this
+    # means that public_class will always go to the parent class type:
+    ForeignPerson = Person - {"id"}
+    m = ForeignPerson - {"created_date"}
+    n = Person - {"id", "created_date"}
+    assert (m) is (n)
+    # ARJ: However, if you do class ForeignPerson(Person - {"id"}): ...
+    # it will stop at ForeignPerson declaration.
+    # This is because non-anonymous (i.e. via class ...) declarations
+    # are considered public by default.
+
     class Position(Base):
         id: int
         supervisor: Tuple[Person, ...]
         worker: Person
         task_name: str
+        sponsor: Union[ForeignPerson, Person]
 
         __coerce__ = {
             "supervisor": (List[Dict[str, Union[int, str]]], Person.from_many_json),
@@ -1231,6 +1243,7 @@ def test_public_class():
     class NamelessPerson(Person - {"name"}):
         pass
 
+    TimelessSponsoredPosition = Position - {"sponsor": {"created_date"}}
     assert not NamelessPerson._skipped_fields
 
     me = Person(1, "Autumn", "N/A")
@@ -1239,8 +1252,27 @@ def test_public_class():
     assert instruct.public_class(Person - {"name"}) is Person
     assert instruct.public_class((Person - {"name"})(**me)) is Person
     assert instruct.public_class(Position, "worker") is Person
+    assert instruct.public_class(Position, "sponsor", preserve_subtraction=True) == (
+        ForeignPerson,
+        Person,
+    )
+    assert instruct.public_class(Position, "sponsor", 0, preserve_subtraction=True) is ForeignPerson
+    assert instruct.public_class(Position, "sponsor", 1, preserve_subtraction=True) is Person
+    assert instruct.public_class(
+        TimelessSponsoredPosition, "sponsor", preserve_subtraction=True
+    ) == (ForeignPerson - {"created_date"}, Person - {"created_date"})
+    assert (
+        instruct.public_class(TimelessSponsoredPosition, "sponsor", preserve_subtraction=False)
+        is Person
+    )
+    assert instruct.public_class(Position, "sponsor") is Person
+    with pytest.raises(AttributeError):
+        instruct.public_class(Position, "sponsor", "foobar")
     with pytest.raises(ValueError):
         assert instruct.public_class(Position, "worker", "nonexistent") is Person
+    # ARJ: Broken for now due to out-of-order evaluation
+    # with pytest.raises(IndexError):
+    #     assert instruct.public_class(Position, "sponsor", 1) is Person
     # Note this difference:
     # This is because there was an inheritance declaration of a new class inheriting the
     # skipped type, making it distinct
