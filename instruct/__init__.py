@@ -16,6 +16,7 @@ from collections.abc import (
     Set as AbstractSet,
     KeysView,
 )
+from collections import ChainMap
 from enum import IntEnum
 from importlib import import_module
 from itertools import chain
@@ -1206,7 +1207,13 @@ class Atomic(type):
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             module = import_module(support_cls_attrs["__module__"])
-            hints = get_type_hints(SimpleNamespace(**support_cls_attrs), module.__dict__, globals())
+            hints = get_type_hints(
+                SimpleNamespace(**support_cls_attrs),
+                support_cls_attrs,
+                # First look in the module, then failsafe to the typing to support
+                # unimported 'Optional', et al
+                ChainMap(module.__dict__, typing.__dict__),
+            )
             support_cls_attrs["__slots__"] = hints
 
         if "__slots__" not in support_cls_attrs:
