@@ -144,11 +144,16 @@ def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], 
 
     def handler(item):
         if isinstance(item, check_cls):
+            num_items = len(item)
+            # ARJ: Note, that zip_longest will apply fillvalue to BOTH sides of the
+            # iterable. So if you've an empty `item`, you can get the last cast_function.
+            # nasty, isn't it? This guard limits that from occurring.
             return cls(
                 cast_function(value)
-                for value, cast_function in itertools.zip_longest(
-                    item, cast_functions, fillvalue=cast_functions[-1]
+                for index, (value, cast_function) in enumerate(
+                    itertools.zip_longest(item, cast_functions, fillvalue=cast_functions[-1])
                 )
+                if index < num_items
             )
         return item
 

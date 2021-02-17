@@ -20,7 +20,8 @@ assert value.field.b == 2
 """
 
 from pytest import fixture
-from typing import Tuple, Mapping, Union, List
+from typing import Tuple, Mapping, Union, List, Any, Dict
+
 from instruct import SimpleBase, keys, transform_typing_to_coerce, Atomic, asdict
 from instruct.subtype import (
     handle_instruct,
@@ -228,3 +229,20 @@ def test_downcoerce(Item, SubItem, ComplexItem):
     )
     instance = cls(**dict(from_value))
     assert instance == to_value
+
+
+def test_less_than_tuple():
+    class Mapping(SimpleBase):
+        key: str
+        value: Any
+
+    class Foo(SimpleBase):
+        bar: Tuple[Mapping, ...]
+
+        __coerce__ = {
+            "bar": (List[Dict[str, Any]], lambda val: tuple(Mapping(**values) for values in val))
+        }
+
+    assert Foo(bar=[]).bar == ()
+    cls = Foo - {"bar": {"key"}}
+    assert cls(bar=[]).bar == ()
