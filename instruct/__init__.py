@@ -1082,6 +1082,7 @@ class Atomic(type):
         effective_skipped_fields: FrozenMapping = skip_fields | currently_skipped_fields
         if not effective_skipped_fields:
             return self
+
         try:
             value = root_class.SKIPPED_FIELDS[(cls.__qualname__, effective_skipped_fields)]
         except KeyError:
@@ -1158,7 +1159,7 @@ class Atomic(type):
         if not changes:
             return self
         value = type(f"{cls.__name__}{changes}", (cls,), attrs, skip_fields=skip_entire_keys)
-        root_class.SKIPPED_FIELDS[(cls.__qualname__, value._skipped_fields)] = value
+        root_class.SKIPPED_FIELDS[(cls.__qualname__, effective_skipped_fields)] = value
         return value
 
     def __new__(
