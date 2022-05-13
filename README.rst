@@ -179,6 +179,58 @@ Example Usage
     >>>
 
 
+Comparison to Pydantic
+-------------------------
+
+Pydantic is a much larger project with many more eyes. Instruct was designed from the beginning to support multiple-inheritance and ``__slot__`` specialization. Pydantic does much the same as Instruct. Pydantic is much more feature-filled and infinitely more popular. Instruct is a one-woman crew.
+
+Instruct was a reflexive response to years of dealing with needing to handle Object-Relational impedance mismatch in MySQL/Postgres. It was meant as a building block for enabling templated SQL writing in a controlled manner without resorting to ORMs (more akin to DAO approach). As such, its design and evolution reflects that.
+
+Instruct is not better. Nor is it worse. Instruct simply does what it's designed to do and no more.
+
+I suggest you use Pydantic if you're interested in a far bigger, far more lively, far better supported library. Instruct has different ambitions and does not intend to replace or compete with Pydantic.
+
+Instruct was designed in October 7, 2017 but was released in Dec 9, 2018.
+
+Pydantic's earliest release (0.1.0) is in 2017-06-03.
+
+Design differences between the two:
+
+- Instruct attempts to **NOT** provide functions/attributes that may be clobbered via ``SimpleBase`` and remapping the public variables to ``_{{varname}}_``
+    + Pydantic allows one to override the remapping, but does occupy names like ``dict``, ``json``, etc,.
+- Pydantic provides ``Model`` properties like ``dict()``, ``json()``, ``copy()``, etc
+    + Instruct ``Base`` (via ``JSONSerializable``) provides ``to_json``, ``__json__``, ``from_json``, ``from_many_json``
+    + If you use ``SimpleBase``, you can access similar properties ONLY on the class itself (we do not attach it to the class instance to avoid clobbering)
+- Instruct is shifting to a paradigm of using free-functions like ``asdict``, ``astuple``, ``keys``, ``items``, ``values``, etc instead of clobbering fields on an object
+    + we want to allow as many user-specified names as possible
+- Instruct wants to remain small
+- Instruct wants to support ``CStruct``s and possible basis for using a ``bytearray`` as the underlying memory for enabling rich types while allowing a near ``memcpy``.
+
+Things Instruct can do that Pydantic doesn't:
+
+- Class subtraction and masking
+    + You can subtract out a field by a string represetation, multiple by subtracting out an ``Iterable[str]``, or even apply such via a nested dict (where the values are ``None`` or another mapping to apply to a sub-object)
+    + You can ``cls & {"field"}`` or ``cls & {"field": {"keep_this"}}`` and get a class with only ``field`` and ``field.keep_this``
+- Allows unsupported types by fields to call functions to parse/coerce it into a valid value (``__coerce__``)
+    + Pydantic suggests you use ``Data bind`` to handle weirdies
+    + Pydantic does a lot of conversions for you automatically
+    + Instruct demands you make them explicit in your handling functions.
+- Instruct creates custom types representing complex, nested data structures such it does an effect ``isinstance(value, ComplexType)`` to verify if a complex, nested tree of objects does match.
+    + The types are meant only for an ``isinstance`` check.
+
+Things Pydantic does that Instruct doesn't:
+
+- Discriminated Unions (Current approach in Instruct is to add the common class into the Union and specialize after ``__init__`` or do it in the ``__coerce__`` phase)
+- Type/Callable/Generator attribute assignment
+- Generics (on my todo)
+- validation (instruct is used to provide the building blocks for validation, not doing it by itself. That might change.)
+- actual mypy, vscode, pycharm, etc integration
+- schema export
+- aliases (Instruct expects you to just add a ``@property`` that gets/sets the true field)
+- lots more little goodies
+
+
+
 Design
 ----------
 
@@ -216,6 +268,7 @@ Such a graph may look like this::
               Class _C
 
 Now it is possible for any valid multiple-inheritance chain to proceed, provided it respects the above constraints - there are either support classes or data classes (denoted with an underscore in front of their class name). Support classes may be inherited from, data classes cannot.
+
 
 Solving the Slowness issue
 *****************************
