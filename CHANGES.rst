@@ -1,3 +1,10 @@
+Version 0.7.2
+-----------------
+
+Release 2022-05-13
+
+- Add dummy ``__iter__`` to ``SimpleBase`` which addresses principal of least astonishment for an empty class
+
 Version 0.7.1
 -----------------
 
