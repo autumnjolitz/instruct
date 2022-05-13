@@ -2202,6 +2202,14 @@ class SimpleBase(metaclass=Atomic):
         # call it afterwards, the inheritance tree will zero initialize it first
         return self
 
+    @mark(base_cls=True)
+    def __iter__(self):
+        """
+        Dummy iter.
+        """
+        if False:
+            yield
+
 
 class Base(SimpleBase, mapping=True, json=True):
     __slots__ = ()
