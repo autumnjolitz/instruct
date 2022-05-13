@@ -73,10 +73,10 @@ Wouldn't it be nice to define a heirachy like this:
     class Member(Base):
         __slots__ = {"first_name": str, "last_name": str, "id": int}
 
-        def __init__(self, **kwargs):
+        def _set_defaults(self):
             self.first_name = self.last_name = ""
             self.id = -1
-            super().__init__(**kwargs)
+            super()._set_defaults()
 
 
     class Organization(Base, history=True):
@@ -94,12 +94,12 @@ Wouldn't it be nice to define a heirachy like this:
             "members": (List[dict], lambda values: [Member(**value) for value in values]),
         }
 
-        def __init__(self, *args, **kwargs):
+        def _set_defaults(self):
             self.name = ""
             self.id = -1
             self.members = []
             self.created_date = datetime.datetime.utcnow()
-            super().__init__(*args, **kwargs)
+            super()._set_defaults()
 
 
 And have it work like this?
