@@ -1,6 +1,5 @@
 from __future__ import annotations
 import collections.abc
-import copy
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
@@ -13,8 +12,20 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 
+try:
+    from typing import get_origin
+except ImportError:
+    from typing_extensions import get_origin
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
+from .constants import Range
+from .exceptions import RangeError
+
+get_args
 
 
 def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
@@ -188,24 +199,90 @@ def find_class_in_definition(
     return type_hints
 
 
-def create_custom_type(container_type, *args):
+def create_custom_type(container_type, *args, check_ranges=()):
     if is_typing_definition(container_type):
         if hasattr(container_type, "_name") and container_type._name is None:
             if container_type.__origin__ is Union:
                 types = flatten(
                     (create_custom_type(arg) for arg in container_type.__args__), eager=True
                 )
+                if check_ranges:
 
-                def test_func(value):
-                    return isinstance(value, types)
+                    def test_func(value) -> bool:
+                        if not isinstance(value, types):
+                            return False
+                        failed_ranges = []
+                        for rng in check_ranges:
+                            if rng.applies(value):
+                                try:
+                                    in_range = value in rng
+                                except TypeError:
+                                    continue
+                                else:
+                                    if in_range:
+                                        return True
+                                    else:
+                                        failed_ranges.append(rng)
+                        if failed_ranges:
+                            raise RangeError(value, failed_ranges)
+                        return False
+
+                else:
+
+                    def test_func(value) -> bool:
+                        """
+                        Check if the value is of the type set
+                        """
+                        return isinstance(value, types)
 
             elif container_type.__origin__ is Literal:
+                from . import Atomic, public_class
 
-                def test_func(value):
-                    return value in args
+                def test_func(value) -> bool:
+                    """
+                    Operate on a Literal type
+                    """
+                    for arg in args:
+                        if arg is value:
+                            # Exact match on ``is``, useful for enums
+                            return True
+                        elif arg == value:
+                            # Equality by value. This may be part of an
+                            # overridden __eq__, so check the types too!
+                            if isinstance(arg, type):
+                                arg_type = arg
+                            else:
+                                arg_type = type(arg)
+                            if isinstance(arg_type, Atomic):
+                                arg_type = public_class(arg_type, preserve_subtraction=True)
+                            if isinstance(value, arg_type):
+                                return True
+                    return False
 
         elif container_type is AnyStr:
-            return (bytes, str)
+            if check_ranges:
+
+                def test_func(value) -> bool:
+                    if not isinstance(value, (str, bytes)):
+                        return False
+                    failed_ranges = []
+                    for rng in check_ranges:
+                        if rng.applies(value):
+                            try:
+                                in_range = value in rng
+                            except TypeError:
+                                continue
+                            else:
+                                if in_range:
+                                    return True
+                                else:
+                                    failed_ranges.append(rng)
+                    if failed_ranges:
+                        raise RangeError(value, failed_ranges)
+                    return False
+
+            else:
+                return (str, bytes)
         elif container_type is Any:
             return object
         elif isinstance(getattr(container_type, "__origin__", None), type) and (
@@ -221,12 +298,56 @@ def create_custom_type(container_type, *args):
     ):
         test_func = create_typecheck_container(container_type, args)
     elif isinstance(container_type, type) and not args:
-        return container_type
+        if check_ranges:
+
+            def test_func(value) -> bool:
+                if not isinstance(value, container_type):
+                    return False
+                failed_ranges = []
+                for rng in check_ranges:
+                    if rng.applies(value):
+                        try:
+                            in_range = value in rng
+                        except TypeError:
+                            continue
+                        else:
+                            if in_range:
+                                return True
+                            else:
+                                failed_ranges.append(rng)
+                if failed_ranges:
+                    raise RangeError(value, failed_ranges)
+                return False
+
+        else:
+            return container_type
     else:
         assert isinstance(container_type, tuple), f"container_type is {container_type}"
+        if check_ranges:
 
-        def test_func(value):
-            return isinstance(value, container_type)
+            def test_func(value):
+                if not isinstance(value, container_type):
+                    return False
+                failed_ranges = []
+                for rng in check_ranges:
+                    if rng.applies(value):
+                        try:
+                            in_range = value in rng
+                        except TypeError:
+                            continue
+                        else:
+                            if in_range:
+                                return True
+                            else:
+                                failed_ranges.append(rng)
+                if failed_ranges:
+                    raise RangeError(value, failed_ranges)
+                return False
+
+        else:
+
+            def test_func(value):
+                return isinstance(value, container_type)
 
     return make_custom_typecheck(test_func)
 
@@ -307,10 +428,16 @@ def is_typing_definition(item):
     module_name: str = getattr(item, "__module__", None)
     if module_name in ("typing", "typing_extensions"):
         return True
+    if module_name == "builtins":
+        origin = get_origin(item)
+        if origin is not None:
+            return is_typing_definition(origin)
     return False
 
 
-def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, Tuple[Type]]:
+def parse_typedef(
+    typedef: Union[Tuple[Type, ...], List[Type]], *, check_ranges: Tuple[Range, ...] = ()
+) -> Union[Type, Tuple[Type]]:
     """
     Break a type def into types suitable for doing an isinstance(item, ...) check.
 
@@ -327,23 +454,45 @@ def parse_typedef(typedef: Union[Tuple[Type, ...], List[Type]]) -> Union[Type, T
     """
     if type(typedef) is tuple or type(typedef) is list:
         return tuple(parse_typedef(x) for x in typedef)
+
     if not is_typing_definition(typedef):
         # ARJ: Okay, we're not a typing module descendant.
         # Are we a type itelf?
         if isinstance(typedef, type):
-            return typedef
+            if check_ranges:
+                return create_custom_type(typedef, check_ranges=check_ranges)
+            else:
+                return typedef
         raise NotImplementedError(f"Unknown typedef definition {typedef!r} ({type(typedef)})!")
 
     if typedef is AnyStr:
-        return str, bytes
+        return create_custom_type(typedef, check_ranges=check_ranges)
     elif typedef is Any:
         return object
     elif typedef is Union:
         raise TypeError("A bare union means nothing!")
+    elif get_origin(typedef) is Annotated:
+        # Skip to the internal type:
+        check_ranges = []
+        for annotation in typedef.__metadata__:
+            if isinstance(annotation, Range):
+                check_ranges.append(annotation)
+        check_ranges = tuple(check_ranges)
+        new_type = parse_typedef(typedef.__origin__, check_ranges=check_ranges)
+        if check_ranges:
+            if is_typing_definition(typedef.__origin__):
+                new_type.set_name(
+                    str(typedef.__origin__).replace("typing_extensions.", "").replace("typing.", "")
+                )
+            else:
+                new_type.set_name(typedef.__origin__.__name__)
+        return new_type
     elif hasattr(typedef, "_name"):
         if typedef._name is None:
             # special cases!
             if typedef.__origin__ is Union:
+                if check_ranges:
+                    return create_custom_type(typedef, check_ranges=check_ranges)
                 return flatten(
                     (parse_typedef(argument) for argument in typedef.__args__), eager=True
                 )
