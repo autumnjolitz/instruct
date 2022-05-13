@@ -17,6 +17,10 @@ exec(open("instruct/about.py").read())
 if __version__ is None:
     raise IOError("about.py in project lacks __version__!")
 
+
+TEST_REQUIREMENTS = ["pytest", "pytest-mock"]
+DEVEL_REQUIREMENTS = ["twine"] + TEST_REQUIREMENTS
+
 setup(
     name="instruct",
     version=__version__,
@@ -28,7 +32,7 @@ setup(
     include_package_data=True,
     install_requires=install_requirements,
     keywords=[],
-    extras_require={"test": ["pytest"]},
+    extras_require={"test": TEST_REQUIREMENTS, "devel": DEVEL_REQUIREMENTS},
     python_requires=">=3.7",
     url="https://github.com/autumnjolitz/instruct",
     classifiers=[
