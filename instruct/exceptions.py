@@ -49,3 +49,15 @@ class ClassCreationFailed(ValueError, TypeError):
             item["parent_type"] = inflection.titleize(type(self).__name__)
             results.append(item)
         return tuple(results)
+
+
+class RangeError(ValueError, TypeError):
+    def __init__(self, value, ranges, message=""):
+        ranges = tuple(rng.copy() for rng in ranges)
+        self.ranges = ranges
+        self.value = value
+        if not message:
+            message = "Unable to fit {!r} into {}".format(
+                value, ", ".join(str(rng) for rng in ranges)
+            )
+        super().__init__(message, value, ranges)
