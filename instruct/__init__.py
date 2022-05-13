@@ -130,7 +130,7 @@ def public_class(
             else:
                 next_cls, = atomic_classes
         return public_class(next_cls, *rest, preserve_subtraction=preserve_subtraction)
-    cls = getattr(cls, "_parent", cls)
+    cls = cls.__public_class__()
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
     if any((cls._skipped_fields, cls._modified_fields)):
@@ -140,6 +140,37 @@ def public_class(
         if len(bases) == 1:
             return bases[0]
     return cls
+
+
+def clear(instance: T, fields: Optional[Iterable[str]] = None) -> T:
+    """
+    Clear all fields on an instruct class instance.
+    """
+    if isinstance(instance, type):
+        raise TypeError("Can only call on an Atomic-metaclassed instance! You passed in a type!")
+    if not isinstance(instance.__class__, Atomic):
+        raise TypeError("Can only call on an Atomic-metaclassed type!")
+    if fields:
+        unrecognized_keys = frozenset(fields) - frozenset(keys(instance))
+        if unrecognized_keys:
+            instance._handle_init_errors([], [], unrecognized_keys)
+    instance._clear(fields=fields)
+    return instance
+
+
+def reset_to_defaults(instance: T, *, call_init_again: bool = False) -> T:
+    """
+    Clears an object and reinitializes to the values specified by
+    ``_set_defaults``.
+
+    call_init_again: call the instances `__init__` again (useful if you did
+    default initialization inside `__init__`).
+    """
+    clear(instance)
+    instance._set_defaults()
+    if call_init_again:
+        instance.__init__()
+    return instance
 
 
 def keys(
@@ -391,11 +422,8 @@ def make_set_get_states(fields):
     return code_template
 
 
-def make_fast_new(fields, defaults_var_template):
-    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
-    code_template = env.get_template("fast_new.jinja").render(
-        fields=fields, defaults_var_template=defaults_var_template
-    )
+def make_fast_new():
+    code_template = env.get_template("fast_new.jinja").render()
     return code_template
 
 
@@ -406,7 +434,7 @@ def make_defaults(fields, defaults_var_template):
 def _set_defaults(self):
     result = self
     {{item|indent(4)}}
-    super(self.__class__, self)._set_defaults()
+    return super()._set_defaults()
     """
     ).render(item=defaults_var_template)
     return code
@@ -1047,6 +1075,15 @@ class Atomic(type):
         # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
         _nested_atomic_collection_keys: Mapping[str, Tuple[Atomic, ...]]
 
+    def __public_class__(self):
+        """
+        Most of the time, we want to return the support class (the public facing one).
+
+        However, there are cases where a subclass changes the response of certain functions
+        and it is not desirable to return it for other code.
+        """
+        return getattr(self, "_parent", self)
+
     @classmethod
     def register_mixin(cls, name, klass):
         cls.MIXINS[name] = klass
@@ -1201,23 +1238,26 @@ class Atomic(type):
         if include_fields and skip_fields:
             raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
+        base_class_functions = []
+        # Move overrides to the data class,
+        # so we call them first, then the codegen pieces.
+        # Suitable for a single level override.
+        # _set_defaults, __eq__ is special as it calls up the inheritance tree
+        # Others do not.
         for key in (
             "__iter__",
             "__getstate__",
             "__setstate__",
             "__eq__",
-            "__neq__",
-            "_set_defaults",
-            "clear",
             "__getitem__",
             "__setitem__",
-            "_asdict",
-            "_aslist",
-            "_astuple",
         ):
             if key in attrs:
+                if hasattr(attrs[key], "_instruct_base_cls"):
+                    base_class_functions.append(key)
+                    continue
                 data_class_attrs[key] = attrs.pop(key)
-
+        base_class_functions = tuple(base_class_functions)
         support_cls_attrs = attrs
         del attrs
 
@@ -1302,8 +1342,8 @@ class Atomic(type):
             setter_templates.append(support_cls_attrs["__setter_template__"])
         if "__getter_template__" in support_cls_attrs:
             getter_templates.append(support_cls_attrs["__getter_template__"])
-        if "__defaults_init__" in support_cls_attrs:
-            defaults_templates.append(support_cls_attrs["__defaults_init__"])
+        if "__defaults__init__template__" in support_cls_attrs:
+            defaults_templates.append(support_cls_attrs["__defaults__init__template__"])
 
         # collection of all the known public properties for this class and it's parents:
         properties = [name for name, val in support_cls_attrs.items() if isinstance(val, property)]
@@ -1369,8 +1409,8 @@ class Atomic(type):
                     getter_templates.append(cls.__getter_template__)
                 if hasattr(cls, "__setter_template__"):
                     setter_templates.append(cls.__setter_template__)
-                if hasattr(cls, "__defaults_init__"):
-                    defaults_templates.append(cls.__defaults_init__)
+                if hasattr(cls, "__defaults__init__template__"):
+                    defaults_templates.append(cls.__defaults__init__template__)
             # Collect all publicly accessible properties:
             for key in dir(cls):
                 value = getattr(cls, key)
@@ -1447,9 +1487,14 @@ class Atomic(type):
 
         if combined_columns:
             try:
+                defaults_var_template = defaults_templates[0]
+            except IndexError:
+                raise MissingGetterSetterTemplateError(
+                    "You must define __defaults__init__template__!"
+                )
+            try:
                 setter_var_template = setter_templates[0]
                 getter_var_template = getter_templates[0]
-                defaults_var_template = defaults_templates[0]
             except IndexError:
                 raise MissingGetterSetterTemplateError(
                     "You must define both __getter_template__ and __setter_template__"
@@ -1533,17 +1578,18 @@ class Atomic(type):
 
         ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         ns_globals[class_name] = ReadOnly(None)
-        exec(
-            compile(
-                make_fast_dumps(combined_columns, class_name), "<make_fast_dumps>", mode="exec"
-            ),
-            ns_globals,
-            ns_globals,
-        )
-        class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
-        class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
-        class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
+
         if combined_columns:
+            exec(
+                compile(
+                    make_fast_dumps(combined_columns, class_name), "<make_fast_dumps>", mode="exec"
+                ),
+                ns_globals,
+                ns_globals,
+            )
+            class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
+            class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
+            class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
             exec(
                 compile(make_fast_eq(combined_columns), "<make_fast_eq>", mode="exec"),
                 ns_globals,
@@ -1558,6 +1604,7 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
+            class_cell_fixups.append(("clear", cast(FunctionType, ns_globals["_clear"])))
             exec(
                 compile(
                     make_fast_getset_item(
@@ -1603,26 +1650,15 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
-        if "__new__" not in support_cls_attrs and combined_columns:
-            exec(
-                compile(
-                    make_fast_new(current_class_fields, defaults_var_template),
-                    "<make_fast_new>",
-                    mode="exec",
-                ),
-                ns_globals,
-                ns_globals,
+            class_cell_fixups.append(
+                ("_set_defaults", cast(FunctionType, ns_globals["_set_defaults"]))
             )
-            support_cls_attrs["__new__"] = new_new = ns_globals.pop("__new__")
-            class_cell_fixups.append(("__new__", cast(FunctionType, new_new)))
         for key in (
             "__iter__",
             "__getstate__",
             "__setstate__",
             "__eq__",
-            "__neq__",
-            "_set_defaults",
-            "clear",
+            "_clear",
             "__getitem__",
             "__setitem__",
             "_asdict",
@@ -1633,8 +1669,12 @@ class Atomic(type):
             # Any overrides that *may* call them will be assigned
             # to the concrete class instead
             if key in ns_globals:
+                if key in base_class_functions:
+                    continue
                 logger.debug(f"Copying {key} into {class_name} attributes")
                 support_cls_attrs[key] = ns_globals.pop(key)
+        if "_set_defaults" in ns_globals:
+            data_class_attrs["_set_defaults"] = ns_globals.pop("_set_defaults")
 
         # Any keys subtracted must have no-nop setters in order to
         # allow for subtype relationship will behaving as if those keys are fundamentally
@@ -2024,6 +2064,15 @@ class JSONSerializable(metaclass=Atomic):
         return tuple(cls.from_json(item) for item in iterable)
 
 
+def mark(**kwargs):
+    def wrapper(func):
+        for key, value in kwargs.items():
+            setattr(func, f"_instruct_{key}", value)
+        return func
+
+    return wrapper
+
+
 Atomic.register_mixin("json", JSONSerializable)
 
 
@@ -2031,23 +2080,26 @@ class SimpleBase(metaclass=Atomic):
     __slots__ = ("_flags",)
     __setter_template__ = ReadOnly("self._{key}_ = val")
     __getter_template__ = ReadOnly("return self._{key}_")
-    __defaults_init__ = ReadOnly(DEFAULTS)
+    __defaults__init__template__ = ReadOnly(DEFAULTS)
 
+    @mark(base_cls=True)
     def __new__(cls, *args, **kwargs):
         # Get the edge class that has all the __slots__ defined
         cls = cls._data_class
         result = super().__new__(cls)
         result._flags = Flags.UNCONSTRUCTED
+        result._set_defaults()
         assert "__dict__" not in dir(
             result
         ), "Violation - there should never be __dict__ on a slotted class"
         return result
 
     def __len__(self):
-        return len(keys(self.__class__))
+        cls = public_class(self, preserve_subtraction=True)
+        return len(keys(cls))
 
     def __contains__(self, item):
-        cls = type(self)
+        cls = public_class(self, preserve_subtraction=True)
         if item in cls._skipped_fields:
             return False
         return item in cls._all_accessible_fields
@@ -2055,7 +2107,9 @@ class SimpleBase(metaclass=Atomic):
     def __reduce__(self):
         # Create an empty class then let __setstate__ in the autogen
         # code to handle passing raw values.
-        cls = public_class(type(self))
+
+        # Get the public, unmessed with class:
+        cls = public_class(self)
         skipped_fields = _dump_skipped_fields(type(self))
         return load_cls, (cls, (), {}, skipped_fields), self.__getstate__()
 
@@ -2108,6 +2162,7 @@ class SimpleBase(metaclass=Atomic):
             raise TypeError(
                 f"__init__() takes {len(class_keys)} positional arguments but {len(args)} were given"
             )
+        # Set by argument position
         for key, value in zip(class_keys, args):
             try:
                 setattr(self, key, value)
@@ -2115,6 +2170,7 @@ class SimpleBase(metaclass=Atomic):
                 errors.append(e)
                 errored_keys.append(key)
         class_keys = self._all_accessible_fields
+        # Set by keywords
         for key in class_keys & kwargs.keys():
             value = kwargs[key]
             try:
@@ -2128,8 +2184,28 @@ class SimpleBase(metaclass=Atomic):
         self._handle_init_errors(errors, errored_keys, unrecognized_keys)
         self._flags = Flags.INITIALIZED
 
-    def clear(self, fields=None):
+    @mark(base_cls=True)
+    def _clear(self, fields: Iterable[str] = None):
         pass
+
+    @mark(base_cls=True)
+    def _asdict(self) -> Dict[str, Any]:
+        return {}
+
+    @mark(base_cls=True)
+    def _astuple(self) -> Tuple[Any, ...]:
+        return ()
+
+    @mark(base_cls=True)
+    def _aslist(self) -> List[Any]:
+        return []
+
+    @mark(base_cls=True)
+    def _set_defaults(self):
+        # ARJ: Override to set defaults instead of inside the `__init__` function
+        # Note: Always call ``super()._set_defaults()`` FIRST as if you
+        # call it afterwards, the inheritance tree will zero initialize it first
+        return self
 
 
 class Base(SimpleBase, mapping=True, json=True):
@@ -2145,6 +2221,8 @@ __all__ = [
     "values",
     "items",
     "get",
+    "clear",
+    "reset_to_defaults",
     "asdict",
     "astuple",
     "aslist",
