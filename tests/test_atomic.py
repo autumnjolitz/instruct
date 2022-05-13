@@ -29,6 +29,7 @@ from instruct import (
     RangeError,
     Atomic,
     NoHistory,
+    clear,
 )
 
 
@@ -461,7 +462,7 @@ def test_readme():
         "name": "New Name",
     }
 
-    org.clear()
+    clear(org)
     assert frozenset((type(x) for _, x in org)) == {type(None)}
 
 
@@ -1430,3 +1431,40 @@ def test_annotated_range():
     with pytest.raises(TypeError) as exc:
         Item(1)
     print(exc.value)
+
+
+def test_with_defaults(monkeypatch, mocker):
+    now = datetime.datetime.utcnow()
+
+    fake_datetime = mocker.MagicMock()
+    fake_datetime.utcnow = mocker.MagicMock()
+    fake_datetime.utcnow.return_value = now
+
+    class Foo(SimpleBase):
+        id: int
+        created_date: datetime.datetime
+        baz: str
+
+        def _set_defaults(self):
+            self.id = -1
+            self.created_date = datetime.datetime.utcnow()
+            return super()._set_defaults()
+
+    with monkeypatch.context() as c:
+        c.setattr(datetime, "datetime", fake_datetime)
+        f = Foo()
+    assert f.id == -1
+    assert f.created_date == now
+    assert f.baz is None
+
+    class Bar(Foo):
+        def _set_defaults(self):
+            self.baz = "barz!"
+            return super()._set_defaults()
+
+    with monkeypatch.context() as c:
+        c.setattr(datetime, "datetime", fake_datetime)
+        b = Bar()
+    assert b.baz == "barz!"
+    assert b.id == -1
+    assert b.created_date == now
