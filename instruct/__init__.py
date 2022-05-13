@@ -422,11 +422,6 @@ def make_set_get_states(fields):
     return code_template
 
 
-def make_fast_new():
-    code_template = env.get_template("fast_new.jinja").render()
-    return code_template
-
-
 def make_defaults(fields, defaults_var_template):
     defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
     code = env.from_string(
