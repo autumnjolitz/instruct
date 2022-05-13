@@ -1468,3 +1468,10 @@ def test_with_defaults(monkeypatch, mocker):
     assert b.baz == "barz!"
     assert b.id == -1
     assert b.created_date == now
+
+
+def test_empty():
+    class Foo(SimpleBase):
+        pass
+
+    assert list(Foo()) == []
