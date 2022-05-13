@@ -22,6 +22,13 @@ from instruct import (
     OrphanedListenersError,
     handle_type_error,
     SimpleBase,
+    NoJSON,
+    NoIterable,
+    NoPickle,
+    Range,
+    RangeError,
+    Atomic,
+    NoHistory,
 )
 
 
@@ -391,35 +398,41 @@ def test_getitem():
     assert {**b} == {"new": 2, "a": 2, "b": "A STRING"}
 
 
+class Member(Base):
+    first_name: str
+    last_name: str
+    id: int
+
+    def __init__(self, *args, **kwargs):
+        self.first_name = self.last_name = ""
+        self.id = -1
+        super().__init__(*args, **kwargs)
+
+
+class Organization(Base, history=True):
+    # ARJ: Note how we can also use the dataclass/typing.NamedTuple
+    # definition format and it behaves just like the ``__slots__`` example
+    # above!
+    name: str
+    id: int
+    members: List[Member]
+    created_date: datetime.datetime
+    secret: Annotated[str, NoJSON, NoPickle, NoIterable, NoHistory]
+
+    __coerce__ = {
+        "created_date": (str, lambda obj: datetime.datetime.strptime("%Y-%m-%d", obj)),
+        "members": (List[dict], lambda values: [Member(**value) for value in values]),
+    }
+
+    def __init__(self, *args, **kwargs):
+        self.name = ""
+        self.id = -1
+        self.members = []
+        self.created_date = datetime.datetime.utcnow()
+        super().__init__(*args, **kwargs)
+
+
 def test_readme():
-    class Member(Base):
-        __slots__ = {"first_name": str, "last_name": str, "id": int}
-
-        def __init__(self, **kwargs):
-            self.first_name = self.last_name = ""
-            self.id = -1
-            super().__init__(**kwargs)
-
-    class Organization(Base, history=True):
-        __slots__ = {
-            "name": str,
-            "id": int,
-            "members": List[Member],
-            "created_date": datetime.datetime,
-        }
-
-        __coerce__ = {
-            "created_date": (str, lambda obj: datetime.datetime.strptime("%Y-%m-%d", obj)),
-            "members": (list, lambda val: [Member(**item) for item in val]),
-        }
-
-        def __init__(self, **kwargs):
-            self.name = ""
-            self.id = -1
-            self.members = []
-            self.created_date = datetime.datetime.utcnow()
-            super().__init__(**kwargs)
-
     data = {
         "name": "An Org",
         "id": 123,
@@ -428,9 +441,26 @@ def test_readme():
     org = Organization(**data)
     assert org.members[0].first_name == "Jinja"
     org.name = "New Name"
+    org.created_date = datetime.datetime(2018, 10, 23)
     print(tuple(org.list_changes()))
     types = frozenset((type(x) for _, x in org))
     assert len(types) == 4 and type(None) not in types
+    assert not any(y == "my secret" for y in tuple(org))
+    assert Organization.to_json(org) == {
+        "created_date": "2018-10-23T00:00:00",
+        "id": 123,
+        "members": [{"first_name": "Jinja", "id": 551, "last_name": "Ninja"}],
+        "name": "New Name",
+    }
+    org2 = pickle.loads(pickle.dumps(org))
+    assert org2.secret is None
+    assert org2.to_json() == {
+        "created_date": "2018-10-23T00:00:00",
+        "id": 123,
+        "members": [{"first_name": "Jinja", "id": 551, "last_name": "Ninja"}],
+        "name": "New Name",
+    }
+
     org.clear()
     assert frozenset((type(x) for _, x in org)) == {type(None)}
 
@@ -1334,3 +1364,69 @@ def test_absurd_custom_collections():
         # Absurdity #3
         # It basically rejects a valid assignment:
         f.mapping = {"Bar": Item("abc")}
+
+
+def test_annotated_constants():
+    class Item(SimpleBase):
+        field1: Annotated[str, NoPickle]
+        field2: Annotated[str, NoJSON]
+        field3: Annotated[str, NoIterable]
+        field4: Annotated[str, NoJSON, NoPickle]
+        field5: Annotated[str, NoIterable, NoJSON]
+
+    i = Item("a", "b", "c", "d", "e")
+    assert Atomic.to_json(i)[0] == {"field1": "a", "field3": "c"}
+    assert i.__reduce__()[-1] == {"field2": "b", "field3": "c", "field5": "e"}
+    assert dict(i) == {"field1": "a", "field2": "b", "field4": "d"}
+    assert i._asdict() == {
+        "field1": "a",
+        "field2": "b",
+        "field3": "c",
+        "field4": "d",
+        "field5": "e",
+    }
+    assert i._astuple() == ("a", "b", "c", "d", "e")
+
+
+def test_annotated_range():
+    class Item(Base):
+        field1: Annotated[str, "foobar blech"]
+        field2: Annotated[int, Range(0, 256)]
+        field3: Annotated[
+            Union[int, float],
+            Range(0, 256, type_restrictions=int),
+            Range(0, 1, type_restrictions=float),
+        ]
+
+    item = Item("a", 255, 0.5)
+    with pytest.raises(TypeError) as exc:
+        item.field2 = 256
+    print(exc.value)
+    with pytest.raises(TypeError) as exc:
+        item.field2 = -1
+    print(exc.value)
+
+    item.field2 = 0
+    item.field3 = 0.9999
+    with pytest.raises(TypeError) as exc:
+        item.field3 = 1.5
+    print(exc.value)
+    with pytest.raises(TypeError) as exc:
+        item.field3 = -1.5
+    print(exc.value)
+    item.field3 = 255
+    with pytest.raises(TypeError) as exc:
+        item.field3 = 256
+    print(exc.value)
+    with pytest.raises(ClassCreationFailed) as exc:
+        Item("a", 256, 10.5)
+    assert len(exc.value.errors) == 2
+    assert isinstance(exc.value.errors[0], RangeError)
+    assert isinstance(exc.value.errors[1], RangeError)
+    print(exc.value)
+    with pytest.raises(TypeError) as exc:
+        Item(field3="x")
+    print(exc.value)
+    with pytest.raises(TypeError) as exc:
+        Item(1)
+    print(exc.value)
