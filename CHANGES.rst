@@ -1,3 +1,16 @@
+Version 0.7.1
+-----------------
+
+Release 2022-05-13
+
+- Add ``devel`` to setup extras
+- export ``clear``, ``reset_to_defaults``
+- make ``_set_defaults`` first call the zero-init version, then cascade through the inheritance tree for any overrides
+- add default functions for empty classes, use ``__public_class__`` for ``public_class`` calls
+- Remove ``fast_new`` in favor of using ``_set_defaults``
+- Allow ``__public_class__`` to be overridden in rare cases
+
+
 Version 0.7.0
 -----------------
 
