@@ -404,10 +404,10 @@ class Member(Base):
     last_name: str
     id: int
 
-    def __init__(self, *args, **kwargs):
+    def _set_defaults(self):
         self.first_name = self.last_name = ""
         self.id = -1
-        super().__init__(*args, **kwargs)
+        super()._set_defaults()
 
 
 class Organization(Base, history=True):
@@ -425,12 +425,12 @@ class Organization(Base, history=True):
         "members": (List[dict], lambda values: [Member(**value) for value in values]),
     }
 
-    def __init__(self, *args, **kwargs):
+    def _set_defaults(self):
         self.name = ""
         self.id = -1
         self.members = []
         self.created_date = datetime.datetime.utcnow()
-        super().__init__(*args, **kwargs)
+        super()._set_defaults()
 
 
 def test_readme():
