@@ -1,5 +1,5 @@
 from typing import Union
-from instruct import Base, add_event_listener
+from instruct import Base
 import timeit
 
 test_statement = """
