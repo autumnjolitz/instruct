@@ -5,7 +5,7 @@ from os import path
 from setuptools import setup, find_packages
 
 here = path.abspath(path.dirname(__file__))
-install_requirements = ["Jinja2~=2.10.0", "inflection<1.0.0a0", "typing-extensions>=3.7.4.2"]
+install_requirements = ["Jinja2~=3.1.2", "inflection<1.0.0a0", "typing-extensions~=4.2.0"]
 
 with open(path.join(here, "README.rst"), encoding="utf-8") as fh:
     long_description = fh.read()
@@ -29,7 +29,7 @@ setup(
     install_requires=install_requirements,
     keywords=[],
     extras_require={"test": ["pytest"]},
-    python_requires=">=3",
+    python_requires=">=3.7",
     url="https://github.com/autumnjolitz/instruct",
     classifiers=[
         "Development Status :: 3 - Alpha",
