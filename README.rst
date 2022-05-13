@@ -35,12 +35,12 @@ Current Capabilities:
     - Allow subtraction to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))`` [Done]
         + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
     - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions [Done]
+    - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field" [Done]
+        + Would grant a more powerful interface to controlling code-gen'ed areas via ``cls._annotated_metadata`` (maps field -> what's inside the ``Annotation``)
 
 Next Goals:
     - Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
         + Would be able to allow specialized subtypes
-    - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field"
-        + Would grant a more powerful interface to controlling code-gen'ed areas
     - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
     - Cython compatibility
 
@@ -59,16 +59,25 @@ Wouldn't it be nice to define a heirachy like this:
 
 .. code-block:: python
 
+    import pickle
+    import datetime
+    from typing import List
+
+    try:
+        from typing import Annotated
+    except ImportError:
+        from typing_extensions import Annotated
+    from instruct import Base, NoJSON, NoIterable, NoPickle, NoHistory
+
+
     class Member(Base):
-        __slots__ = {
-            'first_name': str,
-            'last_name': str,
-            'id': str,
-        }
+        __slots__ = {"first_name": str, "last_name": str, "id": int}
+
         def __init__(self, **kwargs):
-            self.first_name = self.last_name = ''
+            self.first_name = self.last_name = ""
             self.id = -1
             super().__init__(**kwargs)
+
 
     class Organization(Base, history=True):
         # ARJ: Note how we can also use the dataclass/typing.NamedTuple
@@ -78,18 +87,20 @@ Wouldn't it be nice to define a heirachy like this:
         id: int
         members: List[Member]
         created_date: datetime.datetime
-        secret: Annotated[str, NoJSON, NoPickle, NoIterable]
+        secret: Annotated[str, NoJSON, NoPickle, NoIterable, NoHistory]
 
         __coerce__ = {
-            'created_date': (str, lambda obj: datetime.datetime.strptime('%Y-%m-%d', obj))
+            "created_date": (str, lambda obj: datetime.datetime.strptime("%Y-%m-%d", obj)),
+            "members": (List[dict], lambda values: [Member(**value) for value in values]),
         }
 
-        def __init__(self, **kwargs):
-            self.name = ''
+        def __init__(self, *args, **kwargs):
+            self.name = ""
             self.id = -1
             self.members = []
             self.created_date = datetime.datetime.utcnow()
-            super().__init__(**kwargs)
+            super().__init__(*args, **kwargs)
+
 
 And have it work like this?
 
@@ -98,21 +109,42 @@ And have it work like this?
     data = {
         "name": "An Org",
         "id": 123,
-        "members": [
-            {
-                "id": 551,
-                "first_name": "Jinja",
-                "last_name": "Ninja",
-            }
-        ]
+        "members": [{"id": 551, "first_name": "Jinja", "last_name": "Ninja"}],
     }
     org = Organization(secret="my secret", **data)
-    assert org.members[0].first_name == 'Jinja'
+    assert org.members[0].first_name == "Jinja"
     assert org.secret == "my secret"
     org.name = "New Name"
-    org.history()
+    org.created_date = datetime.datetime(2018, 10, 23)
+    print(tuple(org.list_changes()))
+    # Returns
+    # (
+    #     LoggedDelta(timestamp=1652412832.7408261, key='name', delta=Delta(state='default', old=Undefined, new='', index=0)), 
+    #     LoggedDelta(timestamp=1652412832.7408261, key='id', delta=Delta(state='default', old=Undefined, new=-1, index=0)), 
+    #     LoggedDelta(timestamp=1652412832.7408261, key='members', delta=Delta(state='default', old=Undefined, new=[], index=0)), 
+    #     LoggedDelta(timestamp=1652412832.7408261, key='created_date', delta=Delta(state='default', old=Undefined, new=datetime.datetime(2022, 5, 13, 3, 33, 52, 740650), index=0)), 
+    #     LoggedDelta(timestamp=1652412832.740923, key='id', delta=Delta(state='initialized', old=-1, new=123, index=4)), 
+    #     LoggedDelta(timestamp=1652412832.741002, key='members', delta=Delta(state='initialized', old=[], new=[<__main__.Member._Member object at 0x104364640>], index=5)), 
+    #     LoggedDelta(timestamp=1652412832.741009, key='name', delta=Delta(state='initialized', old='', new='An Org', index=6)), 
+    #     LoggedDelta(timestamp=1652412832.741021, key='name', delta=Delta(state='update', old='An Org', new='New Name', index=7)), 
+    #     LoggedDelta(timestamp=1652412832.741031, key='created_date', delta=Delta(state='update', old=datetime.datetime(2022, 5, 13, 3, 33, 52, 740650), new=datetime.datetime(2018, 10, 23, 0, 0), index=8))
+    # )
+
     assert not any(y == "my secret" for y in tuple(org))
-    assert Organization.to_json(org) == data
+    assert Organization.to_json(org) == {
+        "created_date": "2018-10-23T00:00:00",
+        "id": 123,
+        "members": [{"first_name": "Jinja", "id": 551, "last_name": "Ninja"}],
+        "name": "New Name",
+    }
+    org2 = pickle.loads(pickle.dumps(org))
+    assert org2.secret is None
+    assert org2.to_json() == {
+        "created_date": "2018-10-23T00:00:00",
+        "id": 123,
+        "members": [{"first_name": "Jinja", "id": 551, "last_name": "Ninja"}],
+        "name": "New Name",
+    }
 
 
 Example Usage
@@ -209,6 +241,7 @@ Release Process
 ::
 
     $ rm -rf dist/* && python -m pytest tests/ && python setup.py sdist bdist_wheel && twine upload dist/*
+
 
 Benchmark
 --------------
