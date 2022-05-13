@@ -45,7 +45,15 @@ import inflection
 from jinja2 import Environment, PackageLoader
 
 from .about import __version__
-from .typedef import parse_typedef, ismetasubclass, is_typing_definition, find_class_in_definition
+from .typedef import (
+    parse_typedef,
+    ismetasubclass,
+    is_typing_definition,
+    find_class_in_definition,
+    get_origin,
+    get_args,
+    Annotated,
+)
 from .typing import T, CellType, CoerceMapping, NoneType
 from .types import FrozenMapping, ReadOnly, AttrsDict, ClassOrInstanceFuncsDescriptor
 from .utils import flatten_fields
@@ -56,7 +64,9 @@ from .exceptions import (
     InvalidPostCoerceAttributeNames,
     CoerceMappingValueError,
     ClassCreationFailed,
+    RangeError,
 )
+from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory
 
 __version__  # Silence unused import warning.
 
@@ -93,6 +103,8 @@ def public_class(
         if key not in cls._slots:
             raise ValueError(f"{key!r} is not a field on {cls.__name__}!")
         next_cls = cls._slots[key]
+        if get_origin(next_cls) is Annotated:
+            next_cls, *_ = get_args(next_cls)
         if key in cls._nested_atomic_collection_keys:
             atomic_classes = cls._nested_atomic_collection_keys[key]
             if len(atomic_classes) > 1:
@@ -1199,6 +1211,9 @@ class Atomic(type):
             "clear",
             "__getitem__",
             "__setitem__",
+            "_asdict",
+            "_aslist",
+            "_astuple",
         ):
             if key in attrs:
                 data_class_attrs[key] = attrs.pop(key)
@@ -1297,6 +1312,7 @@ class Atomic(type):
         if "__extra_slots__" in support_cls_attrs:
             pending_extra_slots.extend(support_cls_attrs["__extra_slots__"])
         # Base class inherited items:
+        annotated_metadata = {}
         inherited_listeners = {}
         for cls in bases:
             skipped_properties = ()
@@ -1328,6 +1344,8 @@ class Atomic(type):
             if ismetasubclass(cls, Atomic):
                 # Only Atomic Descendants will merge in the helpers of
                 # _columns: Dict[str, Type]
+                if cls._annotated_metadata:
+                    annotated_metadata.update(cls._annotated_metadata)
                 if cls._column_types:
                     column_types.update(cls._column_types)
                 if cls._nested_atomic_collection_keys:
@@ -1392,6 +1410,8 @@ class Atomic(type):
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
+                if key in annotated_metadata:
+                    del annotated_metadata[key]
 
             for key in tuple(current_class_columns.keys()):
                 if key not in skip_fields:
@@ -1406,6 +1426,8 @@ class Atomic(type):
                 no_op_skip_keys.append(key)
                 del combined_columns[key]
                 del combined_slots[key]
+                if key in annotated_metadata:
+                    del annotated_metadata[key]
 
             for key in tuple(current_class_columns.keys()):
                 if key in include_fields:
@@ -1478,6 +1500,8 @@ class Atomic(type):
                         f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
                     )
                 derived_class = None
+            if get_origin(value) is Annotated:
+                annotated_metadata[key] = value.__metadata__[:]
             new_property, isinstance_compatible_types = create_proxy_property(
                 env,
                 class_name,
@@ -1509,6 +1533,16 @@ class Atomic(type):
 
         ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         ns_globals[class_name] = ReadOnly(None)
+        exec(
+            compile(
+                make_fast_dumps(combined_columns, class_name), "<make_fast_dumps>", mode="exec"
+            ),
+            ns_globals,
+            ns_globals,
+        )
+        class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
+        class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
+        class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
         if combined_columns:
             exec(
                 compile(make_fast_eq(combined_columns), "<make_fast_eq>", mode="exec"),
@@ -1526,16 +1560,6 @@ class Atomic(type):
             )
             exec(
                 compile(
-                    make_fast_dumps(combined_columns, class_name), "<make_fast_dumps>", mode="exec"
-                ),
-                ns_globals,
-                ns_globals,
-            )
-            class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
-            class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
-            class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
-            exec(
-                compile(
                     make_fast_getset_item(
                         combined_columns,
                         properties,
@@ -1549,15 +1573,24 @@ class Atomic(type):
                 ns_globals,
                 ns_globals,
             )
+            iter_fields = []
+            for field in combined_columns:
+                if field in annotated_metadata and NoIterable in annotated_metadata[field]:
+                    continue
+                iter_fields.append(field)
             exec(
-                compile(make_fast_iter(combined_columns), "<make_fast_iter>", mode="exec"),
+                compile(make_fast_iter(iter_fields), "<make_fast_iter>", mode="exec"),
                 ns_globals,
                 ns_globals,
             )
+            del iter_fields
+            pickle_fields = []
+            for field in combined_columns:
+                if field in annotated_metadata and NoPickle in annotated_metadata[field]:
+                    continue
+                pickle_fields.append(field)
             exec(
-                compile(
-                    make_set_get_states(combined_columns), "<make_set_get_states>", mode="exec"
-                ),
+                compile(make_set_get_states(pickle_fields), "<make_set_get_states>", mode="exec"),
                 ns_globals,
                 ns_globals,
             )
@@ -1624,6 +1657,7 @@ class Atomic(type):
         support_cls_attrs["_column_types"] = ReadOnly(FrozenMapping(column_types))
         support_cls_attrs["_all_coercions"] = ReadOnly(FrozenMapping(all_coercions))
         support_cls_attrs["_support_columns"] = tuple(support_columns)
+        support_cls_attrs["_annotated_metadata"] = ReadOnly(FrozenMapping(annotated_metadata))
         support_cls_attrs["_nested_atomic_collection_keys"] = FrozenMapping(
             nested_atomic_collections
         )
@@ -1704,9 +1738,16 @@ class Atomic(type):
         }
         for instance in instances:
             instance_type = type(instance)
+            annotated_metadata = instance_type._annotated_metadata
+            skip_fields = set()
+            for key in annotated_metadata:
+                if NoJSON in annotated_metadata[key]:
+                    skip_fields.add(key)
             result = {}
             special_binary_encoders = cached_class_binary_encoders[instance_type]
-            for key, value in instance:
+            for key, value in instance._asdict().items():
+                if key in skip_fields:
+                    continue
                 # Support nested daos
                 if hasattr(value, "to_json"):
                     value = value.to_json()
@@ -1757,7 +1798,7 @@ UNDEFINED = Undefined()
 
 
 class History(metaclass=Atomic):
-    __slots__ = ("_changes", "_changed_keys", "_changed_index")
+    __slots__ = ("_changes", "_changed_keys", "_changed_index", "_suppress_history")
     setter_wrapper = "history-setter-wrapper.jinja"
 
     if TYPE_CHECKING:
@@ -1765,8 +1806,17 @@ class History(metaclass=Atomic):
 
     def __init__(self, **kwargs):
         t_s = time.time()
-        self._changes = {key: [Delta("default", UNDEFINED, value, 0)] for key, value in self}
-        self._changed_keys = [(key, t_s) for key in self._columns]
+        self._suppress_history = frozenset(
+            field for field, metadata in self._annotated_metadata.items() if NoHistory in metadata
+        )
+        self._changes = {
+            key: [Delta("default", UNDEFINED, value, 0)]
+            for key, value in self._asdict().items()
+            if key not in self._suppress_history
+        }
+        self._changed_keys = [
+            (key, t_s) for key in self._columns if key not in self._suppress_history
+        ]
         self._changed_index = len(self._changed_keys)
 
         super().__init__(**kwargs)
@@ -1782,6 +1832,8 @@ class History(metaclass=Atomic):
         if old_value == new_value:
             return
         if self._flags & Flags.DISABLE_HISTORY:
+            return
+        if key in self._suppress_history:
             return
         msg = "update"
         if self._flags & 2 == 2:
@@ -2117,4 +2169,10 @@ __all__ = [
     "JSONSerializable",
     # misc
     "UNDEFINED",
+    "NoJSON",
+    "NoPickle",
+    "NoIterable",
+    "NoHistory",
+    "Range",
+    "RangeError",
 ]  # noqa
