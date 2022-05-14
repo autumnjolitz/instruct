@@ -179,6 +179,83 @@ Example Usage
     >>>
 
 
+Instruct adds a ``Range`` type for use in ``Annotated[...]`` type definitions.
+
+Range
+^^^^^^^^
+
+.. code-block:: python
+
+        class Range(lower, upper, flags: RangeFlags = <RangeFlags.CLOSED_OPEN: 4>, *, type_restrictions: Tuple[Type, ...]=())
+            ...
+
+``lower`` and ``upper`` can be anything that supports ``__lt__``, ``__gt__``, ``__eq__``.
+
+``type_restrictions`` can be used to apply a Range constraint to some value types.
+
+``flags`` can be used to set the `interval type <https://en.wikipedia.org/wiki/Interval_(mathematics)>`_. Default is closed-open [).
+
+.. code-block:: pycon
+
+    >>> from typing import Tuple, type
+    >>> from instruct import Range, RangeFlags, RangeError
+    >>> lower, upper = 0, 255
+    >>> r = Range(lower, upper, flags: RangeFlags = RangeFlags.CLOSED_OPEN)
+    >>> 10 in r
+    True
+    >>> 0 in r
+    True
+    >>> 256 in r
+    False
+
+When used inside an ``instruct``-derived class, an attempt to assign a value that doesn't satisfy a tuple of ranges will throw a RangeError (inherits from ValueError and TypeError).
+
+Inside is the ``value`` (what was rejected) and a copy of the ranges at ``ranges`` that were tried (and failed). If the ``type_restrictions`` are specified in a range, it will not be tried if the value type isn't applicable.
+
+.. code-block:: python
+
+        class RangeError(value: Any, ranges: Tuple[Range, ...], message: str="")
+            ...
+
+
+Example:
+
+.. code-block:: pycon
+
+    >>> from instruct import SimpleBase, Range
+    >>> from typing_extensions import Annotated
+    >>> from typing import Union
+    >>> class Planet(SimpleBase):
+    ...     mass_kg: Annotated[Union[float, int], Range(600 * (10**18), 1.899e27)]
+    ...     radius_km: Annotated[Union[float, int], Range(2439.766, 142_800)]
+    ...
+    >>>
+    >>> mercury = Planet(3.285 * (10**23), 2439.766)
+    >>> mars = Planet(0.64169 * (10**24), 3376.2)
+    >>>
+    >>> pluto = Planet(1.30900 * (10**22), 1188.30742)
+    Traceback (most recent call last):
+      File "/Users/autumn/software/instruct/instruct/__init__.py", line 2113, in __init__
+        setattr(self, key, value)
+      File "<getter-setter>", line 30, in _set_radius_km
+      File "/Users/autumn/software/instruct/instruct/typedef.py", line 40, in __instancecheck__
+        return func(instance)
+      File "/Users/autumn/software/instruct/instruct/typedef.py", line 227, in test_func
+        raise RangeError(value, failed_ranges)
+    instruct.exceptions.RangeError: ('Unable to fit 1188.30742 into [2439.766, 142800)', 1188.30742, (Range(2439.766, 142800, flags=CLOSED_OPEN, type_restrictions=()),))
+
+    The above exception was the direct cause of the following exception:
+
+    Traceback (most recent call last):
+      File "<stdin>", line 1, in <module>
+      File "/Users/autumn/software/instruct/instruct/__init__.py", line 2128, in __init__
+        self._handle_init_errors(errors, errored_keys, unrecognized_keys)
+      File "/Users/autumn/software/instruct/instruct/__init__.py", line 2094, in _handle_init_errors
+        ) from errors[0]
+    instruct.exceptions.ClassCreationFailed: ('Unable to construct Planet, encountered 1 error', RangeError('Unable to fit 1188.30742 into [2439.766, 142800)', 1188.30742, (Range(2439.766, 142800, flags=CLOSED_OPEN, type_restrictions=()),)))
+    >>> 
+
+
 Comparison to Pydantic
 -------------------------
 
