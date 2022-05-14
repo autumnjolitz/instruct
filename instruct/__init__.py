@@ -66,7 +66,7 @@ from .exceptions import (
     ClassCreationFailed,
     RangeError,
 )
-from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory
+from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags
 
 __version__  # Silence unused import warning.
 
@@ -2256,4 +2256,5 @@ __all__ = [
     "NoHistory",
     "Range",
     "RangeError",
+    "RangeFlags",
 ]  # noqa
