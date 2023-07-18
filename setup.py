@@ -5,7 +5,11 @@ from os import path
 from setuptools import setup, find_packages
 
 here = path.abspath(path.dirname(__file__))
-install_requirements = ["Jinja2~=3.1.2", "inflection<1.0.0a0", "typing-extensions~=4.2.0"]
+install_requirements = [
+    "Jinja2>=3.0.0,<4.0.0a0",
+    "inflection<1.0.0a0",
+    "typing-extensions>=4.2.0,<5.0.0a0",
+]
 
 with open(path.join(here, "README.rst"), encoding="utf-8") as fh:
     long_description = fh.read()
