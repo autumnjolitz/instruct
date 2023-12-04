@@ -463,65 +463,70 @@ def parse_typedef(
                 return typedef
         raise NotImplementedError(f"Unknown typedef definition {typedef!r} ({type(typedef)})!")
 
+    as_origin_cls = get_origin(typedef)
     if typedef is AnyStr:
         return create_custom_type(typedef, check_ranges=check_ranges)
     elif typedef is Any:
         return object
     elif typedef is Union:
         raise TypeError("A bare union means nothing!")
-    elif get_origin(typedef) is Annotated:
+    elif as_origin_cls is Annotated:
+        typedef, *raw_metadata = get_args(typedef)
         # Skip to the internal type:
+        # flags = []
         check_ranges = []
-        for annotation in typedef.__metadata__:
+        for annotation in raw_metadata:
             if isinstance(annotation, Range):
                 check_ranges.append(annotation)
+            # elif (getattr(annotation, '__module__', '') or '').startswith('instruct.constants'):
+            #     flags.append(annotation)
         check_ranges = tuple(check_ranges)
-        new_type = parse_typedef(typedef.__origin__, check_ranges=check_ranges)
+        new_type = parse_typedef(typedef, check_ranges=check_ranges)
         if check_ranges:
-            if is_typing_definition(typedef.__origin__):
-                new_type.set_name(
-                    str(typedef.__origin__).replace("typing_extensions.", "").replace("typing.", "")
-                )
+            if is_typing_definition(typedef):
+                new_name = str(typedef)
+                if new_name.startswith(("typing_extensions.")):
+                    new_name = new_name[len("typing_extensions.") :]
+                if new_name.startswith(("typing.")):
+                    new_name = new_name[len("typing.") :]
             else:
-                new_type.set_name(typedef.__origin__.__name__)
+                new_name = typedef.__name__
+            new_type.set_name(new_name)
         return new_type
-    elif hasattr(typedef, "_name"):
-        if typedef._name is None:
+    elif as_origin_cls is Union:
+        if check_ranges:
+            return create_custom_type(typedef, check_ranges=check_ranges)
+        return flatten((parse_typedef(argument) for argument in typedef.__args__), eager=True)
+    elif as_origin_cls is Literal:
+        if not typedef.__args__:
+            raise NotImplementedError("Literals must be non-empty!")
+        items = []
+        for cls, arg in zip(
+            (create_custom_type(typedef, arg) for arg in typedef.__args__), typedef.__args__
+        ):
+            if isinstance(arg, str):
+                cls.set_name(f'"{arg}"')
+            else:
+                cls.set_name(f"{arg}")
+            items.append(cls)
+        return flatten(items, eager=True)
+    elif as_origin_cls is not None:
+        if is_typing_definition(typedef) and hasattr(typedef, "_name") and typedef._name is None:
             # special cases!
-            if typedef.__origin__ is Union:
-                if check_ranges:
-                    return create_custom_type(typedef, check_ranges=check_ranges)
-                return flatten(
-                    (parse_typedef(argument) for argument in typedef.__args__), eager=True
-                )
-            if typedef.__origin__ is Literal:
-                if not typedef.__args__:
-                    raise NotImplementedError("Literals must be non-empty!")
-                items = []
-                for cls, arg in zip(
-                    (create_custom_type(typedef, arg) for arg in typedef.__args__), typedef.__args__
-                ):
-                    if isinstance(arg, str):
-                        cls.set_name(f'"{arg}"')
-                    else:
-                        cls.set_name(f"{arg}")
-                    items.append(cls)
-                return flatten(items, eager=True)
             raise NotImplementedError(
                 f"The type definition for {typedef} is not supported, report as an issue."
             )
-        if hasattr(typedef, "_special"):
-            if not typedef._special:  # this typedef is specific!
-                cls = create_custom_type(typedef.__origin__, *typedef.__args__)
-                custom_name = str(typedef)
-                if custom_name.startswith(("typing.", "typing_extensions.")):
-                    if custom_name.startswith("typing."):
-                        custom_name = custom_name.replace("typing.", "")
-                    else:
-                        custom_name = custom_name.replace("typing_extensions.", "")
-                cls.set_name(custom_name)
-                return cls
-        return (typedef.__origin__,)
+        args = get_args(typedef)
+        if args:
+            cls = create_custom_type(as_origin_cls, *args)
+            new_name = str(typedef)
+            if new_name.startswith(("typing_extensions.")):
+                new_name = new_name[len("typing_extensions.") :]
+            if new_name.startswith(("typing.")):
+                new_name = new_name[len("typing.") :]
+            cls.set_name(new_name)
+            return cls
+        return as_origin_cls
     raise NotImplementedError(
         f"The type definition for {typedef!r} is not supported yet, report as an issue."
     )
