@@ -655,7 +655,7 @@ def insert_class_closure(
         current_closure[index] = class_cell
 
     # recreate the function using its guts
-    code = CodeType(
+    args = (
         code.co_argcount,
         code.co_kwonlyargcount,
         code.co_nlocals,
@@ -669,10 +669,13 @@ def insert_class_closure(
         code.co_name,
         code.co_firstlineno,
         code.co_lnotab,
-        tuple(closure_var_names),
-        code.co_cellvars,
+        tuple(closure_var_names),  # freevars
+        code.co_cellvars,  # cellvars
     )
-
+    if hasattr(CodeType, "co_posonlyargcount"):
+        # Python3.8 with PEP570
+        args = (*args[:1], code.co_posonlyargcount, *args[1:])
+    code = CodeType(*args)
     new_function = FunctionType(
         code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )
