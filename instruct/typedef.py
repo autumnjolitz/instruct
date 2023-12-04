@@ -12,10 +12,8 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 
-try:
-    from typing import get_origin
-except ImportError:
-    from typing_extensions import get_origin
+from typing_extensions import get_origin
+
 try:
     from typing import get_args
 except ImportError:
