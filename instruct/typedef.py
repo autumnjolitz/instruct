@@ -72,9 +72,11 @@ def has_collect_class(
         module = getattr(type_cls, "__module__", None)
         if module != "typing":
             continue
-        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
+        origin_cls = get_origin(type_cls)
+        args = get_args(type_cls)
+        if origin_cls is Union:
             if _recursing:
-                for child in type_cls.__args__:
+                for child in args:
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
                     ):
@@ -82,16 +84,16 @@ def has_collect_class(
                     if has_collect_class(child, root_cls, _recursing=True, metaclass=metaclass):
                         return True
             continue
-        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
-            issubclass(type_cls.__origin__, collections.abc.Iterable)
-            and issubclass(type_cls.__origin__, collections.abc.Container)
+        elif isinstance(origin_cls, type) and (
+            issubclass(origin_cls, collections.abc.Iterable)
+            and issubclass(origin_cls, collections.abc.Container)
         ):
-            if issubclass(type_cls.__origin__, collections.abc.Mapping):
-                key_type, value_type = type_cls.__args__
+            if issubclass(origin_cls, collections.abc.Mapping):
+                key_type, value_type = args
                 if has_collect_class(value_type, root_cls, _recursing=True, metaclass=metaclass):
                     return True
             else:
-                for child in type_cls.__args__:
+                for child in args:
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
                     ):
@@ -114,9 +116,15 @@ def find_class_in_definition(
 
     if is_typing_definition(type_hints):
         type_cls: Type = cast(Type, type_hints)
+        origin_cls = get_origin(type_cls)
+        args = get_args(type_cls)
+        if origin_cls is Annotated:
+            type_cls, *_ = get_args(type_cls)
+            origin_cls = get_origin(type_cls)
+            args = get_args(type_cls)
+
         type_cls_copied: bool = False
-        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
-            args = type_cls.__args__[:]
+        if origin_cls is Union:
             for index, child in enumerate(args):
                 if isinstance(child, type) and issubormetasubclass(
                     child, root_cls, metaclass=metaclass
@@ -127,17 +135,18 @@ def find_class_in_definition(
                         child, root_cls, metaclass=metaclass
                     )
                 if replacement is not None:
-                    args = args[:index] + (replacement,) + args[index + 1 :]
-            if args != type_cls.__args__:
+                    args = (*args[:index], replacement, *args[index + 1 :])
+                    # args = args[:index] + (replacement,) + args[index + 1 :]
+            if args != get_args(type_cls):
                 type_cls = type_cls.copy_with(args)
                 type_cls_copied = True
 
-        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
-            issubclass(type_cls.__origin__, collections.abc.Iterable)
-            and issubclass(type_cls.__origin__, collections.abc.Container)
+        elif isinstance(origin_cls, type) and (
+            issubclass(origin_cls, collections.abc.Iterable)
+            and issubclass(origin_cls, collections.abc.Container)
         ):
-            if issubclass(type_cls.__origin__, collections.abc.Mapping):
-                key_type, value_type = args = type_cls.__args__
+            if issubclass(origin_cls, collections.abc.Mapping):
+                key_type, value_type = args
                 if isinstance(value_type, type) and issubormetasubclass(
                     value_type, root_cls, metaclass=metaclass
                 ):
@@ -148,11 +157,10 @@ def find_class_in_definition(
                     )
                 if replacement is not None:
                     args = (key_type, replacement)
-                if args != type_cls.__args__:
+                if args != get_args(type_cls):
                     type_cls = type_cls.copy_with(args)
                     type_cls_copied = True
             else:
-                args = type_cls.__args__[:]
                 for index, child in enumerate(args):
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
@@ -163,8 +171,9 @@ def find_class_in_definition(
                             child, root_cls, metaclass=metaclass
                         )
                     if replacement is not None:
-                        args = args[:index] + (replacement,) + args[index + 1 :]
-                if args != type_cls.__args__:
+                        args = (*args[:index], replacement, *args[index + 1 :])
+                        # args = args[:index] + (replacement,) + args[index + 1 :]
+                if args != get_args(type_cls):
                     type_cls = type_cls.copy_with(args)
                     type_cls_copied = True
         if type_cls_copied:
