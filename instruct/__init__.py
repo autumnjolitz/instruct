@@ -583,8 +583,7 @@ def replace_class_references(
         if is_classmethod and classmethod_dest is not classmethod_owner:
             return getattr(classmethod_dest, function.__name__)
         return function
-
-    code = CodeType(
+    args = (
         code.co_argcount,
         code.co_kwonlyargcount,
         code.co_nlocals,
@@ -601,6 +600,10 @@ def replace_class_references(
         tuple(free_binding_closure_names),
         code.co_cellvars,
     )
+    if hasattr(CodeType, "co_posonlyargcount"):
+        # Python3.8 with PEP570
+        args = (*args[:1], code.co_posonlyargcount, *args[1:])
+    code = CodeType(*args)
 
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
