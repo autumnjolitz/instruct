@@ -13,17 +13,12 @@ except ImportError:
     from typing_extensions import Annotated
 
 from typing_extensions import get_origin
+from typing_extensions import get_args
 
-try:
-    from typing import get_args
-except ImportError:
-    from typing_extensions import get_args
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
-
-get_args
 
 
 def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
@@ -518,7 +513,7 @@ def parse_typedef(
             )
         args = get_args(typedef)
         if args:
-            cls = create_custom_type(as_origin_cls, *args)
+            cls = create_custom_type(as_origin_cls, *args, check_ranges=check_ranges)
             new_name = str(typedef)
             if new_name.startswith(("typing_extensions.")):
                 new_name = new_name[len("typing_extensions.") :]
