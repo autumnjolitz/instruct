@@ -81,6 +81,8 @@ AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 
 # Public helpers
 
+_GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hints).parameters
+
 
 def public_class(
     instance_or_type: Union[Type[T], T], *property_path: str, preserve_subtraction: bool = False
@@ -1264,12 +1266,16 @@ class Atomic(type):
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             module = import_module(support_cls_attrs["__module__"])
+            kwargs = {}
+            if _GET_TYPEHINTS_ALLOWS_EXTRA:
+                kwargs["include_extras"] = True
             hints = get_type_hints(
                 SimpleNamespace(**support_cls_attrs),
                 support_cls_attrs,
                 # First look in the module, then failsafe to the typing to support
                 # unimported 'Optional', et al
                 ChainMap(module.__dict__, typing.__dict__),
+                **kwargs,
             )
             support_cls_attrs["__slots__"] = hints
 
