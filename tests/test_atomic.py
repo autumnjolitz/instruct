@@ -407,7 +407,7 @@ class Member(Base):
     def _set_defaults(self):
         self.first_name = self.last_name = ""
         self.id = -1
-        super().ac_set_defaults()
+        super()._set_defaults()
 
 
 class Organization(Base, history=True):
