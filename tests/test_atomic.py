@@ -1,4 +1,5 @@
 import json
+import pprint
 from typing import Union, List, Tuple, Optional, Dict, Any, Type
 
 try:
@@ -30,6 +31,7 @@ from instruct import (
     Atomic,
     NoHistory,
     clear,
+    asdict,
 )
 
 
@@ -180,17 +182,27 @@ def test_json_complex():
     class SubItems(Base):
         __slots__ = {"value": int}
 
+    called = 0
+
+    def _parse_collection(items):
+        nonlocal called
+        called += 1
+        return [SubItems(**item) for item in items]
+
     class Item(Base):
         __slots__ = {"collection": List[SubItems]}
-        __coerce__ = {
-            "collection": (List[dict], lambda items: [SubItems(**item) for item in items])
-        }
+        __coerce__ = {"collection": (List[dict], _parse_collection)}
 
-    a = Item(collection=[{"value": 1}, {"value": -1}])
+    collection = [{"value": 1}, {"value": -1}]
+    assert not isinstance(collection[0], SubItems)
+    assert not isinstance(collection, Item._column_types["collection"])
+    a = Item(collection=collection)
     a_json = a.to_json()
     assert isinstance(a_json["collection"][0], dict)
     assert isinstance(a_json["collection"][1], dict)
-    assert isinstance(a["collection"][0], SubItems)
+    element = a["collection"][0]
+    assert called > 0
+    assert isinstance(element, SubItems)
 
 
 def test_mapping_immutability():
@@ -440,10 +452,12 @@ def test_readme():
         "members": [{"id": 551, "first_name": "Jinja", "last_name": "Ninja"}],
     }
     org = Organization(**data)
+    assert org._annotated_metadata and org._annotated_metadata["secret"]
     assert org.members[0].first_name == "Jinja"
     org.name = "New Name"
     org.created_date = datetime.datetime(2018, 10, 23)
-    print(tuple(org.list_changes()))
+    pprint.pprint(tuple(org.list_changes()))
+    print(asdict(org))
     types = frozenset((type(x) for _, x in org))
     assert len(types) == 4 and type(None) not in types
     assert not any(y == "my secret" for y in tuple(org))
