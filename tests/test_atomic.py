@@ -6,7 +6,7 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 
-    from enum import Enum
+from enum import Enum
 import datetime
 import base64
 import pickle
@@ -407,7 +407,7 @@ class Member(Base):
     def _set_defaults(self):
         self.first_name = self.last_name = ""
         self.id = -1
-        super()._set_defaults()
+        super().ac_set_defaults()
 
 
 class Organization(Base, history=True):
