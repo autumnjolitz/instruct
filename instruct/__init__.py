@@ -1527,11 +1527,11 @@ class Atomic(type):
         # the `__class__` field of the generated functions will be incomplete,
         # so track them so we can replace them with a derived type made ``__class__``
         class_cell_fixups = []
-        for key, value in tuple(current_class_slots.items()):
+        for key, raw_typedef in tuple(current_class_slots.items()):
             disabled_derived = None
-            if value in klass.REGISTRY:
+            if raw_typedef in klass.REGISTRY:
                 disabled_derived = False
-                derived_classes[key] = value
+                derived_classes[key] = raw_typedef
             current_class_fields.append(key)
             coerce_types, coerce_func = None, None
             if coerce_mappings and key in coerce_mappings:
@@ -1552,13 +1552,14 @@ class Atomic(type):
                         f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
                     )
                 derived_class = None
-            if get_origin(value) is Annotated:
-                annotated_metadata[key] = value.__metadata__[:]
+            if get_origin(raw_typedef) is Annotated:
+                _, *metadata = get_args(raw_typedef)
+                annotated_metadata[key] = tuple(metadata)
             new_property, isinstance_compatible_types = create_proxy_property(
                 env,
                 class_name,
                 key,
-                value,
+                raw_typedef,
                 coerce_types,
                 coerce_func,
                 derived_class,
