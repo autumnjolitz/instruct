@@ -8,7 +8,46 @@ on:
     branches: [ master ]
 
 jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - 'x64'
+        python_version:
+          - '3.7'
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+        os: 
+          - 'ubuntu-latest'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - 
+        uses: actions/checkout@v4
+      - 
+        name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python_version }}
+          architecture: ${{ matrix.arch }}
+      - 
+        name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          mkdir wheels
+          python -m pip wheel -w wheels -r setup-requirements.txt -r dev-requirements.txt -r test-requirements.txt
+          python -m pip install --no-index --find-links=wheels/ build
+          python -m build
+          python -m pip install --find-links=dist/ --find-links=wheels/ --no-index instruct[devel,test]
+      - 
+        name: Test with pytest
+        run: |
+          python -m pytest
   pypi-publish:
+    needs: [build]
     runs-on: 'ubuntu-latest'
     environment:
       name: pypi
@@ -36,6 +75,8 @@ jobs:
       - 
         name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
     
 
