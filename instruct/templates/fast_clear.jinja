@@ -1,18 +1,24 @@
-def _clear(self, fields=None):
-    '''
-    Sets all fields denoted by ``fields`` to None.
+def make_clear():
+    __class__ = None
 
-    If ``fields`` is empty, sets all fields to None.
-    '''
-    if not fields:
+    def _clear(self, fields=None):
+        '''
+        Sets all fields denoted by ``fields`` to None.
+
+        If ``fields`` is empty, sets all fields to None.
+        '''
+        if not fields:
+            val = None
+            {%- for field in fields %}
+            {{setter_variable_template|format(key=field)|indent(12)}}
+            {%- endfor %}
+            return self
         val = None
         {%- for field in fields %}
-        {{setter_variable_template|format(key=field)|indent(8)}}
+        if '{{field}}' in fields:
+            {{setter_variable_template|format(key=field)|indent(12)}}
         {%- endfor %}
-        return self
-    val = None
-    {%- for field in fields %}
-    if '{{field}}' in fields:
-        {{setter_variable_template|format(key=field)|indent(8)}}
-    {%- endfor %}
-    return super()._clear()
+        return super()._clear()
+    return _clear
+
+_clear = make_clear()

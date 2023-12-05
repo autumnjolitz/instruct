@@ -1,5 +1,6 @@
 from __future__ import annotations
 import collections.abc
+from functools import wraps
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
@@ -12,20 +13,13 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 
-try:
-    from typing import get_origin
-except ImportError:
-    from typing_extensions import get_origin
-try:
-    from typing import get_args
-except ImportError:
-    from typing_extensions import get_args
+from typing_extensions import get_origin
+from typing_extensions import get_args
+
 from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
-
-get_args
 
 
 def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
@@ -79,9 +73,11 @@ def has_collect_class(
         module = getattr(type_cls, "__module__", None)
         if module != "typing":
             continue
-        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
+        origin_cls = get_origin(type_cls)
+        args = get_args(type_cls)
+        if origin_cls is Union:
             if _recursing:
-                for child in type_cls.__args__:
+                for child in args:
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
                     ):
@@ -89,16 +85,16 @@ def has_collect_class(
                     if has_collect_class(child, root_cls, _recursing=True, metaclass=metaclass):
                         return True
             continue
-        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
-            issubclass(type_cls.__origin__, collections.abc.Iterable)
-            and issubclass(type_cls.__origin__, collections.abc.Container)
+        elif isinstance(origin_cls, type) and (
+            issubclass(origin_cls, collections.abc.Iterable)
+            and issubclass(origin_cls, collections.abc.Container)
         ):
-            if issubclass(type_cls.__origin__, collections.abc.Mapping):
-                key_type, value_type = type_cls.__args__
+            if issubclass(origin_cls, collections.abc.Mapping):
+                key_type, value_type = args
                 if has_collect_class(value_type, root_cls, _recursing=True, metaclass=metaclass):
                     return True
             else:
-                for child in type_cls.__args__:
+                for child in args:
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
                     ):
@@ -121,9 +117,15 @@ def find_class_in_definition(
 
     if is_typing_definition(type_hints):
         type_cls: Type = cast(Type, type_hints)
+        origin_cls = get_origin(type_cls)
+        args = get_args(type_cls)
+        if origin_cls is Annotated:
+            type_cls, *_ = get_args(type_cls)
+            origin_cls = get_origin(type_cls)
+            args = get_args(type_cls)
+
         type_cls_copied: bool = False
-        if hasattr(type_cls, "_name") and type_cls._name is None and type_cls.__origin__ is Union:
-            args = type_cls.__args__[:]
+        if origin_cls is Union:
             for index, child in enumerate(args):
                 if isinstance(child, type) and issubormetasubclass(
                     child, root_cls, metaclass=metaclass
@@ -134,17 +136,18 @@ def find_class_in_definition(
                         child, root_cls, metaclass=metaclass
                     )
                 if replacement is not None:
-                    args = args[:index] + (replacement,) + args[index + 1 :]
-            if args != type_cls.__args__:
+                    args = (*args[:index], replacement, *args[index + 1 :])
+                    # args = args[:index] + (replacement,) + args[index + 1 :]
+            if args != get_args(type_cls):
                 type_cls = type_cls.copy_with(args)
                 type_cls_copied = True
 
-        elif isinstance(getattr(type_cls, "__origin__", None), type) and (
-            issubclass(type_cls.__origin__, collections.abc.Iterable)
-            and issubclass(type_cls.__origin__, collections.abc.Container)
+        elif isinstance(origin_cls, type) and (
+            issubclass(origin_cls, collections.abc.Iterable)
+            and issubclass(origin_cls, collections.abc.Container)
         ):
-            if issubclass(type_cls.__origin__, collections.abc.Mapping):
-                key_type, value_type = args = type_cls.__args__
+            if issubclass(origin_cls, collections.abc.Mapping):
+                key_type, value_type = args
                 if isinstance(value_type, type) and issubormetasubclass(
                     value_type, root_cls, metaclass=metaclass
                 ):
@@ -155,11 +158,10 @@ def find_class_in_definition(
                     )
                 if replacement is not None:
                     args = (key_type, replacement)
-                if args != type_cls.__args__:
+                if args != get_args(type_cls):
                     type_cls = type_cls.copy_with(args)
                     type_cls_copied = True
             else:
-                args = type_cls.__args__[:]
                 for index, child in enumerate(args):
                     if isinstance(child, type) and issubormetasubclass(
                         child, root_cls, metaclass=metaclass
@@ -170,8 +172,9 @@ def find_class_in_definition(
                             child, root_cls, metaclass=metaclass
                         )
                     if replacement is not None:
-                        args = args[:index] + (replacement,) + args[index + 1 :]
-                if args != type_cls.__args__:
+                        args = (*args[:index], replacement, *args[index + 1 :])
+                        # args = args[:index] + (replacement,) + args[index + 1 :]
+                if args != get_args(type_cls):
                     type_cls = type_cls.copy_with(args)
                     type_cls_copied = True
         if type_cls_copied:
@@ -435,6 +438,17 @@ def is_typing_definition(item):
     return False
 
 
+def assert_never_null(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        val = func(*args, **kwargs)
+        assert val is not None, f"{func.__name__} returned None!"
+        return val
+
+    return wrapped
+
+
+@assert_never_null
 def parse_typedef(
     typedef: Union[Tuple[Type, ...], List[Type]], *, check_ranges: Tuple[Range, ...] = ()
 ) -> Union[Type, Tuple[Type]]:
@@ -465,65 +479,74 @@ def parse_typedef(
                 return typedef
         raise NotImplementedError(f"Unknown typedef definition {typedef!r} ({type(typedef)})!")
 
+    as_origin_cls = get_origin(typedef)
     if typedef is AnyStr:
         return create_custom_type(typedef, check_ranges=check_ranges)
     elif typedef is Any:
         return object
     elif typedef is Union:
         raise TypeError("A bare union means nothing!")
-    elif get_origin(typedef) is Annotated:
+    elif as_origin_cls is Annotated:
+        typedef, *raw_metadata = get_args(typedef)
         # Skip to the internal type:
+        # flags = []
         check_ranges = []
-        for annotation in typedef.__metadata__:
+        for annotation in raw_metadata:
             if isinstance(annotation, Range):
                 check_ranges.append(annotation)
+            # elif (getattr(annotation, '__module__', '') or '').startswith('instruct.constants'):
+            #     flags.append(annotation)
         check_ranges = tuple(check_ranges)
-        new_type = parse_typedef(typedef.__origin__, check_ranges=check_ranges)
+        new_type = parse_typedef(typedef, check_ranges=check_ranges)
         if check_ranges:
-            if is_typing_definition(typedef.__origin__):
-                new_type.set_name(
-                    str(typedef.__origin__).replace("typing_extensions.", "").replace("typing.", "")
-                )
+            if is_typing_definition(typedef):
+                new_name = str(typedef)
+                if new_name.startswith(("typing_extensions.")):
+                    new_name = new_name[len("typing_extensions.") :]
+                if new_name.startswith(("typing.")):
+                    new_name = new_name[len("typing.") :]
             else:
-                new_type.set_name(typedef.__origin__.__name__)
+                new_name = typedef.__name__
+            new_type.set_name(new_name)
         return new_type
-    elif hasattr(typedef, "_name"):
-        if typedef._name is None:
+    elif as_origin_cls is Union:
+        args = get_args(typedef)
+        assert args
+        if check_ranges:
+            return create_custom_type(typedef, check_ranges=check_ranges)
+        return flatten((parse_typedef(argument) for argument in args), eager=True)
+    elif as_origin_cls is Literal:
+        args = get_args(typedef)
+        if not args:
+            raise NotImplementedError("Literals must be non-empty!")
+        items = []
+        # ARJ: We *really* should make one single type, however,
+        # this messes with the message in the test_typedef::test_literal
+        # and I'm not comfortable with changing the public messages globally.
+        for arg in args:
+            new_type = create_custom_type(typedef, arg)
+            if isinstance(arg, str):
+                arg = f'"{arg}"'
+            new_type.set_name(f"{arg!s}")
+            items.append(new_type)
+        return tuple(items)
+    elif as_origin_cls is not None:
+        if is_typing_definition(typedef) and hasattr(typedef, "_name") and typedef._name is None:
             # special cases!
-            if typedef.__origin__ is Union:
-                if check_ranges:
-                    return create_custom_type(typedef, check_ranges=check_ranges)
-                return flatten(
-                    (parse_typedef(argument) for argument in typedef.__args__), eager=True
-                )
-            if typedef.__origin__ is Literal:
-                if not typedef.__args__:
-                    raise NotImplementedError("Literals must be non-empty!")
-                items = []
-                for cls, arg in zip(
-                    (create_custom_type(typedef, arg) for arg in typedef.__args__), typedef.__args__
-                ):
-                    if isinstance(arg, str):
-                        cls.set_name(f'"{arg}"')
-                    else:
-                        cls.set_name(f"{arg}")
-                    items.append(cls)
-                return flatten(items, eager=True)
             raise NotImplementedError(
                 f"The type definition for {typedef} is not supported, report as an issue."
             )
-        if hasattr(typedef, "_special"):
-            if not typedef._special:  # this typedef is specific!
-                cls = create_custom_type(typedef.__origin__, *typedef.__args__)
-                custom_name = str(typedef)
-                if custom_name.startswith(("typing.", "typing_extensions.")):
-                    if custom_name.startswith("typing."):
-                        custom_name = custom_name.replace("typing.", "")
-                    else:
-                        custom_name = custom_name.replace("typing_extensions.", "")
-                cls.set_name(custom_name)
-                return cls
-        return (typedef.__origin__,)
+        args = get_args(typedef)
+        if args:
+            cls = create_custom_type(as_origin_cls, *args, check_ranges=check_ranges)
+            new_name = str(typedef)
+            if new_name.startswith(("typing_extensions.")):
+                new_name = new_name[len("typing_extensions.") :]
+            if new_name.startswith(("typing.")):
+                new_name = new_name[len("typing.") :]
+            cls.set_name(new_name)
+            return cls
+        return as_origin_cls
     raise NotImplementedError(
         f"The type definition for {typedef!r} is not supported yet, report as an issue."
     )
