@@ -498,22 +498,25 @@ def parse_typedef(
             new_type.set_name(new_name)
         return new_type
     elif as_origin_cls is Union:
+        args = get_args(typedef)
         if check_ranges:
             return create_custom_type(typedef, check_ranges=check_ranges)
-        return flatten((parse_typedef(argument) for argument in typedef.__args__), eager=True)
+        return flatten((parse_typedef(argument) for argument in args), eager=True)
     elif as_origin_cls is Literal:
-        if not typedef.__args__:
+        args = get_args(typedef)
+        if not args:
             raise NotImplementedError("Literals must be non-empty!")
         items = []
-        for cls, arg in zip(
-            (create_custom_type(typedef, arg) for arg in typedef.__args__), typedef.__args__
-        ):
+        # ARJ: We *really* should make one single type, however,
+        # this messes with the message in the test_typedef::test_literal
+        # and I'm not comfortable with changing the public messages globally.
+        for arg in args:
+            new_type = create_custom_type(typedef, arg)
             if isinstance(arg, str):
-                cls.set_name(f'"{arg}"')
-            else:
-                cls.set_name(f"{arg}")
-            items.append(cls)
-        return flatten(items, eager=True)
+                arg = f'"{arg}"'
+            new_type.set_name(f"{arg!s}")
+            items.append(new_type)
+        return tuple(items)
     elif as_origin_cls is not None:
         if is_typing_definition(typedef) and hasattr(typedef, "_name") and typedef._name is None:
             # special cases!
