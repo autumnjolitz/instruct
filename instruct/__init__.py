@@ -6,6 +6,7 @@ import os
 import tempfile
 import time
 import sys
+import types
 import typing
 
 from base64 import urlsafe_b64encode
