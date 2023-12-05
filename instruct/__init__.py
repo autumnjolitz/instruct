@@ -701,6 +701,10 @@ def insert_class_closure(
 
     # Insert the class cell into the closure references:
     if "__class__" not in code.co_freevars:
+        if sys.version_info >= (3, 12):
+            if any(tainted in target for target in (code.co_names,) for tainted in ("super",)):
+                raise SyntaxError(f"restructure {function} to be in a closure!")
+            return function
         closure_var_names.append("__class__")
         current_closure.append(class_cell)
     else:
@@ -736,7 +740,6 @@ def insert_class_closure(
     if hasattr(CodeType, "co_exceptiontable"):
         args = (*args[:15], code.co_exceptiontable, *args[15:])
     code = CodeType(*args)
-
     new_function = FunctionType(
         code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )

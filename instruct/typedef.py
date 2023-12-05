@@ -1,5 +1,6 @@
 from __future__ import annotations
 import collections.abc
+from functools import wraps
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
@@ -437,6 +438,17 @@ def is_typing_definition(item):
     return False
 
 
+def assert_never_null(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        val = func(*args, **kwargs)
+        assert val is not None, f"{func.__name__} returned None!"
+        return val
+
+    return wrapped
+
+
+@assert_never_null
 def parse_typedef(
     typedef: Union[Tuple[Type, ...], List[Type]], *, check_ranges: Tuple[Range, ...] = ()
 ) -> Union[Type, Tuple[Type]]:
@@ -499,6 +511,7 @@ def parse_typedef(
         return new_type
     elif as_origin_cls is Union:
         args = get_args(typedef)
+        assert args
         if check_ranges:
             return create_custom_type(typedef, check_ranges=check_ranges)
         return flatten((parse_typedef(argument) for argument in args), eager=True)
