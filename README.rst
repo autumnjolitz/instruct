@@ -1,6 +1,12 @@
 Instruct
 ==========
 
+|Release|
+|Style|
+|PyPI|
+
+
+
 A compact, fast object system that can serve as the basis for a DAO model.
 
 To that end, instruct uses ``__slots__`` to prevent new attribute addition, properties to control types, event listeners and historical changes, and a Jinja2-driven codegen to keep a pure-Python implementation as fast and as light as possible.
@@ -422,3 +428,12 @@ After additions of those. Safety is expensive.
     Overhead of clearing/setting
     Test with safeties: 1.29 us
     Test without safeties: 1.14 us
+
+.. |PyPI| image:: https://img.shields.io/pypi/v/instruct.svg
+    :target: https://pypi.python.org/pypi/instruct
+
+.. |Release| image:: https://github.com/autumnjolitz/instruct/actions/workflows/release.yml/badge.svg
+    :target: https://github.com/autumnjolitz/instruct/actions/workflows/release.yml
+
+.. |Style| image:: https://github.com/autumnjolitz/instruct/actions/workflows/style-check.yml/badge.svg
+    :target: https://github.com/autumnjolitz/instruct/actions/workflows/style-check.yml
