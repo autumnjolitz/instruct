@@ -11,3 +11,5 @@ python/
 .pytest_cache/
 build/*
 .pytype/*
+instruct/about.py
+

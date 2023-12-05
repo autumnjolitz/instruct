@@ -5,6 +5,8 @@ import logging
 import os
 import tempfile
 import time
+import sys
+import types
 import typing
 
 from base64 import urlsafe_b64encode
@@ -80,6 +82,10 @@ env.globals["chain"] = chain
 AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 
 # Public helpers
+
+_GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hints).parameters
+_NATIVE_CLOSURE_SUPPORT = "closure" in inspect.signature(exec).parameters
+_SUPPORTED_CELLTYPE = hasattr(types, "CellType")
 
 
 def public_class(
@@ -422,16 +428,34 @@ def make_set_get_states(fields):
     return code_template
 
 
-def make_defaults(fields, defaults_var_template):
-    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
-    code = env.from_string(
-        """
+DEFAULTS_FRAGMENT = """
 def _set_defaults(self):
     result = self
     {{item|indent(4)}}
     return super()._set_defaults()
-    """
-    ).render(item=defaults_var_template)
+""".strip()
+
+if sys.version_info >= (3, 11):
+    DEFAULTS_FRAGMENT = """
+def make_defaults():
+    # ARJ: This is necessary to make the function have a replaceable class
+    # cell via free vars.
+    __class__ = None
+
+    def _set_defaults(self):
+        result = self
+        {{item|indent(8)}}
+        return super()._set_defaults()
+    return _set_defaults
+
+_set_defaults = make_defaults()
+
+""".strip()
+
+
+def make_defaults(fields, defaults_var_template):
+    defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
+    code = env.from_string(DEFAULTS_FRAGMENT).render(item=defaults_var_template)
     return code
 
 
@@ -442,24 +466,32 @@ def _order_by_mro_position(parent_cls: Type) -> Callable[[Type], int]:
     return key_func
 
 
-def make_class_cell() -> CellType:
-    """
-    Create a CellType reference through a throwaway closure, suitable
-    for replacing in a function's __closure__ definition.
-    """
+if _SUPPORTED_CELLTYPE:
 
-    def closure_maker():
-        __class__ = type
+    def make_class_cell():
+        return CellType(None)
 
-        def bar():
-            return __class__
 
-        return bar
+else:
 
-    fake_function = closure_maker()
-    class_cell, = fake_function.__closure__
-    del fake_function
-    return class_cell
+    def make_class_cell() -> CellType:
+        """
+        Create a CellType reference through a throwaway closure, suitable
+        for replacing in a function's __closure__ definition.
+        """
+
+        def closure_maker():
+            __class__ = type
+
+            def bar():
+                return __class__
+
+            return bar
+
+        fake_function = closure_maker()
+        class_cell, = fake_function.__closure__
+        del fake_function
+        return class_cell
 
 
 KLASS_CLOSURE_BINDING_WRONG = "We should've moved this out of load_from_scope_names and into free_binding_closure_names as an atomic operation!"  # noqa
@@ -487,6 +519,17 @@ def find_class_in_value(classes: Iterable[Type], value: Any) -> Optional[Type]:
 def class_in_cell(cls: Type, cell: CellType) -> bool:
     value: Any = cell.cell_contents
     return cls is value
+
+
+CODE_BITFLAGS = {name: getattr(inspect, name) for name in dir(inspect) if name.startswith("CO_")}
+
+
+def _sanitize_flags(flags):
+    newval = 0
+    for name, flag in CODE_BITFLAGS.items():
+        if flag & flags:
+            newval |= flag
+    return newval
 
 
 def replace_class_references(
@@ -583,24 +626,34 @@ def replace_class_references(
         if is_classmethod and classmethod_dest is not classmethod_owner:
             return getattr(classmethod_dest, function.__name__)
         return function
-
-    code = CodeType(
+    args = (
         code.co_argcount,
+        # co_posonlyargcount (3.8+)
         code.co_kwonlyargcount,
         code.co_nlocals,
         code.co_stacksize,
-        code.co_flags,
+        _sanitize_flags(code.co_flags),
         code.co_code,
         code.co_consts,
         tuple(load_from_scope_names),
         code.co_varnames,
         code.co_filename,
         code.co_name,
+        # qualname (3.10+)
         code.co_firstlineno,
         code.co_lnotab,
+        # exception table (3.10+)
         tuple(free_binding_closure_names),
         code.co_cellvars,
     )
+    if hasattr(CodeType, "co_posonlyargcount"):
+        # Python3.8 with PEP570
+        args = (*args[:1], code.co_posonlyargcount, *args[1:])
+    if hasattr(CodeType, "co_qualname"):
+        args = (*args[:12], code.co_qualname, *args[12:])
+    if hasattr(CodeType, "co_exceptiontable"):
+        args = (*args[:15], code.co_exceptiontable, *args[15:])
+    code = CodeType(*args)
 
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
@@ -648,6 +701,10 @@ def insert_class_closure(
 
     # Insert the class cell into the closure references:
     if "__class__" not in code.co_freevars:
+        if sys.version_info >= (3, 12):
+            if any(tainted in target for target in (code.co_names,) for tainted in ("super",)):
+                raise SyntaxError(f"restructure {function} to be in a closure!")
+            return function
         closure_var_names.append("__class__")
         current_closure.append(class_cell)
     else:
@@ -655,24 +712,34 @@ def insert_class_closure(
         current_closure[index] = class_cell
 
     # recreate the function using its guts
-    code = CodeType(
+    args = (
         code.co_argcount,
+        # co_posonlyargcount (3.8+)
         code.co_kwonlyargcount,
         code.co_nlocals,
         code.co_stacksize,
-        code.co_flags,
+        _sanitize_flags(code.co_flags),
         code.co_code,
         code.co_consts,
         code.co_names,
         code.co_varnames,
         code.co_filename,
         code.co_name,
+        # qualname (3.10+)
         code.co_firstlineno,
         code.co_lnotab,
+        # exception table (3.10+)
         tuple(closure_var_names),
         code.co_cellvars,
     )
-
+    if hasattr(CodeType, "co_posonlyargcount"):
+        # Python3.8 with PEP570
+        args = (*args[:1], code.co_posonlyargcount, *args[1:])
+    if hasattr(CodeType, "co_qualname"):
+        args = (*args[:12], code.co_qualname, *args[12:])
+    if hasattr(CodeType, "co_exceptiontable"):
+        args = (*args[:15], code.co_exceptiontable, *args[15:])
+    code = CodeType(*args)
     new_function = FunctionType(
         code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )
@@ -1258,12 +1325,16 @@ class Atomic(type):
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             module = import_module(support_cls_attrs["__module__"])
+            kwargs = {}
+            if _GET_TYPEHINTS_ALLOWS_EXTRA:
+                kwargs["include_extras"] = True
             hints = get_type_hints(
                 SimpleNamespace(**support_cls_attrs),
                 support_cls_attrs,
                 # First look in the module, then failsafe to the typing to support
                 # unimported 'Optional', et al
                 ChainMap(module.__dict__, typing.__dict__),
+                **kwargs,
             )
             support_cls_attrs["__slots__"] = hints
 
@@ -1515,11 +1586,11 @@ class Atomic(type):
         # the `__class__` field of the generated functions will be incomplete,
         # so track them so we can replace them with a derived type made ``__class__``
         class_cell_fixups = []
-        for key, value in tuple(current_class_slots.items()):
+        for key, raw_typedef in tuple(current_class_slots.items()):
             disabled_derived = None
-            if value in klass.REGISTRY:
+            if raw_typedef in klass.REGISTRY:
                 disabled_derived = False
-                derived_classes[key] = value
+                derived_classes[key] = raw_typedef
             current_class_fields.append(key)
             coerce_types, coerce_func = None, None
             if coerce_mappings and key in coerce_mappings:
@@ -1540,13 +1611,14 @@ class Atomic(type):
                         f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
                     )
                 derived_class = None
-            if get_origin(value) is Annotated:
-                annotated_metadata[key] = value.__metadata__[:]
+            if get_origin(raw_typedef) is Annotated:
+                _, *metadata = get_args(raw_typedef)
+                annotated_metadata[key] = tuple(metadata)
             new_property, isinstance_compatible_types = create_proxy_property(
                 env,
                 class_name,
                 key,
-                value,
+                raw_typedef,
                 coerce_types,
                 coerce_func,
                 derived_class,
@@ -1648,6 +1720,7 @@ class Atomic(type):
             class_cell_fixups.append(
                 ("_set_defaults", cast(FunctionType, ns_globals["_set_defaults"]))
             )
+
         for key in (
             "__iter__",
             "__getstate__",
