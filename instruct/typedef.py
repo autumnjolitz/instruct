@@ -1,8 +1,22 @@
 from __future__ import annotations
 import collections.abc
 from functools import wraps
-from collections.abc import Mapping as AbstractMapping
-from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
+from collections.abc import Mapping as AbstractMapping, Iterable as AbstractIterable
+from typing import (
+    Union,
+    Any,
+    AnyStr,
+    List,
+    Tuple,
+    cast,
+    Optional,
+    Callable,
+    Type,
+    TypeVar,
+    Mapping,
+    Iterable,
+    overload,
+)
 
 try:
     from typing import Literal
@@ -12,6 +26,18 @@ try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
+try:
+    from typing import TypeGuard
+except ImportError:
+    from typing_extensions import TypeGuard
+try:
+    from typing import TypeAlias
+except ImportError:
+    from typing_extensions import TypeAlias
+try:
+    from typing import Protocol
+except ImportError:
+    from typing_extensions import Protocol
 
 from typing_extensions import get_origin
 from typing_extensions import get_args
@@ -20,6 +46,9 @@ from .utils import flatten_restrict as flatten
 from .typing import ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 
 def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
@@ -204,63 +233,61 @@ def find_class_in_definition(
 
 def create_custom_type(container_type, *args, check_ranges=()):
     if is_typing_definition(container_type):
-        if hasattr(container_type, "_name") and container_type._name is None:
-            if container_type.__origin__ is Union:
-                types = flatten(
-                    (create_custom_type(arg) for arg in container_type.__args__), eager=True
-                )
-                if check_ranges:
+        origin_cls = get_origin(container_type)
+        if origin_cls is Union:
+            types = flatten((create_custom_type(arg) for arg in args), eager=True)
+            if check_ranges:
 
-                    def test_func(value) -> bool:
-                        if not isinstance(value, types):
-                            return False
-                        failed_ranges = []
-                        for rng in check_ranges:
-                            if rng.applies(value):
-                                try:
-                                    in_range = value in rng
-                                except TypeError:
-                                    continue
-                                else:
-                                    if in_range:
-                                        return True
-                                    else:
-                                        failed_ranges.append(rng)
-                        if failed_ranges:
-                            raise RangeError(value, failed_ranges)
+                def test_func(value) -> bool:
+                    if not isinstance(value, types):
                         return False
+                    failed_ranges = []
+                    for rng in check_ranges:
+                        if rng.applies(value):
+                            try:
+                                in_range = value in rng
+                            except TypeError:
+                                continue
+                            else:
+                                if in_range:
+                                    return True
+                                else:
+                                    failed_ranges.append(rng)
+                    if failed_ranges:
+                        raise RangeError(value, failed_ranges)
+                    return False
 
-                else:
-
-                    def test_func(value) -> bool:
-                        """
-                        Check if the value is of the type set
-                        """
-                        return isinstance(value, types)
-
-            elif container_type.__origin__ is Literal:
-                from . import Atomic, public_class
+            else:
 
                 def test_func(value) -> bool:
                     """
-                    Operate on a Literal type
+                    Check if the value is of the type set
                     """
-                    for arg in args:
-                        if arg is value:
-                            # Exact match on ``is``, useful for enums
+                    return isinstance(value, types)
+
+        elif origin_cls is Literal:
+            from . import Atomic, public_class
+
+            def test_func(value) -> bool:
+                """
+                Operate on a Literal type
+                """
+                for arg in args:
+                    if arg is value:
+                        # Exact match on ``is``, useful for enums
+                        return True
+                    elif arg == value:
+                        # Equality by value. This may be part of an
+                        # overridden __eq__, so check the types too!
+                        if isinstance(arg, type):
+                            arg_type = arg
+                        else:
+                            arg_type = type(arg)
+                        if isinstance(arg_type, Atomic):
+                            arg_type = public_class(arg_type, preserve_subtraction=True)
+                        if isinstance(value, arg_type):
                             return True
-                        elif arg == value:
-                            # Equality by value. This may be part of an
-                            # overridden __eq__, so check the types too!
-                            if isinstance(arg, type):
-                                arg_type = arg
-                            else:
-                                arg_type = type(arg)
-                            if isinstance(arg_type, Atomic):
-                                arg_type = public_class(arg_type, preserve_subtraction=True)
-                            if isinstance(value, arg_type):
-                                return True
-                    return False
+                return False
 
         elif container_type is AnyStr:
             if check_ranges:
@@ -288,18 +315,19 @@ def create_custom_type(container_type, *args, check_ranges=()):
                 return (str, bytes)
         elif container_type is Any:
             return object
-        elif isinstance(getattr(container_type, "__origin__", None), type) and (
-            issubclass(container_type.__origin__, collections.abc.Iterable)
-            and issubclass(container_type.__origin__, collections.abc.Container)
+        elif isinstance(origin_cls, type) and (
+            issubclass(origin_cls, collections.abc.Iterable)
+            and issubclass(origin_cls, collections.abc.Container)
         ):
             return parse_typedef(container_type)
         else:
             raise NotImplementedError(container_type, container_type._name)
-    elif isinstance(container_type, type) and (
-        issubclass(container_type, collections.abc.Iterable)
-        and issubclass(container_type, collections.abc.Container)
+    elif (
+        isinstance(container_type, type)
+        and (issubclass(container_type, collections.abc.Iterable))
+        and args
     ):
-        test_func = create_typecheck_container(container_type, args)
+        test_func = create_typecheck_for_container(container_type, args)
     elif isinstance(container_type, type) and not args:
         if check_ranges:
 
@@ -355,17 +383,54 @@ def create_custom_type(container_type, *args, check_ranges=()):
     return make_custom_typecheck(test_func)
 
 
-def create_typecheck_container(container_type, items: Tuple[Any]):
+@overload
+def create_typecheck_for_container(
+    container_cls: Type[Mapping[T, U]], value_types: Tuple[Type[Any], ...] = ()
+) -> Callable[[Any], TypeGuard[Mapping[T, U]]]:
+    ...
+
+
+@overload
+def create_typecheck_for_container(
+    container_cls: Type[Iterable[T]], value_types: Tuple[Type[Any], ...] = ()
+) -> Callable[[Any], TypeGuard[Iterable[T]]]:
+    ...
+
+
+@overload
+def create_typecheck_for_container(
+    container_cls: Type[Tuple[T, ...]], value_types: Tuple[Type[Any], ...] = ()
+) -> Callable[[Any], TypeGuard[Tuple[T, ...]]]:
+    ...
+
+
+@overload
+def create_typecheck_for_container(
+    container_cls: Type[tuple], value_types: Tuple[Type[Any], ...] = ()
+) -> Callable[[Any], TypeGuard[tuple]]:
+    ...
+
+
+def create_typecheck_for_container(container_cls, value_types=()):
+    """
+    Determine a function to determine if given value V is an instance of some container type
+    and values within are within the 
+    """
+    assert isinstance(container_cls, type), f"{container_cls!r} is not a type"
+    assert issubclass(
+        container_cls, (AbstractMapping, AbstractIterable, tuple)
+    ), f"Not a supported container type - {container_cls!r}"
+
     test_types = []
     test_func: Optional[Callable[[Any], bool]] = None
 
-    if issubclass(container_type, tuple):
-        container_type = tuple
+    if issubclass(container_cls, tuple):
+        container_cls = tuple
         # Special support: Tuple[type, ...]
-        if any(item is Ellipsis for item in items):
-            if len(items) != 2:
+        if any(item is Ellipsis for item in value_types):
+            if len(value_types) != 2:
                 raise TypeError("Tuple[type, ...] is allowed but it must be a two pair tuple!")
-            homogenous_type_spec, ellipsis = items
+            homogenous_type_spec, ellipsis = value_types
             if ellipsis is not Ellipsis or homogenous_type_spec is Ellipsis:
                 raise TypeError(
                     "Tuple[type, ...] is allowed but it must have ellipsis as second arg"
@@ -373,18 +438,18 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
             homogenous_type = parse_typedef(homogenous_type_spec)
 
             def test_func(value):
-                if not isinstance(value, container_type):
+                if not isinstance(value, container_cls):
                     return False
                 return all(isinstance(item, homogenous_type) for item in value)
 
             return test_func
 
         else:
-            for some_type in items:
+            for some_type in value_types:
                 test_types.append(create_custom_type(some_type))
 
             def test_func(value):
-                if not isinstance(value, container_type):
+                if not isinstance(value, container_cls):
                     return False
                 if len(value) != len(test_types):
                     raise ValueError(f"Expecting a {len(test_types)} value tuple!")
@@ -394,14 +459,14 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
                         return False
                 return True
 
-    elif issubclass(container_type, AbstractMapping):
-        if items:
-            key_type_spec, value_type_spec = items
+    elif issubclass(container_cls, AbstractMapping):
+        if value_types:
+            key_type_spec, value_type_spec = value_types
             key_type = parse_typedef(key_type_spec)
             value_type = parse_typedef(value_type_spec)
 
             def test_func(mapping) -> bool:
-                if not isinstance(mapping, container_type):
+                if not isinstance(mapping, container_cls):
                     return False
                 for key, value in mapping.items():
                     if not all((isinstance(key, key_type), isinstance(value, value_type))):
@@ -409,25 +474,36 @@ def create_typecheck_container(container_type, items: Tuple[Any]):
                 return True
 
     if test_func is None:
-        if items:
-            for some_type in items:
+        if value_types:
+            for some_type in value_types:
                 test_types.append(create_custom_type(some_type))
             test_types = tuple(test_types)
 
             def test_func(value):
-                if not isinstance(value, container_type):
+                if not isinstance(value, container_cls):
                     return False
                 return all(isinstance(item, test_types) for item in value)
 
         else:
 
             def test_func(value):
-                return isinstance(value, container_type)
+                return isinstance(value, container_cls)
 
     return test_func
 
 
-def is_typing_definition(item):
+class TypeDef(Protocol):
+    __module__: str = "typing"
+
+
+class TypeExtDef(Protocol):
+    __module__: str = "typing_extensions"
+
+
+def is_typing_definition(item: Any) -> TypeGuard[Union[TypeDef, TypeExtDef]]:
+    """
+    Check if the given item is a type hint.
+    """
     module_name: str = getattr(item, "__module__", None)
     if module_name in ("typing", "typing_extensions"):
         return True
