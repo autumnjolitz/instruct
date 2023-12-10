@@ -1,7 +1,7 @@
 .. |Changes|
 
 Version 0.7.4
--------------------
+-----------------
 
 Release 2023-12-10
 
@@ -11,7 +11,6 @@ Release 2023-12-10
 - [release] test before upload (`4431408 <https://github.com/autumnjolitz/instruct/commit/44314086aeb1be094a2bdd2ef7fff7f645abaede>`_ by Autumn).
 - [0.7.3.post1] bump version for pypi (`ade6cd8 <https://github.com/autumnjolitz/instruct/commit/ade6cd882d2771f4abe9927e78614886f7f01ad6>`_ by Autumn).
 - [*] Port instruct to newer Python versions (#3) (`19c30b2 <https://github.com/autumnjolitz/instruct/commit/19c30b278c23cc63fadbbaeadc30409c15bce098>`_ by Autumn Jolitz).
-
 
 Version 0.7.3
 -----------------
