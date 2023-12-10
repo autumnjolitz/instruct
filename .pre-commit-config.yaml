@@ -1,9 +1,35 @@
 repos:
--   repo: https://github.com/python/black
-    rev: '19.3b0'
+  -
+    repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
     hooks:
-    - id: black
-      language_version: /usr/local/bin/python3
-      args:
-        - '--config'
-        - '.black.toml'
+      -
+        id: check-ast
+      -
+        id: check-case-conflict
+      -
+        id: check-executables-have-shebangs
+      -
+        id: check-merge-conflict
+      -
+        id: check-yaml
+      -
+        id: end-of-file-fixer
+      -
+        id: check-shebang-scripts-are-executable
+      -
+        id: detect-private-key
+      -
+        id: trailing-whitespace
+        args:
+          - '--markdown-linebreak-ext=rst'
+  -
+    repo: https://github.com/python/black
+    rev: '23.11.0'
+    hooks:
+      -
+        id: black
+        language_version: python3
+        args:
+          - '--config'
+          - '.black.toml'
