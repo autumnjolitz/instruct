@@ -1,8 +1,14 @@
+==========
 Instruct
 ==========
 
-|Build|
-|PyPI|
+|Build| |PyPI|
+
+==============  ==========================================================
+Issues          https://github.com/autumnjolitz/instruct/issues
+Source          https://github.com/autumnjolitz/instruct
+==============  ==========================================================
+
 
 A compact, fast object system that can serve as the basis for a DAO model.
 
