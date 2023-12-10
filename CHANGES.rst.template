@@ -56,7 +56,7 @@ Compare with `latest <{{ version.compare_url }}>`_.
 
 {#- template -#}
 {%- if not in_place -%}
-{% endif %}|Changes|
+{% endif %}.. |Changes|
 
 {% for version in changelog.versions_list -%}
 {{ render_version(version) }}
