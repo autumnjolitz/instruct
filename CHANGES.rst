@@ -1,3 +1,24 @@
+Version 0.7.4
+----------------
+
+Release 2023-12-09
+
+- Supported more Python versions and implementations:
+    - Tier 1 support: CPython 3.8, 3.9, 3.10, 3.11, 3.12
+    - Tier 2 support: PyPy 3.7, 3.8, 3.9
+    - Tier 3 support: PyPy 3.10
+- Switched to a tag based release model
+- Add infrastructure for running tests
+
+Version 0.7.3
+-----------------
+
+Release 2023-07-18
+
+- add notes on use of ``Range`` and friends
+- Export ``RangeFlags`` from ``__init__``
+- Unlock ``typing-extensions`` range
+
 Version 0.7.2
 -----------------
 
@@ -36,4 +57,3 @@ Release 2022-05-12
 - Upgrade to Jinja2 for the 3.x series!
 - Upgrade typing-extensions to 4.2.0
 - Mark support as Python 3.7+
-
