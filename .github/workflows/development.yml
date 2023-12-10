@@ -6,15 +6,16 @@ name: Development
 on:
   push:
     branches:
+      - '*'
       - '!main'
       - '!master'
-      - '*'
 
 jobs:
   test-matrix:
     strategy:
       fail-fast: false
       matrix:
+        experimental: [false]
         arch:
           - 'x64'
         python_version:
@@ -24,9 +25,20 @@ jobs:
           - '3.10'
           - '3.11'
           - '3.12'
+          - 'pypy3.7'
+          - 'pypy3.8'
+          - 'pypy3.9'
         os:
           - 'ubuntu-latest'
+        include:
+          -
+            python_version: 'pypy3.10'
+            experimental: true
+            arch: 'x64'
+            os: ubuntu-latest
+
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     steps:
       -
         uses: actions/checkout@v4
@@ -44,7 +56,7 @@ jobs:
       -
         name: Test with pytest
         run: |
-          python -m pytest
+          python/bin/python -m pytest
 
   verify_style:
     needs: [test-matrix]
@@ -67,10 +79,10 @@ jobs:
         name: Lint with flake8
         run: |
           # stop the build if there are Python syntax errors or undefined names
-          python -m flake8 instruct/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          python/bin/python -m flake8 instruct/ --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          python -m flake8 instruct/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          python/bin/python -m flake8 instruct/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       -
         name: Check style with black
         run: |
-          python -m black --check
+          python/bin/python -m black --check
