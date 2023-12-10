@@ -21,37 +21,38 @@ This girl asks for a lot but I like taking metaclassing as far as it can go with
 
 Current Capabilities:
 
-    - Support multiple inheritance, chained fields and ``__slots__`` [Done]
-    - Support type coercions (via ``_coerce__``) [Done]
-    - Strictly-typed ability to define fixed data objects [Done]
-    - Ability to drop all of the above type checks [Done]
-    - Track changes made to the object as well as reset [Done]
-    - Fast ``__iter__`` [Done]
-    - Native support of pickle [Done]/json [Done]
-    - Support List[type] declarations and initializations [Done]
-    - optionally data class annotation-like behavior [Done]
-    - ``_asdict``, ``_astuple``, ``_aslist`` functions like in a NamedTuple [Done]
-    - ``get``, ``keys``, ``values``, ``item`` functions available in the module and in a mixin named ``mapping=True``
-        + This effectively allows access like other packages e.g. ``attrs.keys(item_instance)``
-    - ``bytes``/``bytearray`` are urlsafe base64 encoded by default, can override per field via a class level ``BINARY_JSON_ENCODERS = {key: encoding_function}`` [Done]
-    - Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Done]
-    - Allow use of ``Literal`` in the type (exact match of a value to a vector of values) [Done]
-    - Allow subtraction of properties like ``(F - {"a", "b"}).keys() == F_without_a_b.keys()`` [Done]
-        + This will allow one to slim down a class to a restricted subtype, like for use in a DAO system to load/hold less data.
-    - Allow subtraction of properties like ``(F - {"a": {"b"}).keys() == F_a_without_b.keys()`` [Done]
-        + This allows for one to remove fields that are unused prior to class initialization.
-    - Allow subtraction of properties via an inclusive list like ``(F & {"a", "b"}).keys() == F_with_only_a_and_b.keys()`` [Done]
-    - Allow subtraction to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))`` [Done]
-        + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
-    - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions [Done]
-    - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field" [Done]
-        + Would grant a more powerful interface to controlling code-gen'ed areas via ``cls._annotated_metadata`` (maps field -> what's inside the ``Annotation``)
+- Support multiple inheritance, chained fields and ``__slots__`` [Done]
+- Support type coercions (via ``_coerce__``) [Done]
+- Strictly-typed ability to define fixed data objects [Done]
+- Ability to drop all of the above type checks [Done]
+- Track changes made to the object as well as reset [Done]
+- Fast ``__iter__`` [Done]
+- Native support of pickle [Done]/json [Done]
+- Support List[type] declarations and initializations [Done]
+- optionally data class annotation-like behavior [Done]
+- ``_asdict``, ``_astuple``, ``_aslist`` functions like in a NamedTuple [Done]
+- ``get``, ``keys``, ``values``, ``item`` functions available in the module and in a mixin named ``mapping=True``
+    + This effectively allows access like other packages e.g. ``attrs.keys(item_instance)``
+- ``bytes``/``bytearray`` are urlsafe base64 encoded by default, can override per field via a class level ``BINARY_JSON_ENCODERS = {key: encoding_function}`` [Done]
+- Allow ``__coerce__`` to have a tuple of field names to avoid repetition on ``__coerce__`` definitions [Done]
+- Allow use of ``Literal`` in the type (exact match of a value to a vector of values) [Done]
+- Allow subtraction of properties like ``(F - {"a", "b"}).keys() == F_without_a_b.keys()`` [Done]
+  + This will allow one to slim down a class to a restricted subtype, like for use in a DAO system to load/hold less data.
+- Allow subtraction of properties like ``(F - {"a": {"b"}).keys() == F_a_without_b.keys()`` [Done]
+  + This allows for one to remove fields that are unused prior to class initialization.
+- Allow subtraction of properties via an inclusive list like ``(F & {"a", "b"}).keys() == F_with_only_a_and_b.keys()`` [Done]
+- Allow subtraction to propagate to embedded Instruct classes like ``(F - {"a.b", "a.c"}).a.keys() == (F_a.keys() - {"b", "c"))`` [Done]
+  + This would really allow for complex trees of properties to be rendered down to thin SQL column selects, thus reducing data load.
+- Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions [Done]
+- Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field" [Done]
+  + Would grant a more powerful interface to controlling code-gen'ed areas via ``cls._annotated_metadata`` (maps field -> what's inside the ``Annotation``) [Done]
 
 Next Goals:
-    - Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
-        + Would be able to allow specialized subtypes
-    - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
-    - Cython compatibility
+
+- Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
+  + Would be able to allow specialized subtypes
+- ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
+- Cython compatibility
 
 
 Design Goal
