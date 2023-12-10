@@ -1,11 +1,8 @@
 Instruct
 ==========
 
-|Release|
-|Style|
+|Build|
 |PyPI|
-
-
 
 A compact, fast object system that can serve as the basis for a DAO model.
 
@@ -125,14 +122,14 @@ And have it work like this?
     print(tuple(org.list_changes()))
     # Returns
     # (
-    #     LoggedDelta(timestamp=1652412832.7408261, key='name', delta=Delta(state='default', old=Undefined, new='', index=0)), 
-    #     LoggedDelta(timestamp=1652412832.7408261, key='id', delta=Delta(state='default', old=Undefined, new=-1, index=0)), 
-    #     LoggedDelta(timestamp=1652412832.7408261, key='members', delta=Delta(state='default', old=Undefined, new=[], index=0)), 
-    #     LoggedDelta(timestamp=1652412832.7408261, key='created_date', delta=Delta(state='default', old=Undefined, new=datetime.datetime(2022, 5, 13, 3, 33, 52, 740650), index=0)), 
-    #     LoggedDelta(timestamp=1652412832.740923, key='id', delta=Delta(state='initialized', old=-1, new=123, index=4)), 
-    #     LoggedDelta(timestamp=1652412832.741002, key='members', delta=Delta(state='initialized', old=[], new=[<__main__.Member._Member object at 0x104364640>], index=5)), 
-    #     LoggedDelta(timestamp=1652412832.741009, key='name', delta=Delta(state='initialized', old='', new='An Org', index=6)), 
-    #     LoggedDelta(timestamp=1652412832.741021, key='name', delta=Delta(state='update', old='An Org', new='New Name', index=7)), 
+    #     LoggedDelta(timestamp=1652412832.7408261, key='name', delta=Delta(state='default', old=Undefined, new='', index=0)),
+    #     LoggedDelta(timestamp=1652412832.7408261, key='id', delta=Delta(state='default', old=Undefined, new=-1, index=0)),
+    #     LoggedDelta(timestamp=1652412832.7408261, key='members', delta=Delta(state='default', old=Undefined, new=[], index=0)),
+    #     LoggedDelta(timestamp=1652412832.7408261, key='created_date', delta=Delta(state='default', old=Undefined, new=datetime.datetime(2022, 5, 13, 3, 33, 52, 740650), index=0)),
+    #     LoggedDelta(timestamp=1652412832.740923, key='id', delta=Delta(state='initialized', old=-1, new=123, index=4)),
+    #     LoggedDelta(timestamp=1652412832.741002, key='members', delta=Delta(state='initialized', old=[], new=[<__main__.Member._Member object at 0x104364640>], index=5)),
+    #     LoggedDelta(timestamp=1652412832.741009, key='name', delta=Delta(state='initialized', old='', new='An Org', index=6)),
+    #     LoggedDelta(timestamp=1652412832.741021, key='name', delta=Delta(state='update', old='An Org', new='New Name', index=7)),
     #     LoggedDelta(timestamp=1652412832.741031, key='created_date', delta=Delta(state='update', old=datetime.datetime(2022, 5, 13, 3, 33, 52, 740650), new=datetime.datetime(2018, 10, 23, 0, 0), index=8))
     # )
 
@@ -259,7 +256,7 @@ Example:
       File "/Users/autumn/software/instruct/instruct/__init__.py", line 2094, in _handle_init_errors
         ) from errors[0]
     instruct.exceptions.ClassCreationFailed: ('Unable to construct Planet, encountered 1 error', RangeError('Unable to fit 1188.30742 into [2439.766, 142800)', 1188.30742, (Range(2439.766, 142800, flags=CLOSED_OPEN, type_restrictions=()),)))
-    >>> 
+    >>>
 
 
 Comparison to Pydantic
@@ -432,8 +429,5 @@ After additions of those. Safety is expensive.
 .. |PyPI| image:: https://img.shields.io/pypi/v/instruct.svg
     :target: https://pypi.python.org/pypi/instruct
 
-.. |Release| image:: https://github.com/autumnjolitz/instruct/actions/workflows/release.yml/badge.svg
-    :target: https://github.com/autumnjolitz/instruct/actions/workflows/release.yml
-
-.. |Style| image:: https://github.com/autumnjolitz/instruct/actions/workflows/style-check.yml/badge.svg
-    :target: https://github.com/autumnjolitz/instruct/actions/workflows/style-check.yml
+.. |Build| image:: https://github.com/autumnjolitz/instruct/actions/workflows/build.yml/badge.svg
+    :target: https://github.com/autumnjolitz/instruct/actions/workflows/build.yml
