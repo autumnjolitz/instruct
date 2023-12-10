@@ -1,24 +1,4 @@
 |Changes|
-Unreleased Version
--------------------
-
-Release YYYY-MM-DD
-
-- attempting to improve build infrastructure through investigation of `pawamoy/git-changelog<https://github.com/pawamoy/git-changelog>`_
-
-|Changes|
-
-Version 0.7.4
------------------
-
-Release 2023-12-09
-
-- Supported more Python versions and implementations:
-    - Tier 1 support: CPython 3.8, 3.9, 3.10, 3.11, 3.12
-    - Tier 2 support: PyPy 3.7, 3.8, 3.9
-    - Tier 3 support: PyPy 3.10
-- Switched to a tag based release model
-- Add infrastructure for running tests
 
 Version 0.7.3
 -----------------
