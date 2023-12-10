@@ -1,5 +1,15 @@
+|Changes|
+Unreleased Version
+-------------------
+
+Release YYYY-MM-DD
+
+- attempting to improve build infrastructure through investigation of `pawamoy/git-changelog<https://github.com/pawamoy/git-changelog>`_
+
+|Changes|
+
 Version 0.7.4
-----------------
+-----------------
 
 Release 2023-12-09
 
