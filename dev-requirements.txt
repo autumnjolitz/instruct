@@ -4,3 +4,4 @@ black
 invoke
 # bump-my-version
 # git-changelog
+mypy
