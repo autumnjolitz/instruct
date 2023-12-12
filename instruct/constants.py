@@ -79,22 +79,22 @@ class _NoHistory(object):
 
 
 try:
-    NoPickle
+    NoPickle  # type: ignore
 except NameError:
     NoPickle = object.__new__(_NoPickle)
 
 try:
-    NoJSON
+    NoJSON  # type: ignore
 except NameError:
     NoJSON = object.__new__(_NoJSON)
 
 try:
-    NoIterable
+    NoIterable  # type: ignore
 except NameError:
     NoIterable = object.__new__(_NoIterable)
 
 try:
-    NoHistory
+    NoHistory  # type: ignore
 except NameError:
     NoHistory = object.__new__(_NoHistory)
 
