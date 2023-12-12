@@ -2,6 +2,7 @@ twine
 build
 black
 invoke
+packaging
 # bump-my-version
 # git-changelog
 mypy

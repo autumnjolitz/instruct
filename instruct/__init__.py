@@ -50,7 +50,7 @@ from weakref import WeakValueDictionary
 import inflection
 from jinja2 import Environment, PackageLoader
 
-from .about import __version__
+from .about import __version__, __version_info__
 from .typedef import (
     parse_typedef,
     ismetasubclass,
@@ -94,7 +94,7 @@ from .exceptions import (
 from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags
 
 T = TypeVar("T")
-__version__  # Silence unused import warning.
+__version__, __version_info__  # Silence unused import warning.
 
 logger = logging.getLogger(__name__)
 env = Environment(loader=PackageLoader(__name__, "templates"))
@@ -161,7 +161,7 @@ def public_class(
                         return public_atomic_classes[0]
                     return public_atomic_classes
             else:
-                next_cls, = atomic_classes
+                (next_cls,) = atomic_classes
         return public_class(next_cls, *rest, preserve_subtraction=preserve_subtraction)
     cls = cls.__public_class__()
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
@@ -254,7 +254,7 @@ def keys(
             return cls._all_accessible_fields
         return KeysView(tuple(cls._slots))
     if len(property_path) == 1:
-        key, = property_path
+        (key,) = property_path
         if key not in cls._nested_atomic_collection_keys:
             return keys(cls._slots[key])
         if len(cls._nested_atomic_collection_keys[key]) == 1:
@@ -587,7 +587,6 @@ if _SUPPORTED_CELLTYPE:
     def make_class_cell():
         return CellType(None)
 
-
 else:
 
     def make_class_cell() -> CellType:
@@ -605,7 +604,7 @@ else:
             return bar
 
         fake_function = closure_maker()
-        class_cell, = fake_function.__closure__
+        (class_cell,) = fake_function.__closure__
         del fake_function
         return class_cell
 
@@ -1182,9 +1181,10 @@ def apply_skip_keys(
             current_coerce = None
         else:
             while hasattr(current_coerce_cast_function, "__union_subtypes__"):
-                current_coerce_types, current_coerce_cast_function = (
-                    current_coerce_cast_function.__union_subtypes__
-                )
+                (
+                    current_coerce_types,
+                    current_coerce_cast_function,
+                ) = current_coerce_cast_function.__union_subtypes__
             current_coerce = (current_coerce_types, current_coerce_cast_function)
             del current_coerce_types, current_coerce_cast_function
 
@@ -1280,8 +1280,7 @@ class AtomicMeta(type):
 
     if TYPE_CHECKING:
         _annotated_metadata: Dict[str, Tuple[Any, ...]]
-        BINARY_JSON_ENCODERS
-        Dict[str, Callable[[Union[bytearray, bytes]], Any]]
+        BINARY_JSON_ENCODERS: Dict[str, Callable[[Union[bytearray, bytes]], Any]]
         _set_defaults: Callable[[], None]
         _data_class: Atomic
         _slots: Mapping[str, Union[Type, Tuple[Type, ...]]]
@@ -2255,10 +2254,10 @@ def add_event_listener(*fields: str):
     ...         elif name == 'field_two':
     ...             if new_value < 0:
     ...                  self.field_two = 0
-    ... 
+    ...
     >>> astuple(Foo('', -1))
     ('No empty!', 0, None)
-    >>> 
+    >>>
     """
 
     def wrapper(func):
@@ -2287,7 +2286,7 @@ def handle_type_error(*fields: str):
     ...             pass
     ...         else:
     ...             return True
-    ... 
+    ...
     >>> f = Foo('My Foo', '255')
     >>> astuple(f)
     ('My Foo', 255, None)
@@ -2400,7 +2399,7 @@ class SimpleBase(metaclass=AtomicMeta):
                 rest = ", ".join([x for x in rest_types])
                 expects = f"either an {rest} or a {end}"
         else:
-            expected_type, = types_required_names
+            (expected_type,) = types_required_names
             expects = f"a {expected_type}"
         return InstructTypeError(
             f"Unable to set {field_name} to {val!r} ({val_type.__name__}). {field_name} expects "
