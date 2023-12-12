@@ -2,7 +2,7 @@ import functools
 import types
 from collections.abc import Iterable as AbstractIterable, Mapping as AbstractMapping
 from enum import EnumMeta
-from typing import Union, Iterable, Any, Mapping
+from typing import Union, Iterable, Any, Mapping, TypeVar, Tuple
 from .types import FrozenMapping
 
 
@@ -50,20 +50,24 @@ def flatten_restrict(iterable):
             yield item
 
 
+T = TypeVar("T")
+U = TypeVar("U")
+
+
 @as_collectable(FrozenMapping)
-def flatten_fields(item: Union[Mapping[str, Any], Iterable[Union[str, Iterable[Any]]]]):
+def flatten_fields(item) -> Iterable[Tuple[str, Union[None, FrozenMapping]]]:
     if isinstance(item, str):
         yield (item, None)
     elif isinstance(item, (AbstractIterable, AbstractMapping)) and not isinstance(
         item, (bytearray, bytes)
     ):
-
+        iterable: Union[Iterable[Any], Iterable[Tuple[Any, Any]]]
         is_mapping = False
         if isinstance(item, AbstractMapping):
             iterable = ((key, item[key]) for key in item)
             is_mapping = True
         else:
-            iterable = iter(item)
+            iterable = item
         for element in iterable:
             if is_mapping:
                 key, value = element
@@ -79,8 +83,7 @@ def flatten_fields(item: Union[Mapping[str, Any], Iterable[Union[str, Iterable[A
             if isinstance(element, str):
                 yield (element, None)
             else:
-                values = flatten_fields(element)
-                yield from values
+                yield from flatten_fields(element)
     elif item is None:
         return
     else:

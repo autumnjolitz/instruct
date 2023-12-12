@@ -7,8 +7,37 @@ from collections.abc import (
 )
 from types import MethodType
 from weakref import WeakKeyDictionary, WeakValueDictionary
-from typing import Any, Dict, Optional, Type, Generic, Callable, Mapping
-from .typing import T, U
+from typing import (
+    Any,
+    Dict,
+    Optional,
+    Type,
+    Generic,
+    Callable,
+    Mapping,
+    FrozenSet,
+    Union,
+    TypeVar,
+    MutableMapping,
+    Iterable,
+)
+
+
+def mark(**kwargs: Any):
+    def wrapper(func):
+        for key, value in kwargs.items():
+            setattr(func, f"_instruct_{key}", value)
+        return func
+
+    return wrapper
+
+
+class AtomicImpl:
+    __slots__ = ()
+
+    @mark(base_cls=True)
+    def _clear(self, fields: Optional[Iterable[str]] = None):
+        pass
 
 
 class AttrsDict(UserDict):
@@ -20,28 +49,34 @@ class AttrsDict(UserDict):
             return None
 
 
-class ReadOnly:
+T = TypeVar("T")
+U = TypeVar("U")
+
+
+class ReadOnly(Generic[T]):
+    value: T
+
     __slots__ = ("value",)
 
-    def __init__(self, value):
+    def __init__(self, value: T):
         self.value = value
 
-    def __get__(self, obj, objtype=None):
+    def __get__(self, obj: Any, objtype: Optional[Type] = None) -> T:
         return self.value
 
 
-def _caculate_hash(mapping):
+def _caculate_hash(mapping) -> int:
     keys = sorted(mapping)
     return hash(tuple((hash(key), hash(mapping[key])) for key in keys))
 
 
-FROZEN_MAPPING_SINGLETONS = WeakValueDictionary()
+FROZEN_MAPPING_SINGLETONS: Mapping[int, Any] = WeakValueDictionary()
 
 
-class FrozenMapping(AbstractMapping, Mapping[T, U]):
+class FrozenMapping(Mapping[T, U]):
     __slots__ = "__value", "__hashcode", "__weakref__"
 
-    __value: Dict[Any, Any]
+    __value: Dict[T, U]
     __hashcode: int
 
     def __new__(cls, *args, **kwargs):
@@ -143,7 +178,9 @@ class FrozenMapping(AbstractMapping, Mapping[T, U]):
         return iter(self.keys())
 
 
-EMPTY_TERMINUS = frozenset({frozenset(), FrozenMapping(), None, ""})
+EMPTY_TERMINUS: FrozenSet[Union[frozenset, FrozenMapping, None, str]] = frozenset(
+    {frozenset(), FrozenMapping(), None, ""}
+)
 
 
 def deep_merge_mappings(left: FrozenMapping, right: FrozenMapping, *, cls=dict) -> FrozenMapping:
@@ -214,7 +251,7 @@ class ClassOrInstanceFuncsDescriptor(Generic[T]):
         class_function: Optional[Callable] = None,
         instance_function: Optional[Callable] = None,
     ) -> None:
-        self._classes: Mapping[Type[T], MethodType] = WeakKeyDictionary()
+        self._classes: MutableMapping[Type[T], MethodType] = WeakKeyDictionary()
         self._class_function = class_function
         self._instance_function = instance_function
 
@@ -226,9 +263,12 @@ class ClassOrInstanceFuncsDescriptor(Generic[T]):
 
     def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
         if instance is None:
+            assert owner is not None
+            assert self._class_function is not None
             try:
                 return self._classes[owner]
             except KeyError:
                 value = self._classes[owner] = MethodType(self._class_function, owner)
                 return value
+        assert self._instance_function is not None
         return MethodType(self._instance_function, instance)
