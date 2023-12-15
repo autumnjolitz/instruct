@@ -1,6 +1,6 @@
 import inflection
 import builtins
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union
 
 
 class ClassDefinitionError(ValueError):
@@ -25,6 +25,7 @@ class CoerceMappingValueError(ClassDefinitionError):
 
 class ExceptionJSONSerializable:
     __slots__ = ()
+    message: str
 
     def __str__(self) -> str:
         return self.message
@@ -47,7 +48,7 @@ class ExceptionJSONSerializable:
 class TypeError(builtins.TypeError, ExceptionJSONSerializable):
     data: Dict[str, Any]
 
-    def __init__(self, message: str, name: str, val: Any, **kwargs):
+    def __init__(self, message: str, name: Union[str, int], val: Any, **kwargs):
         self.message = message
         self.name = name
         self.value = val

@@ -1,6 +1,9 @@
 import sys
 import typing
-from typing import Tuple, Dict, Type, Callable, Union, Any, TypeVar
+from collections.abc import Collection as AbstractCollection
+from typing import overload, Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic
+
+from typing_extensions import get_origin
 
 if sys.version_info[:2] >= (3, 8):
     from typing import Protocol, Literal, runtime_checkable, TypedDict
@@ -12,10 +15,10 @@ if sys.version_info[:2] >= (3, 9):
 else:
     from typing_extensions import Annotated
 if sys.version_info[:2] >= (3, 10):
-    from typing import TypeGuard, TypeAlias
+    from typing import TypeGuard, TypeAlias, ParamSpec
     from types import EllipsisType
 else:
-    from typing_extensions import TypeGuard, TypeAlias
+    from typing_extensions import TypeGuard, TypeAlias, ParamSpec
 
     if typing.TYPE_CHECKING:
 
@@ -26,9 +29,17 @@ else:
         EllipsisType = type(Ellipsis)
 
 if sys.version_info[:2] >= (3, 11):
+    from typing import TypeVarTuple
     from typing import Self, Required, NotRequired
 else:
+    from typing_extensions import TypeVarTuple
     from typing_extensions import Self, Required, NotRequired
+
+if sys.version_info[:2] >= (3, 12):
+    from typing import TypeAliasType, Unpack
+else:
+    from typing_extensions import TypeAliasType, Unpack
+    from typing_extensions import TypeVar
 
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
@@ -38,7 +49,6 @@ if typing.TYPE_CHECKING:
         @runtime_checkable
         class CellType(Protocol):
             cell_contents: Any
-
 
 else:
     if sys.version_info[:2] >= (3, 8):
@@ -56,12 +66,20 @@ else:
         CellType = type(foo().__closure__[0])
         del foo
 
+from .types import AtomicImpl, IAtomic
+
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 
+T = TypeVar("T")
+Ts = TypeVarTuple("Ts")
+U = TypeVar("U")
+T_co = TypeVar("T_co", covariant=True)
+U_co = TypeVar("U_co", covariant=True)
+T_cta = TypeVar("T_cta", contravariant=True)
 
-@runtime_checkable
-class ICustomTypeCheck(Protocol):
+
+class CustomTypeCheck(Generic[T]):
     """
     A runtime pseudo-type object that represents a complex type-hint.
 
@@ -69,26 +87,127 @@ class ICustomTypeCheck(Protocol):
     verifies if the value matches the type-hint.
     """
 
-    @staticmethod
-    def set_name(name: str) -> str:
+    __slots__ = ()
+
+
+P = ParamSpec("P")
+
+
+class InstanceMethod(Protocol[T]):
+    def __call__(self, *args: P.args, **kwargs: P.kwargs):
         ...
 
-
-class TypingDefinition(Protocol):
-    __module__: Literal["typing", "typing_extensions"]
+    __self__: T
     __name__: str
     __qualname__: str
 
 
-class AbstractCollectionType(Protocol):
-    __module__: Literal["collections.abc"]
+class ClassMethod(Protocol[T_cta]):
+    __self__: ClassVar[Type]
+    __name__: str
+    __qualname__: str
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+        ...
+
+    def __func__(self, cls: Type[T_cta], *args: P.args, **kwargs: P.kwargs):
+        ...
 
 
-TypeHint: TypeAlias = Union[TypingDefinition, Type[Any]]
+class CastType(Protocol[T_co]):
+    def __call__(self, value: Any, *args: P.args, **kwargs: P.kwargs) -> T_co:
+        ...
 
-if typing.TYPE_CHECKING:
-    from .types import AtomicImpl
 
-    Atomic = TypeVar("Atomic", bound=AtomicImpl)
-else:
-    Atomic = TypeVar("Atomic", bound="AtomicImpl")
+# ARJ: Used to signal "I have done nothing to this function"
+class ParentCastType(CastType[T_co]):
+    __only_parent_cast__: Literal[True]
+
+
+# ARJ: Used to signal "I have mutated this cast type"
+class MutatedCastType(CastType[T_co], Protocol[T_co, U]):
+    __union_subtypes__: Tuple[Union[Type[U], Tuple[Type[U], ...]], Callable[[Any], U]]
+
+
+def is_cast_type(item: Callable[[Any], T]) -> TypeGuard[Type[CastType[T]]]:
+    return callable(item)
+
+
+def is_parent_cast_type(item: CastType[T]) -> TypeGuard[Type[ParentCastType[T]]]:
+    return getattr(item, "__only_parent_cast__", False)
+
+
+def is_mutated_cast_type(item: CastType[T]) -> TypeGuard[Type[MutatedCastType[T, U]]]:
+    return getattr(item, "__union_subtypes__", False)
+
+
+def isclassmethod(function: Callable[[Any], Any]) -> TypeGuard[ClassMethod]:
+    return (
+        callable(function)
+        and hasattr(function, "__func__")
+        and hasattr(function, "__self__")
+        and isinstance(function.__self__, type)
+    )
+
+
+class TypingDefinition(Protocol):
+    __module__: Literal["typing", "typing_extensions"]
+    __name__: ClassVar[str]
+    __qualname__: ClassVar[str]
+
+
+def is_typing_definition(item: Any) -> TypeGuard[TypingDefinition]:
+    """
+    Check if the given item is a type hint.
+    """
+    module_name: str = getattr(item, "__module__", "")
+    if module_name in ("typing", "typing_extensions"):
+        return True
+    if module_name == "builtins":
+        origin = get_origin(item)
+        if origin is not None:
+            return is_typing_definition(origin)
+    return False
+
+
+assert isinstance(T, TypeVar)
+assert isinstance(U, TypeVar)
+
+HeterogenousTuple = TypeAliasType("HeterogenousTuple", Tuple[T, U], type_params=(T, U))
+VariadicTupleHint = TypeAliasType(
+    "VariadicTupleHint", HeterogenousTuple[T, EllipsisType], type_params=(T,)
+)
+HomogenousTuple = TypeAliasType("HomogenousTuple", Tuple[T, T], type_params=(T,))
+
+
+def is_anonymous_pair(t: Union[Any, Tuple[T, U]]) -> TypeGuard[Tuple[T, U]]:
+    if isinstance(t, tuple) and len(t) == 2:
+        a, b = t
+        if isinstance(b, EllipsisType):
+            assert isinstance(a, type) or is_typing_definition(a)
+            return True
+        return True
+    return False
+
+
+def isabstractcollectiontype(
+    o: Union[TypingDefinition, Type[Any], Type[T]]
+) -> TypeGuard[Type[Collection[T]]]:
+    cls: Union[Type[Any], Type[T]]
+    if is_typing_definition(o):
+        origin = get_origin(o)
+        if origin is not None:
+            return isabstractcollectiontype(origin)
+        return False
+    if not isinstance(o, type):
+        return False
+    assert isinstance(o, type)
+    cls = o
+    if not cls.__module__.startswith("collections.abc"):
+        return False
+    return issubclass(cls, AbstractCollection)
+
+
+TypeHint: TypeAlias = Union[TypingDefinition, Type]
+
+Atomic = TypeVar("Atomic", bound=AtomicImpl)

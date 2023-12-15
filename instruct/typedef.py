@@ -5,6 +5,7 @@ from contextlib import suppress
 import typing
 import warnings
 from functools import wraps
+from types import FunctionType
 from collections.abc import (
     Mapping as AbstractMapping,
     MutableMapping as AbstractMutableMapping,
@@ -27,23 +28,38 @@ from typing import (
     Iterable,
     overload,
     Generic,
+    Generator,
+    Set,
+    Dict,
+    _GenericAlias,
+    cast as cast_type,
 )
 
 if typing.TYPE_CHECKING:
     from . import AtomicMeta
 
-from .typing import Protocol, Literal, Annotated, TypeGuard, Self
+from .typing import Protocol, Literal, Annotated, TypeGuard, Self, is_typing_definition
 
-from typing_extensions import get_origin, get_original_bases
-from typing_extensions import get_args
+from typing_extensions import get_origin, get_original_bases, is_protocol, get_protocol_members
+from typing_extensions import get_args, get_type_hints
 
 from .utils import flatten_restrict as flatten
-from .typing import ICustomTypeCheck, TypingDefinition, EllipsisType, Atomic
+from .typing import CustomTypeCheck, TypingDefinition, EllipsisType, Atomic, TypeHint
 from .constants import Range
 from .exceptions import RangeError, TypeError as InstructTypeError
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+
+class CustomTypeCheckMetaBase(type, Generic[T]):
+    __slots__ = ()
+
+    if typing.TYPE_CHECKING:
+
+        @staticmethod
+        def set_name(name: str) -> str:
+            ...
 
 
 def make_custom_typecheck(*args, is_abstract_type=False):
@@ -59,36 +75,44 @@ def make_custom_typecheck(*args, is_abstract_type=False):
 
 @overload
 def _make_custom_typecheck(
-    typehint: TypingDefinition, func: Callable[[Union[Any, T]], bool]
-) -> Type[ICustomTypeCheck[T]]:
-    ...
-
-
-@overload
-def _make_custom_typecheck(
-    typehint: Tuple[Type[T], ...], func: Callable[[Union[Any, T]], bool]
-) -> Type[ICustomTypeCheck[T]]:
-    ...
-
-
-@overload
-def _make_custom_typecheck(
-    typehint: Type[T], func: Callable[[Union[Any, T]], bool]
-) -> Type[ICustomTypeCheck[T]]:
-    ...
-
-
-class TypeCheckImpl(Generic[T]):
-    __slots__ = ()
-
-
-def _make_custom_typecheck(
-    typehint,
+    typehint: TypingDefinition,
     func: Callable[[Union[Any, T]], bool],
-    type_args: Tuple[Any, ...],
+    type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
     *,
     is_abstract_type: bool = False,
-) -> Type[ICustomTypeCheck[T]]:
+) -> Type[CustomTypeCheck[T]]:
+    ...
+
+
+@overload
+def _make_custom_typecheck(
+    typehint: Tuple[Type[T], ...],
+    func: Callable[[Union[Any, T]], bool],
+    type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
+    *,
+    is_abstract_type: bool = False,
+) -> Type[CustomTypeCheck[T]]:
+    ...
+
+
+@overload
+def _make_custom_typecheck(
+    typehint: Type[T],
+    func: Callable[[Union[Any, T]], bool],
+    type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
+    *,
+    is_abstract_type: bool = False,
+) -> Type[CustomTypeCheck[T]]:
+    ...
+
+
+def _make_custom_typecheck(
+    typehint: Union[TypingDefinition, Tuple[Type[T], ...], Type[T]],
+    func: Callable[[Union[Any, T]], bool],
+    type_args,
+    *,
+    is_abstract_type=False,
+) -> Type[CustomTypeCheck[T]]:
     """
     Create a custom type that will turn `isinstance(item, klass)` into `func(item)`
     """
@@ -115,7 +139,7 @@ def _make_custom_typecheck(
         else:
             raise TypeError(f"Unknown type ({typehint!r}) {type(typehint)}")
 
-    class CustomTypeCheckMeta(type):
+    class CustomTypeCheckMeta(CustomTypeCheckMetaBase[T]):
         __slots__ = ()
 
         def __instancecheck__(self, instance: Union[Any, T]) -> TypeGuard[T]:
@@ -144,12 +168,22 @@ def _make_custom_typecheck(
             CustomTypeCheckMeta.__name__ = "CustomTypeCheck[{}]".format(name)
             return name
 
-    bases = (TypeCheckImpl, Generic[T])
+    bases: Tuple[Type, ...]
+    if is_abstract_type:
+        bases = (CustomTypeCheck, cast_type(Type, Generic[T]))  # type:ignore[misc]
+    else:
+        assert isinstance(typehint, type)
+        type_cls: Type[T] = cast_type(Type[T], typehint)
+        bases = (
+            CustomTypeCheck,
+            cast_type(Type, Generic[T]),  # type:ignore[misc]
+            cast_type(Type, typehint),
+        )  # type:ignore[misc]
+
     if not is_abstract_type:
-        bases = (*bases, typehint)
-        if issubclass(typehint, AbstractMapping):
+        if issubclass(type_cls, AbstractMapping):
             key_type, value_type = type_args
-            typehint_str = f"{typehint.__name__}[{key_type}, {value_type}]"
+            typehint_str = f"{type_cls.__name__}[{key_type}, {value_type}]"
 
             def validate_mapping(iterable, **kwargs):
                 for key, value in iterable:
@@ -161,11 +195,11 @@ def _make_custom_typecheck(
                         )
                     yield key, value
 
-        elif issubclass(typehint, AbstractIterable):
-            if issubclass(typehint, tuple) and Ellipsis in type_args:
+        elif issubclass(type_cls, AbstractIterable):
+            if issubclass(type_cls, tuple) and Ellipsis in type_args:
                 typehint_str = f"{Tuple[typehint]}"
             else:
-                typehint_str = f'{typehint.__name__}[{", ".join(x.__name__ for x in type_args)}]'
+                typehint_str = f'{type_cls.__name__}[{", ".join(x.__name__ for x in type_args)}]'
 
             def validate_iterable(values):
                 for index, item in enumerate(values):
@@ -175,7 +209,7 @@ def _make_custom_typecheck(
                         )
                     yield item
 
-    class CustomTypeCheckType(*bases, metaclass=CustomTypeCheckMeta):
+    class CustomTypeCheckType(*bases, metaclass=CustomTypeCheckMeta[T]):  # type:ignore[misc]
         __slots__ = ()
 
         def __new__(cls, iterable=None, **kwargs):
@@ -198,10 +232,9 @@ def _make_custom_typecheck(
             return f"{CustomTypeCheckType.__name__}({super().__repr__()})"
 
         if not is_abstract_type:
+            if issubclass(type_cls, AbstractMutableSequence):
 
-            if issubclass(typehint, AbstractMutableSequence):
-
-                def __setitem__(self, index_or_slice: Union[slice, int], value):
+                def __setitem__s(self, index_or_slice: Union[slice, int], value):
                     if isinstance(index_or_slice, slice):
                         return super().__setitem__(index_or_slice, validate_iterable(value))
                     if not isinstance(value, type_args):
@@ -224,9 +257,11 @@ def _make_custom_typecheck(
                 def extend(self, values):
                     return super().extend(validate_iterable(values))
 
-            elif issubclass(typehint, AbstractMutableMapping):
+                __setitem__ = __setitem__s
 
-                def __setitem__(self, key, value):
+            elif issubclass(type_cls, AbstractMutableMapping):
+
+                def __setitem__m(self, key, value):
                     if not isinstance(key, key_type):
                         raise InstructTypeError(f"Key {key!r} is not a {key_type}", key, value)
                     if not isinstance(value, value_type):
@@ -235,7 +270,9 @@ def _make_custom_typecheck(
                         )
                     return super().__setitem__(key, value)
 
-                if hasattr(typehint, "setdefault"):
+                __setitem__ = __setitem__m
+
+                if hasattr(type_cls, "setdefault"):
 
                     def setdefault(self, key, value):
                         if not isinstance(key, key_type):
@@ -246,7 +283,7 @@ def _make_custom_typecheck(
                             )
                         return super().setdefault(key, value)
 
-                if hasattr(typehint, "update"):
+                if hasattr(type_cls, "update"):
 
                     def update(self, iterable):
                         if isinstance(iterable, AbstractMapping):
@@ -258,9 +295,20 @@ def _make_custom_typecheck(
     return CustomTypeCheckType
 
 
-def ismetasubclass(
-    cls: Union[Type[Atomic], Type[Any]], metacls: Type["AtomicMeta"]
-) -> TypeGuard[Union[Type[Atomic], "AtomicMeta"]]:
+@overload
+def ismetasubclass(cls: Union[Type[Atomic], Type[Any]], metacls: Type[T]) -> TypeGuard[T]:
+    ...
+
+
+@overload
+def ismetasubclass(cls: TypeHint, metacls: Type[T]) -> TypeGuard[T]:
+    ...
+
+
+def ismetasubclass(cls: Union[Type[Atomic], Type[Any], TypeHint], metacls: Type[U]) -> TypeGuard[T]:
+    if not isinstance(cls, type):
+        return False
+    assert isinstance(cls, type)
     typecls = type(cls)
     return issubclass(typecls, metacls)
 
@@ -315,19 +363,40 @@ def has_collect_class(
     return False
 
 
-def find_class_in_definition(
-    type_hints: Union[Type, Tuple[Type, ...]], root_cls: Type, *, metaclass=False
-):
-    if type_hints is Ellipsis:
-        return
-    assert (
-        isinstance(type_hints, tuple)
-        or is_typing_definition(type_hints)
-        or isinstance(type_hints, type)
-    ), f"{type_hints} is a {type(type_hints)}"
+_NOT_SET = object()
 
-    if is_typing_definition(type_hints):
-        type_cls: Type = cast(Type, type_hints)
+
+@overload
+def find_class_in_definition(
+    type_hint: EllipsisType,
+    root_cls: Union[Type[Atomic], Type["AtomicMeta"]],
+    *,
+    metaclass: bool = False,
+) -> Generator[Type[Atomic], Optional[Type[Atomic]], None]:
+    ...
+
+
+@overload
+def find_class_in_definition(
+    type_hint: Union[TypingDefinition, Type[Atomic], Tuple[Type[Atomic], ...]],
+    root_cls: Union[Type[Atomic], Type["AtomicMeta"]],
+    *,
+    metaclass: bool = False,
+) -> Generator[Type[Atomic], Optional[Type[Atomic]], Union[Type[Atomic], Tuple[Type[Atomic], ...]]]:
+    ...
+
+
+def find_class_in_definition(type_hint, root_cls: Type, *, metaclass=False):
+    if type_hint is Ellipsis:
+        return  # type:ignore[return-value]
+    assert (
+        isinstance(type_hint, tuple)
+        or is_typing_definition(type_hint)
+        or isinstance(type_hint, type)
+    ), f"{type_hint} is a {type(type_hint)}"
+
+    if is_typing_definition(type_hint):
+        type_cls: Type = cast(Type, type_hint)
         origin_cls = get_origin(type_cls)
         args = get_args(type_cls)
         if origin_cls is Annotated:
@@ -343,6 +412,7 @@ def find_class_in_definition(
                 ):
                     replacement = yield child
                 else:
+                    assert isinstance(child, type) or is_typing_definition(child)
                     replacement = yield from find_class_in_definition(
                         child, root_cls, metaclass=metaclass
                     )
@@ -392,14 +462,16 @@ def find_class_in_definition(
             return type_cls
         return None
 
-    if isinstance(type_hints, type):
-        if issubormetasubclass(type_hints, root_cls, metaclass=metaclass):
-            replacement = yield type_hints
+    if isinstance(type_hint, type):
+        if issubormetasubclass(type_hint, root_cls, metaclass=metaclass):
+            replacement = yield type_hint
             if replacement is not None:
                 return replacement
         return None
 
-    for index, type_cls in enumerate(type_hints[:]):
+    assert isinstance(type_hint, tuple)
+
+    for index, type_cls in enumerate(type_hint[:]):
         if isinstance(type_cls, type) and issubormetasubclass(
             type_cls, root_cls, metaclass=metaclass
         ):
@@ -409,13 +481,11 @@ def find_class_in_definition(
                 type_cls, root_cls, metaclass=metaclass
             )
         if replacement is not None:
-            type_hints = type_hints[:index] + (replacement,) + type_hints[index + 1 :]
-    return type_hints
+            type_hint = type_hint[:index] + (replacement,) + type_hint[index + 1 :]
+    return type_hint
 
 
 M = Union[TypingDefinition, Type[Iterable], Type[Any], Tuple[Type[Any], ...]]
-
-UnionType = type(Union[str])
 
 
 def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type], check_ranges=()):
@@ -428,7 +498,7 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             None,
         ), f"{container_type} has {get_args(container_type)} != {args}"
 
-    def _on_new_type(new_type: Type[ICustomTypeCheck[T]]):
+    def _on_new_type(new_type: Type[CustomTypeCheck[T]]):
         if is_typing_definition(container_type):
             new_name = f"{container_type}"
         elif isinstance(container_type, tuple):
@@ -437,15 +507,20 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             new_name = container_type.__qualname__
         for prefix in ("builtins.", "typing_extensions.", "typing."):
             new_name = remove_prefix(new_name, prefix)
-        type(new_type).set_name(new_name)
+        metaclass = cast(CustomTypeCheckMetaBase, type(new_type))
+        metaclass.set_name(new_name)
         return new_type
 
     make_type = run_after(make_custom_typecheck, _on_new_type)
     test_func: Optional[Callable] = None
     if isinstance(container_type, tuple):
         assert not args
-        args: Tuple[type, ...] = container_type
-        container_type: UnionType = Union[container_type]
+        assert all(isinstance(x, type) for x in container_type)
+        return create_custom_type(
+            cast_type(TypingDefinition, Union[container_type]),
+            *container_type,
+            check_ranges=check_ranges,
+        )
 
     if is_typing_definition(container_type):
         origin_cls = get_origin(container_type)
@@ -454,12 +529,12 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
 
             assert args, f"Got empty args for a {container_type}"
             types = flatten((parse_typedef(arg) for arg in args), eager=True)
-            is_simple_types = not any(issubclass(x, TypeCheckImpl) for x in types)
+            is_simple_types = not any(issubclass(x, CustomTypeCheck) for x in types)
             assert types
 
             if check_ranges:
 
-                def test_func(value: Any) -> TypeGuard[container_type]:
+                def test_func_ranged_union(value: Union[Any, T]) -> TypeGuard[T]:
                     if not isinstance(value, types):
                         return False
                     failed_ranges = []
@@ -478,6 +553,8 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                         raise RangeError(value, failed_ranges)
                     return False
 
+                test_func = test_func_ranged_union
+
             else:
                 # ARJ: if we have Union[int, str, float], we really
                 # should return
@@ -485,11 +562,13 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                 if is_simple_types:
                     return types
 
-                def test_func(value: Any) -> TypeGuard[container_type]:
+                def test_func_union(value: Union[Any, T]) -> TypeGuard[T]:
                     """
                     Check if the value is of the type set
                     """
                     return isinstance(value, types)
+
+                test_func = test_func_union
 
             return make_type(container_type, test_func, types, is_abstract_type=is_abstract_type)
 
@@ -499,7 +578,7 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
 
             assert args, "Literals require arguments"
 
-            def test_func(value: Any) -> TypeGuard[container_type]:
+            def test_func_literal(value: Union[Any, T]) -> TypeGuard[T]:
                 """
                 Operate on a Literal type
                 """
@@ -522,12 +601,14 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                             return True
                 return False
 
+            test_func = test_func_literal
+
         elif container_type is AnyStr:
             is_abstract_type = True
             assert not args
             if check_ranges:
 
-                def test_func(value) -> TypeGuard[container_type]:
+                def test_ranged_anystr(value: Union[T, Any]) -> TypeGuard[T]:
                     if not isinstance(value, (str, bytes)):
                         return False
                     failed_ranges = []
@@ -546,6 +627,8 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                         raise RangeError(value, failed_ranges)
                     return False
 
+                test_func = test_ranged_anystr
+
             else:
                 return (str, bytes)
         elif container_type is Any:
@@ -558,6 +641,76 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             return create_custom_type(origin_cls, *args, check_ranges=check_ranges)
         else:
             raise NotImplementedError(container_type, str(container_type))
+    elif isinstance(container_type, type) and issubclass(container_type, cast(type, Protocol)):
+        # Like P[int] where P = class P(Protocol[T])
+        if isinstance(container_type, _GenericAlias):
+            # ARJ: This is the case where someone is referring
+            # to a specialized version of a protocol, like
+            # class P(Protocol[T]):
+            #    a: T
+            # container_type = P[int]
+            # parse_typedef(container_type)
+            raise NotImplementedError("Specialized protocol-inheriting classes not implemented")
+        elif is_simple_protocol(container_type):
+            is_abstract_type = True
+
+            attribute_types: Dict[str, CustomTypeCheck] = {}
+            attribute_values: Dict[str, Any] = {}
+            attribute_functions: Set[str] = set()
+            hints = get_type_hints(container_type)
+
+            for attribute in get_protocol_members(container_type):
+                with suppress(KeyError):
+                    hint = hints[attribute]
+                    attribute_types[attribute] = parse_typedef(hint)
+                with suppress(AttributeError):
+                    attribute_value = getattr(container_type, attribute)
+                    if isinstance(attribute_value, FunctionType):
+                        attribute_functions.add(attribute)
+                        continue
+                    attribute_values[attribute] = attribute_value
+
+            def test_simple_protocol(value):
+                assert attribute_types or attribute_values or attribute_functions
+                if attribute_types:
+                    for attribute, type_cls in attribute_types.items():
+                        try:
+                            attr_value = getattr(value, attribute)
+                        except AttributeError:
+                            return False
+                        else:
+                            if not isinstance(attr_value, type_cls):
+                                return False
+                if attribute_values:
+                    for attribute, expected_value in attribute_values.items():
+                        try:
+                            attr_value = getattr(value, attribute)
+                        except AttributeError:
+                            return False
+                        else:
+                            if expected_value != attr_value:
+                                return False
+                if attribute_functions:
+                    value_type = type(value)
+                    for attribute in attribute_functions:
+                        try:
+                            attr_value = getattr(value_type, attribute)
+                        except AttributeError:
+                            return False
+                        else:
+                            if not callable(attr_value):
+                                return False
+                return True
+
+            test_func = test_simple_protocol
+
+        elif is_protocol(container_type):
+            # This implements Protocol[T]
+            assert container_type.__parameters__
+            ...
+            raise NotImplementedError(
+                f"generic protocol support not implemented ({container_type.__parameters__})"
+            )
 
     # active (collection type, *(generic_types)) ?
     if test_func is None:
@@ -568,7 +721,6 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                 issubclass(container_type, AbstractCollection)
                 and not container_type.__module__.startswith("collections.abc")
             )
-            p = args
             test_func, args = create_typecheck_for_container(container_type, args)
             if isinstance(args, type):
                 args = (args,)
@@ -577,7 +729,7 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             # This type has no args (i.e. like it's Dict or set or a custom simple class)
             if check_ranges:
 
-                def test_func(value: Any) -> TypeGuard[container_type]:
+                def test_regular_type(value: Union[Any, T]) -> TypeGuard[T]:
                     if not isinstance(value, container_type):
                         return False
                     failed_ranges = []
@@ -595,6 +747,8 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                     if failed_ranges:
                         raise RangeError(value, failed_ranges)
                     return False
+
+                test_func = test_regular_type
 
             else:
                 return container_type
@@ -605,7 +759,7 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             assert not get_args(container_type)
             if check_ranges:
 
-                def test_func(value: Any) -> TypeGuard[container_type]:
+                def test_ranged_abstract_type(value: Union[Any, T]) -> TypeGuard[T]:
                     if not isinstance(value, container_type):
                         return False
                     failed_ranges = []
@@ -624,10 +778,14 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                         raise RangeError(value, failed_ranges)
                     return False
 
+                test_func = test_ranged_abstract_type
+
             else:
 
-                def test_func(value: Any) -> TypeGuard[container_type]:
+                def test_abstract_type(value: Union[T, Any]) -> TypeGuard[T]:
                     return isinstance(value, container_type)
+
+                test_func = test_abstract_type
 
     new_type = make_type(container_type, test_func, args, is_abstract_type=is_abstract_type)
     return new_type
@@ -662,35 +820,35 @@ V = TypeVar("V")
 @overload
 def create_typecheck_for_container(
     container_cls: Tuple[Type[V], ...], value_types: Tuple[Type[Any], ...] = ()
-) -> Callable[[Any], TypeGuard[Tuple[V, ...]]]:
+) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]:
     ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Tuple[V, EllipsisType]], value_types: Tuple[Type, ...] = ()
-) -> Callable[[Any], TypeGuard[Tuple[V, ...]]]:
+) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]:
     ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Mapping[T, U]], value_types: Tuple[Type, ...] = ()
-) -> Callable[[Any], TypeGuard[Mapping[T, U]]]:
+) -> Tuple[Callable[[Any], TypeGuard[Mapping[T, U]]], Tuple[Any, ...]]:
     ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Iterable[T]], value_types: Tuple[Type, ...] = ()
-) -> Callable[[Any], TypeGuard[Iterable[T]]]:
+) -> Tuple[Callable[[Any], TypeGuard[Iterable[T]]], Tuple[Any, ...]]:
     ...
 
 
 def create_typecheck_for_container(container_cls, value_types=()):
     """
     Determine a function to determine if given value V is an instance of some container type
-    and values within are within the 
+    and values within are within the
     """
     assert isinstance(container_cls, type), f"{container_cls!r} is not a type"
     assert issubclass(
@@ -721,8 +879,9 @@ def create_typecheck_for_container(container_cls, value_types=()):
             return test_func, homogenous_type
 
         else:
-            for some_type in value_types:
-                test_types.append(parse_typedef(some_type))
+            test_types = flatten(
+                (parse_typedef(some_type) for some_type in value_types), eager=True
+            )
 
             def test_func(value):
                 if not isinstance(value, container_cls):
@@ -735,7 +894,9 @@ def create_typecheck_for_container(container_cls, value_types=()):
                         return False
                 return True
 
-            assert all(isinstance(x, type) for x in test_types)
+            assert all(
+                isinstance(x, type) for x in test_types
+            ), f"some test types are invalid - {test_types}"
             return test_func, tuple(test_types)
 
     elif issubclass(container_cls, AbstractMapping):
@@ -777,21 +938,7 @@ def create_typecheck_for_container(container_cls, value_types=()):
     return test_func, None
 
 
-def is_typing_definition(item: Any) -> TypeGuard[TypingDefinition]:
-    """
-    Check if the given item is a type hint.
-    """
-    module_name: str = getattr(item, "__module__", "")
-    if module_name in ("typing", "typing_extensions"):
-        return True
-    if module_name == "builtins":
-        origin = get_origin(item)
-        if origin is not None:
-            return is_typing_definition(origin)
-    return False
-
-
-def is_genericizable(item: TypingDefinition) -> TypeGuard[Generic]:
+def is_genericizable(item: TypingDefinition):
     """
     Tell us if this definition is an unspecialized generic-capable type like
 
@@ -804,7 +951,7 @@ def is_genericizable(item: TypingDefinition) -> TypeGuard[Generic]:
     >>> class PairedNamespace(Generic[T, U]):
     ...     first: T
     ...     second: U
-    ... 
+    ...
     >>> is_genericizable(PairedNamespace)
     True
     >>> class PairedProtocol(Protocol[T, U]):
@@ -812,10 +959,10 @@ def is_genericizable(item: TypingDefinition) -> TypeGuard[Generic]:
     ...     second: U
     ...     def bar(self, val: T) -> U:
     ...         ...
-    ... 
+    ...
     >>> is_genericizable(PairedProtocol)
     True
-    >>> 
+    >>>
 
 
     This will reject Generic[T], Protocol[T] but allow a class that inherits one
@@ -825,6 +972,7 @@ def is_genericizable(item: TypingDefinition) -> TypeGuard[Generic]:
         generic_or_protocol = ()
         with suppress(TypeError):
             generic_or_protocol = get_original_bases(item)
+        cls: Type
         for cls in generic_or_protocol:
             args = get_args(cls)
             if any(isinstance(arg, TypeVar) for arg in args):
@@ -835,12 +983,28 @@ def is_genericizable(item: TypingDefinition) -> TypeGuard[Generic]:
     return False
 
 
-def is_protocol(item: TypingDefinition) -> TypeGuard[Protocol]:
+def is_simple_protocol(item: TypingDefinition):
     """
     Tell us if this class is like:
 
     class X(Protocol):
         required_field: int
+
+    excludes:
+
+    class Y(Protocol[T]): ...
+
+    >>> T = TypeVar('T')
+    >>> class X(Protocol):
+    ...     required_field: int
+    ...
+    >>> class Y(Protocol[T]):
+    ...     required_field: T
+    ...
+    >>> is_simple_protocol(X)
+    True
+    >>> is_simple_protocol(Y)
+    False
 
     """
     if isinstance(item, type):
@@ -882,7 +1046,7 @@ def parse_typedef(
     # ARJ: short-circuit a list/tuple of types
     if type(hint) in (tuple, list):
         return flatten((parse_typedef(typehint) for typehint in hint), eager=True)
-    if isinstance(hint, TypeCheckImpl):
+    if isinstance(hint, type) and issubclass(hint, CustomTypeCheck):
         return hint
 
     if not is_typing_definition(hint):
@@ -895,7 +1059,7 @@ def parse_typedef(
             #     raise NotImplementedError(
             #         f"Generic-types are not supported, report as an issue."
             #     )
-            if check_ranges:
+            if check_ranges or issubclass(cls, cast(type, Protocol)):
                 return create_custom_type(cls, check_ranges=check_ranges)
             return cls
         raise NotImplementedError(f"Unknown typedef definition {hint!r} ({type(hint)})!")
@@ -961,7 +1125,8 @@ def parse_typedef(
                 new_name = new_name[len("typing_extensions.") :]
             if new_name.startswith(("typing.")):
                 new_name = new_name[len("typing.") :]
-            type(cls).set_name(new_name)
+            metaclass = cast_type(CustomTypeCheckMetaBase, type(cls))
+            metaclass.set_name(new_name)
             return cls
         return as_origin_cls
     raise NotImplementedError(

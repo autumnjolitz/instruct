@@ -334,7 +334,7 @@ def test_values_view():
     with pytest.raises(AttributeError):
         # Avoid clobbering any properties named values please.
         f.values()
-
+    print(instruct.values(f))
     assert {"abc"} == set(instruct.values(f))
 
 

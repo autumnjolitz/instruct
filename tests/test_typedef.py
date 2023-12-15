@@ -7,6 +7,7 @@ from instruct.typedef import (
     find_class_in_definition,
 )
 from instruct import Base, AtomicMeta
+from instruct.typedef import Self, Protocol
 from typing import (
     List,
     Union,
@@ -20,6 +21,8 @@ from typing import (
     Set,
     Dict,
     Mapping,
+    TypeVar,
+    Collection,
 )
 
 try:
@@ -31,7 +34,6 @@ NoneType = type(None)
 
 
 def test_parse_typedef():
-
     custom_type = make_custom_typecheck(lambda val: val == 3)
     assert isinstance(3, custom_type)
     assert not isinstance("a", custom_type)
@@ -77,6 +79,32 @@ def test_parse_typedef():
     assert isinstance({1.0: "a", 4: "b", "c": "d"}, TypedDict)
     assert not isinstance({1.0: "a", 4: "b", "c": "d", object(): "foo"}, TypedDict)
     assert not isinstance({1.0: "a", 4: "b", "c": object()}, TypedDict)
+
+
+def test_parse_typedef_simple_protocol():
+    class Appendable(Protocol):
+        def append(self: Self, o: Any) -> None:
+            ...
+
+    cls = parse_typedef(Appendable)
+    val = [1, 2, 3]
+    assert isinstance(val, cls)
+    assert isinstance([1, "foo"], cls)
+    assert not isinstance({1, 2, 3}, cls)
+
+
+@pytest.mark.xfail
+def test_parse_typedef_complex_protocol():
+    T = TypeVar("T", bound=Collection)
+
+    class ImplementsAppend(Protocol[T]):
+        def append(self: Self, o: T) -> None:
+            ...
+
+    cls = parse_typedef(ImplementsAppend)
+    val = [1, 2, 3]
+    isinstance(val, cls)
+    assert isinstance(val, cls[int])
 
 
 def test_parse_typedef_init():

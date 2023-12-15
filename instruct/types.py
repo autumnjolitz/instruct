@@ -1,9 +1,14 @@
 from __future__ import annotations
+import sys
 from collections import UserDict
 from collections.abc import (
     Mapping as AbstractMapping,
     Sequence as AbstractSequence,
     Container as AbstractContainer,
+    MutableMapping as AbstractMutableMapping,
+    MutableSequence as AbstractMutableSequence,
+    Collection as AbstractCollection,
+    Set as AbstractSet,
 )
 from types import MethodType
 from weakref import WeakKeyDictionary, WeakValueDictionary
@@ -19,8 +24,42 @@ from typing import (
     Union,
     TypeVar,
     MutableMapping,
+    MutableSequence,
+    Sequence,
+    Set,
     Iterable,
+    Tuple,
+    overload,
+    KeysView,
+    Collection,
+    cast as cast_type,
+    TYPE_CHECKING,
 )
+
+if sys.version_info[:2] >= (3, 11):
+    from typing import TypeVarTuple
+    from typing import Self, assert_never
+else:
+    from typing_extensions import TypeVarTuple
+    from typing_extensions import Self, assert_never
+
+
+if sys.version_info[:2] >= (3, 10):
+    from typing import TypeGuard, TypeAlias
+    from types import EllipsisType
+else:
+    from typing_extensions import TypeGuard, TypeAlias
+
+
+if TYPE_CHECKING:
+    from typing import Iterator
+    from .typing import Atomic, TypingDefinition, CustomTypeCheck, InstanceMethod, ClassMethod
+
+
+UnionType = type(Union[str])
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 
 def mark(**kwargs: Any):
@@ -32,16 +71,57 @@ def mark(**kwargs: Any):
     return wrapper
 
 
-class AtomicImpl:
+class IAtomic:
+    __slots__ = ()
+
+    if TYPE_CHECKING:
+        REGISTRY: ImmutableCollection[Set[Type[AtomicImpl]]]
+        MIXINS: ImmutableMapping[str, AtomicImpl]
+        BINARY_JSON_ENCODERS: Dict[str, Callable[[Union[bytearray, bytes]], Any]]
+
+        _set_defaults: Callable[[], None]
+        _slots: Mapping[str, TypingDefinition]
+        _columns: ImmutableMapping[str, CustomTypeCheck]
+        _no_op_properties: Tuple[str, ...]
+        _column_types: ImmutableMapping[str, CustomTypeCheck]
+        _all_coercions: ImmutableMapping[str, Tuple[Union[TypingDefinition, Type], Callable]]
+        _support_columns: Tuple[str, ...]
+        _annotated_metadata: ImmutableMapping[str, Tuple[Any, ...]]
+        _nested_atomic_collection_keys: ImmutableMapping[str, Tuple[Type[AtomicImpl], ...]]
+        _skipped_fields: FrozenMapping[str, None]
+        _modified_fields: FrozenSet[str]
+        _properties: KeysView[str]
+        _configuration: ImmutableMapping[str, Type[AtomicImpl]]
+        __extra_slots__: ImmutableCollection[str]
+        _all_accessible_fields: ImmutableCollection[KeysView[str]]
+        _listener_funcs: ImmutableMapping[str, Iterable[Callable]]
+        _data_class: ImmutableValue[Type[AtomicImpl]]
+        _parent: ImmutableValue[Type[AtomicImpl]]
+
+        def __iter__(self) -> Iterator[Tuple[str, Any]]:
+            ...
+
+
+class AtomicImpl(IAtomic):
     __slots__ = ()
 
     @mark(base_cls=True)
-    def _clear(self, fields: Optional[Iterable[str]] = None):
+    def _clear(self: Self, fields: Optional[Iterable[str]] = None):
         pass
 
+    if TYPE_CHECKING:
+        __public_class__: Callable[[], Type[Atomic]]
 
-class AttrsDict(UserDict):
-    def __getattr__(self, key):
+    @mark(base_cls=True)
+    def _set_defaults(self: Self) -> Self:
+        # ARJ: Override to set defaults instead of inside the `__init__` function
+        # Note: Always call ``super()._set_defaults()`` FIRST as if you
+        # call it afterwards, the inheritance tree will zero initialize it first
+        return self
+
+
+class AttrsDict(UserDict, Generic[T]):
+    def __getattr__(self, key: str) -> Optional[T]:
         try:
             return self.data[key]
         except KeyError:
@@ -49,20 +129,85 @@ class AttrsDict(UserDict):
             return None
 
 
-T = TypeVar("T")
-U = TypeVar("U")
+ReadOnlyValue = Union[
+    MutableMapping[T, U],
+    MutableSequence[T],
+    Set[T],
+    Mapping[T, U],
+    FrozenSet[T],
+    Tuple[T, U],
+    str,
+    int,
+    float,
+    None,
+]
+
+ReadOnlyT = TypeVar("ReadOnlyT", bound="BaseReadOnly")
 
 
-class ReadOnly(Generic[T]):
-    value: T
+class BaseReadOnly:
+    __slots__ = ("value", "cast_type")
 
-    __slots__ = ("value",)
-
-    def __init__(self, value: T):
+    def __init__(self, value):
         self.value = value
 
-    def __get__(self, obj: Any, objtype: Optional[Type] = None) -> T:
+    def __get__(self, obj, objtype=None):
+        if self.cast_type is not None:
+            return self.cast_type(self.value)
         return self.value
+
+
+class ImmutableCollection(BaseReadOnly, Generic[T]):
+    __slots__ = ()
+
+    value: Collection[T]
+    cast_type: Union[Type[Tuple[T, ...]], Type[Set[T]], None]
+
+    def __init__(self, value):
+        self.cast_type = None
+        if isinstance(value, MutableSequence):
+            self.cast_type = cast_type(Type[Tuple[T, ...]], tuple)
+        elif isinstance(value, AbstractSet):
+            self.cast_type = cast_type(Type[FrozenSet[T]], frozenset)
+        super().__init__(value)
+
+
+class ImmutableMapping(BaseReadOnly, Generic[T, U]):
+    __slots__ = ()
+
+    value: Mapping[T, U]
+    cast_type: Optional[Type[FrozenMapping[T, U]]]
+
+    def __init__(self, value):
+        self.cast_type = None
+        if isinstance(value, MutableMapping):
+            self.cast_type = FrozenMapping[T, U]
+        super().__init__(value)
+
+
+class ImmutableValue(BaseReadOnly, Generic[T]):
+    __slots__ = ()
+    value: T
+    cast_type: None
+
+    def __init__(self, val):
+        self.cast_type = None
+        super().__init__(val)
+
+
+ReadOnly = Union[ImmutableMapping, ImmutableCollection, ImmutableValue]
+
+
+def is_readonly_mapping(item: BaseReadOnly) -> TypeGuard[ImmutableMapping[T, U]]:
+    if isinstance(item.value, AbstractMapping):
+        return True
+    return False
+
+
+def is_readonly_sequence(
+    item: BaseReadOnly, cls: Type[Collection[T]]
+) -> TypeGuard[ImmutableCollection[T]]:
+    return isinstance(item.value, cls)
 
 
 def _caculate_hash(mapping) -> int:
@@ -83,7 +228,7 @@ class FrozenMapping(Mapping[T, U]):
         iterable = {}
         if args:
             try:
-                iterable, = args
+                (iterable,) = args
             except ValueError:
                 raise TypeError(f"{cls.__name__} expected at most 1 arguments, got {len(args)}")
             if isinstance(iterable, cls) and not kwargs:
@@ -243,22 +388,50 @@ def deep_subtract_mappings(left: FrozenMapping, right: FrozenMapping, *, cls=dic
     return cls(diverged)
 
 
+if sys.version_info[:2] >= (3, 8):
+    from typing import Protocol
+else:
+    from typing_extensions import Protocol
+if sys.version_info[:2] >= (3, 12):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
+
+
+T_co = TypeVar("T_co", covariant=True)
+T_cta = TypeVar("T_cta", contravariant=True)
+
+
+class InstanceCallable(Protocol[T_cta]):
+    def __call__(self, instance: T_cta, *args, **kwargs) -> Any:
+        ...
+
+
+class ClassCallable(Protocol[T_cta]):
+    def __call__(self, cls: Type[T_cta], *args, **kwargs) -> Any:
+        ...
+
+
 class ClassOrInstanceFuncsDescriptor(Generic[T]):
     __slots__ = "_class_function", "_instance_function", "_classes"
+    _class_function: Union[ClassCallable[T], None]
+    _instance_function: Optional[InstanceCallable[T]]
 
     def __init__(
         self,
-        class_function: Optional[Callable] = None,
-        instance_function: Optional[Callable] = None,
+        class_function: Union[ClassCallable[T], None] = None,
+        instance_function: Optional[InstanceCallable[T]] = None,
     ) -> None:
         self._classes: MutableMapping[Type[T], MethodType] = WeakKeyDictionary()
         self._class_function = class_function
         self._instance_function = instance_function
 
-    def instance_function(self, instance_function) -> ClassOrInstanceFuncsDescriptor[T]:
+    def instance_function(
+        self, instance_function: InstanceCallable
+    ) -> ClassOrInstanceFuncsDescriptor[T]:
         return type(self)(self._class_function, instance_function)
 
-    def class_function(self, class_function):
+    def class_function(self, class_function: ClassCallable) -> ClassOrInstanceFuncsDescriptor[T]:
         return type(self)(class_function, self._instance_function)
 
     def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:

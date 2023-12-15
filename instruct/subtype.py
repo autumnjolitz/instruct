@@ -7,17 +7,20 @@ import inspect
 import typing
 import itertools
 from copy import copy
-from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, List
+from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, List, overload
 from typing_extensions import get_origin, get_args
 
 from .typedef import is_typing_definition, parse_typedef, ismetasubclass
+
 from .typing import (
     TypingDefinition,
     TypeGuard,
-    AbstractCollectionType,
     Literal,
     EllipsisType,
     TypingDefinition,
+    TypeHint,
+    Atomic,
+    isabstractcollectiontype,
 )
 
 T = TypeVar("T")
@@ -139,13 +142,15 @@ def handle_mapping(
     return handler
 
 
-def is_abstractcollection(cls: type) -> TypeGuard[AbstractCollectionType]:
-    return cls.__module__.startswith("collections.abc")
-
-
 def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], Iterable[T]]:
-    if is_abstractcollection(cls):
+    if isabstractcollectiontype(cls):
+        # ARJ: We can't materialize an MutableMapping, Sequence, et al because it is
+        # an abstract class.
+        if issubclass(cls, collections.abc.Mapping):
+            return handle_mapping(cls, *cast_functions)
+        # So now it's just things like List[T], Set[T], ...
         cls = cast(Type[T], list)
+
     check_cls = collections.abc.Collection
     if is_typing_definition(cls):
         origin_cls = get_origin(cls)
@@ -180,8 +185,24 @@ def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], 
     return handler
 
 
+@overload
 def wrapper_for_type(
-    type_hint, class_mapping, metaclass
+    type_hint: EllipsisType, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
+) -> EllipsisType:
+    ...
+
+
+@overload
+def wrapper_for_type(
+    type_hint: TypeHint, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
+) -> Callable[[Any], Any]:
+    ...
+
+
+def wrapper_for_type(
+    type_hint: Union[TypeHint, EllipsisType],
+    class_mapping: Mapping[Type[Atomic], Type[Atomic]],
+    metaclass,
 ) -> Union[Callable[[Any], Any], EllipsisType]:
     """
     Given an origin mapping type like:
@@ -233,8 +254,13 @@ def wrapper_for_type(
         else:
             raise NotImplementedError(f"{type_hint} unsupported!")
     elif isinstance(type_hint, type) and ismetasubclass(type_hint, metaclass):
+        from_cls: Type[Atomic]
+
         try:
-            from_cls, to_cls = type_hint, class_mapping[type_hint]
+            from_cls, to_cls = (
+                cast(Type[Atomic], type_hint),
+                class_mapping[cast(Type[Atomic], type_hint)],
+            )
         except KeyError as e:
             raise ValueError(
                 f"Unable to find the counterpart for {type_hint}! Currently have {class_mapping}"
