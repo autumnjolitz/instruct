@@ -1,8 +1,8 @@
 twine
 build
-black
+black>=23.7.0; python_version >= '3.8'
 invoke
 packaging
 # bump-my-version
 # git-changelog
-mypy
+mypy>1.3.0; python_version >= '3.8'

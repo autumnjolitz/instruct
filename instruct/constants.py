@@ -182,7 +182,10 @@ class Range:
         raise NotImplementedError
 
     def __repr__(self):
-        return f"{self.__class__.__qualname__}({self._lower!r}, {self._upper!r}, flags={self._flags.name}, type_restrictions={self._type_restrictions_orig!r})"
+        return (
+            f"{self.__class__.__qualname__}({self._lower!r}, {self._upper!r}, "
+            f"flags={self._flags.name}, type_restrictions={self._type_restrictions_orig!r})"
+        )
 
     def __str__(self):
         if self._flags is RangeFlags.OPEN_OPEN:

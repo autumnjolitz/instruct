@@ -1,7 +1,7 @@
 import sys
 import typing
 from collections.abc import Collection as AbstractCollection
-from typing import overload, Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic
+from typing import Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic
 
 from typing_extensions import get_origin
 
@@ -36,10 +36,9 @@ else:
     from typing_extensions import Self, Required, NotRequired
 
 if sys.version_info[:2] >= (3, 12):
-    from typing import TypeAliasType, Unpack
+    from typing import TypeAliasType, Unpack, TypeVar
 else:
-    from typing_extensions import TypeAliasType, Unpack
-    from typing_extensions import TypeVar
+    from typing_extensions import TypeAliasType, Unpack, TypeVar
 
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
@@ -70,6 +69,14 @@ from .types import AtomicImpl, IAtomic
 
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
+
+Annotated
+TypedDict
+IAtomic
+Unpack
+Required
+NotRequired
+Self
 
 T = TypeVar("T")
 Ts = TypeVarTuple("Ts")

@@ -5,9 +5,6 @@ from collections.abc import (
     Mapping as AbstractMapping,
     Sequence as AbstractSequence,
     Container as AbstractContainer,
-    MutableMapping as AbstractMutableMapping,
-    MutableSequence as AbstractMutableSequence,
-    Collection as AbstractCollection,
     Set as AbstractSet,
 )
 from types import MethodType
@@ -25,11 +22,9 @@ from typing import (
     TypeVar,
     MutableMapping,
     MutableSequence,
-    Sequence,
     Set,
     Iterable,
     Tuple,
-    overload,
     KeysView,
     Collection,
     cast as cast_type,
@@ -37,23 +32,20 @@ from typing import (
 )
 
 if sys.version_info[:2] >= (3, 11):
-    from typing import TypeVarTuple
-    from typing import Self, assert_never
+    from typing import Self
 else:
-    from typing_extensions import TypeVarTuple
-    from typing_extensions import Self, assert_never
+    from typing_extensions import Self
 
 
 if sys.version_info[:2] >= (3, 10):
-    from typing import TypeGuard, TypeAlias
-    from types import EllipsisType
+    from typing import TypeGuard
 else:
-    from typing_extensions import TypeGuard, TypeAlias
+    from typing_extensions import TypeGuard
 
 
 if TYPE_CHECKING:
     from typing import Iterator
-    from .typing import Atomic, TypingDefinition, CustomTypeCheck, InstanceMethod, ClassMethod
+    from .typing import Atomic, TypingDefinition, CustomTypeCheck
 
 
 UnionType = type(Union[str])
@@ -392,10 +384,6 @@ if sys.version_info[:2] >= (3, 8):
     from typing import Protocol
 else:
     from typing_extensions import Protocol
-if sys.version_info[:2] >= (3, 12):
-    from typing import Unpack
-else:
-    from typing_extensions import Unpack
 
 
 T_co = TypeVar("T_co", covariant=True)

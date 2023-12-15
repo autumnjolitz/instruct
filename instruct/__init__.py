@@ -15,8 +15,6 @@ from collections.abc import (
     Mapping as AbstractMapping,
     Iterable as AbstractIterable,
     ItemsView as _ItemsView,
-    MappingView,
-    Set as AbstractSet,
     KeysView as AbstractKeysView,
     ValuesView as AbstractValuesView,
     ItemsView as AbstractItemsView,
@@ -47,9 +45,7 @@ from typing import (
     TYPE_CHECKING,
     Union,
     overload,
-    KeysView,
     Generic,
-    Iterator,
     MutableMapping,
 )
 from weakref import WeakValueDictionary
@@ -67,7 +63,6 @@ from .typedef import (
     get_args,
     Annotated,
     Protocol,
-    Self,
     TypeGuard,
     CustomTypeCheck,
     Literal,
@@ -78,11 +73,10 @@ from .typing import (
     NoneType,
     TypeHint,
     ClassMethod,
-    InstanceMethod,
     isclassmethod,
-    CastType,
     ParentCastType,
     MutatedCastType,
+    Self,
 )
 
 # if TYPE_CHECKING:
@@ -97,7 +91,6 @@ from .types import (
     ImmutableValue,
     ImmutableMapping,
     ImmutableCollection,
-    BaseReadOnly,
     IAtomic,
     InstanceCallable,
 )
@@ -657,7 +650,7 @@ def skipped_fields(instance_or_cls: Union[Atomic, Type[Atomic]]) -> Optional[Ski
 def _dump_skipped_fields(instance_or_cls):
     caller = inspect.stack()[1]
     warnings.warn(
-        f"{caller.filename}:{caller.function}:{caller.lineno}: change instruct._dump_skipped_fields(...) to instruct.skipped_fields(...)!",
+        f"{caller.filename}:{caller.function}:{caller.lineno}: change instruct._dump_skipped_fields(...) to instruct.skipped_fields(...)!",  # noqa:E501
         DeprecationWarning,
     )
     return skipped_fields(instance_or_cls)
@@ -1301,13 +1294,19 @@ def transform_typing_to_coerce(
     return type_hints, wrapper_for_type(type_hints, class_mapping, AtomicMeta)
 
 
-from typing import Generic
+if TYPE_CHECKING:
 
+    class ModifiedSkipTypes(NamedTuple, Generic[Atomic]):
+        replacement_type_definition: TypeHint
+        replacement_coerce_definition: Optional[Tuple[Any, Callable]]
+        mutant_classes: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
 
-class ModifiedSkipTypes(NamedTuple, Generic[Atomic]):
-    replacement_type_definition: TypeHint
-    replacement_coerce_definition: Optional[Tuple[Any, Callable]]
-    mutant_classes: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
+else:
+
+    class ModifiedSkipTypes(NamedTuple):
+        replacement_type_definition: TypeHint
+        replacement_coerce_definition: Optional[Tuple[Any, Callable]]
+        mutant_classes: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
 
 
 @overload
@@ -1384,7 +1383,7 @@ def apply_skip_keys(
     current_definition: Union[Type[Atomic], TypeHint],
     current_coerce: Optional[Tuple[Type[T], Callable[[T], U]]],
 ) -> Union[
-    ModifiedSkipTypes[Atomic], Tuple[None, None, FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]]
+    "ModifiedSkipTypes[Atomic]", Tuple[None, None, FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]]
 ]:
     """
     If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.

@@ -4,20 +4,15 @@ Approaches for automatic subtype specialization through nested type conversion.
 import collections.abc
 import functools
 import inspect
-import typing
 import itertools
 from copy import copy
-from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, List, overload
+from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, overload
 from typing_extensions import get_origin, get_args
 
 from .typedef import is_typing_definition, parse_typedef, ismetasubclass
 
 from .typing import (
-    TypingDefinition,
-    TypeGuard,
-    Literal,
     EllipsisType,
-    TypingDefinition,
     TypeHint,
     Atomic,
     isabstractcollectiontype,

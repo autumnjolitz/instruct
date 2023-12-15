@@ -31,14 +31,13 @@ from typing import (
     Generator,
     Set,
     Dict,
-    _GenericAlias,
     cast as cast_type,
 )
 
 if typing.TYPE_CHECKING:
     from . import AtomicMeta
 
-from .typing import Protocol, Literal, Annotated, TypeGuard, Self, is_typing_definition
+from .typing import Protocol, Literal, Annotated, TypeGuard, is_typing_definition
 
 from typing_extensions import get_origin, get_original_bases, is_protocol, get_protocol_members
 from typing_extensions import get_args, get_type_hints
@@ -66,7 +65,7 @@ def make_custom_typecheck(*args, is_abstract_type=False):
     if len(args) == 1 and callable(args[0]):
         caller = inspect.stack()[1]
         warnings.warn(
-            f"{caller.filename}:{caller.function}:{caller.lineno}: change make_custom_typecheck(...) to have the type we're pretending to be!",
+            f"{caller.filename}:{caller.function}:{caller.lineno}: change make_custom_typecheck(...) to have the type we're pretending to be!",  # noqa:E501
             DeprecationWarning,
         )
         args = (object, *args, ())
@@ -641,30 +640,23 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
             return create_custom_type(origin_cls, *args, check_ranges=check_ranges)
         else:
             raise NotImplementedError(container_type, str(container_type))
-    elif isinstance(container_type, type) and issubclass(container_type, cast(type, Protocol)):
+    elif isinstance(container_type, type) and Protocol in container_type.mro():
         # Like P[int] where P = class P(Protocol[T])
-        if isinstance(container_type, _GenericAlias):
-            # ARJ: This is the case where someone is referring
-            # to a specialized version of a protocol, like
-            # class P(Protocol[T]):
-            #    a: T
-            # container_type = P[int]
-            # parse_typedef(container_type)
-            raise NotImplementedError("Specialized protocol-inheriting classes not implemented")
-        elif is_simple_protocol(container_type):
+        protocol: Type = cast(type, container_type)
+        if is_simple_protocol(protocol):
             is_abstract_type = True
 
             attribute_types: Dict[str, CustomTypeCheck] = {}
             attribute_values: Dict[str, Any] = {}
             attribute_functions: Set[str] = set()
-            hints = get_type_hints(container_type)
+            hints = get_type_hints(protocol)
 
-            for attribute in get_protocol_members(container_type):
+            for attribute in get_protocol_members(protocol):
                 with suppress(KeyError):
                     hint = hints[attribute]
                     attribute_types[attribute] = parse_typedef(hint)
                 with suppress(AttributeError):
-                    attribute_value = getattr(container_type, attribute)
+                    attribute_value = getattr(protocol, attribute)
                     if isinstance(attribute_value, FunctionType):
                         attribute_functions.add(attribute)
                         continue
@@ -704,13 +696,24 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
 
             test_func = test_simple_protocol
 
-        elif is_protocol(container_type):
+        elif is_protocol(protocol):
             # This implements Protocol[T]
-            assert container_type.__parameters__
+            assert get_args(protocol)
             ...
             raise NotImplementedError(
-                f"generic protocol support not implemented ({container_type.__parameters__})"
+                f"generic protocol support not implemented ({get_args(protocol)})"
             )
+        else:
+            cls = get_origin(protocol)
+            assert cls is not None and isinstance(cls, type), Protocol in protocol.mro()
+            assert is_protocol(cls)
+            # ARJ: This is the case where someone is referring
+            # to a specialized version of a protocol, like
+            # class P(Protocol[T]):
+            #    a: T
+            # container_type = P[int]
+            # parse_typedef(container_type)
+            raise NotImplementedError("Specialized protocol-inheriting classes not implemented")
 
     # active (collection type, *(generic_types)) ?
     if test_func is None:
@@ -871,19 +874,19 @@ def create_typecheck_for_container(container_cls, value_types=()):
                 )
             homogenous_type = parse_typedef(homogenous_type_spec)
 
-            def test_func(value):
+            def test_func_homogenous_tuple(value):
                 if not isinstance(value, container_cls):
                     return False
                 return all(isinstance(item, homogenous_type) for item in value)
 
-            return test_func, homogenous_type
+            return test_func_homogenous_tuple, homogenous_type
 
         else:
             test_types = flatten(
                 (parse_typedef(some_type) for some_type in value_types), eager=True
             )
 
-            def test_func(value):
+            def test_func_heterogenous_tuple(value):
                 if not isinstance(value, container_cls):
                     return False
                 if len(value) != len(test_types):
@@ -897,7 +900,7 @@ def create_typecheck_for_container(container_cls, value_types=()):
             assert all(
                 isinstance(x, type) for x in test_types
             ), f"some test types are invalid - {test_types}"
-            return test_func, tuple(test_types)
+            return test_func_heterogenous_tuple, tuple(test_types)
 
     elif issubclass(container_cls, AbstractMapping):
         if value_types:
@@ -905,7 +908,7 @@ def create_typecheck_for_container(container_cls, value_types=()):
             key_type = parse_typedef(key_type_spec)
             value_type = parse_typedef(value_type_spec)
 
-            def test_func(mapping) -> bool:
+            def test_func_mapping(mapping) -> bool:
                 if not isinstance(mapping, container_cls):
                     return False
                 for key, value in mapping.items():
@@ -913,7 +916,7 @@ def create_typecheck_for_container(container_cls, value_types=()):
                         return False
                 return True
 
-            return test_func, (key_type, value_type)
+            return test_func_mapping, (key_type, value_type)
 
     if test_func is None:
         if value_types:
@@ -922,18 +925,20 @@ def create_typecheck_for_container(container_cls, value_types=()):
                 test_types.append(create_custom_type(some_type, *args))
             test_types = flatten(test_types, eager=True)
 
-            def test_func(value):
+            def test_func_with_subtypes(value):
                 if not isinstance(value, container_cls):
                     return False
                 return all(isinstance(item, test_types) for item in value)
 
             assert all(isinstance(x, type) for x in test_types)
-            return test_func, test_types
+            return test_func_with_subtypes, test_types
 
         else:
 
-            def test_func(value):
+            def test_func_simple(value):
                 return isinstance(value, container_cls)
+
+            test_func = test_func_simple
 
     return test_func, None
 
@@ -983,7 +988,7 @@ def is_genericizable(item: TypingDefinition):
     return False
 
 
-def is_simple_protocol(item: TypingDefinition):
+def is_simple_protocol(item: TypeHint):
     """
     Tell us if this class is like:
 

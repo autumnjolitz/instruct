@@ -2,7 +2,7 @@ import functools
 import types
 from collections.abc import Iterable as AbstractIterable, Mapping as AbstractMapping
 from enum import EnumMeta
-from typing import Union, Iterable, Any, Mapping, TypeVar, Tuple
+from typing import Union, Iterable, Any, TypeVar, Tuple
 from .types import FrozenMapping
 
 

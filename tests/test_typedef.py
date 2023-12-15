@@ -7,7 +7,7 @@ from instruct.typedef import (
     find_class_in_definition,
 )
 from instruct import Base, AtomicMeta
-from instruct.typedef import Self, Protocol
+from instruct.typing import Self, Protocol
 from typing import (
     List,
     Union,

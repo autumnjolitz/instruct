@@ -32,6 +32,10 @@ if current_sha:
 parsed_version = parse_version(full_version)
 
 
+def quote(s: str) -> str:
+    return f'"{s}"'
+
+
 def write_about_and_emit_version():
     with open(os.path.join(here, "instruct/about.py"), "w") as fh:
         fh.write(
@@ -51,14 +55,14 @@ class VersionInfo(NamedTuple):
     post: Optional[int]
     local: Optional[str]
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return self[:3] == other[:3]
 
-    def __lt__(self, other):
+    def __lt__(self, other) -> bool:
         return self[:3] < other[:3]
 
     @property
-    def release(self):
+    def release(self) -> Tuple[int, int, int]:
         return self[:3]
 
     @property
@@ -73,9 +77,9 @@ __version_info__: VersionInfo = VersionInfo(
     {parsed_version.micro!r},
     {parsed_version.pre!r},
     {parsed_version.post!r},
-    {parsed_version.local or None!r},
+    {quote(parsed_version.local) or None},
 )
-__commit__: Optional[str] = {parsed_version.local or None!r}
+__commit__: Optional[str] = {quote(parsed_version.local) or None}
 """
         )
     return version
