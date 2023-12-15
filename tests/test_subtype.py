@@ -22,7 +22,7 @@ assert value.field.b == 2
 from pytest import fixture
 from typing import Tuple, Mapping, Union, List, Any, Dict
 
-from instruct import SimpleBase, keys, transform_typing_to_coerce, Atomic, asdict
+from instruct import SimpleBase, keys, transform_typing_to_coerce, AtomicMeta, asdict
 from instruct.subtype import (
     handle_instruct,
     handle_collection,
@@ -69,7 +69,7 @@ def test_simple_function_composition(Item, SubItem):
     Item -> Item - {...}
     """
 
-    cast_func = handle_instruct(Atomic, Item, SubItem)
+    cast_func = handle_instruct(AtomicMeta, Item, SubItem)
     from_value = Item(field="my value", value=123)
     to_value = SubItem(field="my value", value=123)
     assert cast_func(from_value) == to_value
@@ -77,7 +77,7 @@ def test_simple_function_composition(Item, SubItem):
 
     # test currying
 
-    cast_func = handle_instruct(Atomic, Item)(SubItem)
+    cast_func = handle_instruct(AtomicMeta, Item)(SubItem)
     assert cast_func(from_value) == to_value
     assert isinstance(cast_func(from_value), SubItem)
 
@@ -90,7 +90,7 @@ def test_collection_function_composition(Item, SubItem):
     Tuple[Item, ...] -> Tuple[SubItem, ...]
     Tuple[Item, str] -> Tuple[SubItem, str]
     """
-    cast_func = handle_collection(list, handle_instruct(Atomic, Item, SubItem))
+    cast_func = handle_collection(list, handle_instruct(AtomicMeta, Item, SubItem))
     from_value = [Item(field="my value", value=123)]
     to_value = [SubItem(field="my value", value=123)]
     mutated_value = cast_func(from_value)
@@ -98,7 +98,7 @@ def test_collection_function_composition(Item, SubItem):
     assert isinstance(mutated_value, list)
     assert all(isinstance(x, SubItem) for x in mutated_value)
 
-    cast_func = handle_collection(tuple, handle_instruct(Atomic, Item, SubItem))
+    cast_func = handle_collection(tuple, handle_instruct(AtomicMeta, Item, SubItem))
     from_value = (Item(field="my value", value=123),)
     to_value = (SubItem(field="my value", value=123),)
     mutated_value = cast_func(from_value)
@@ -106,7 +106,9 @@ def test_collection_function_composition(Item, SubItem):
     assert isinstance(mutated_value, tuple)
     assert all(isinstance(x, SubItem) for x in mutated_value)
 
-    cast_func = handle_collection(tuple, handle_instruct(Atomic, Item, SubItem, handle_object(str)))
+    cast_func = handle_collection(
+        tuple, handle_instruct(AtomicMeta, Item, SubItem, handle_object(str))
+    )
     from_value = (Item(field="my value", value=123), "abcdef")
     to_value = (SubItem(field="my value", value=123), "abcdef")
     mutated_value = cast_func(from_value)
@@ -126,7 +128,7 @@ def test_mapping_function_composition(Item, SubItem):
 
     # Mapping[str, Mapping[str, Item]] -> Mapping[str, Mapping[str, SubItem]]
     cast_func = handle_mapping(
-        dict, str, handle_mapping(dict, str, handle_instruct(Atomic, Item, SubItem))
+        dict, str, handle_mapping(dict, str, handle_instruct(AtomicMeta, Item, SubItem))
     )
     from_value = {"a": {"b": Item(field="my value", value=1234)}}
     to_value = {"a": {"b": SubItem(field="my value", value=1234)}}
@@ -137,7 +139,7 @@ def test_mapping_function_composition(Item, SubItem):
     cast_func = handle_mapping(
         dict,
         str,
-        handle_collection(tuple, handle_object(str), handle_instruct(Atomic, Item, SubItem)),
+        handle_collection(tuple, handle_object(str), handle_instruct(AtomicMeta, Item, SubItem)),
     )
     from_value = {"a": ("b", Item(field="my value", value=1234))}
     to_value = {"a": ("b", SubItem(field="my value", value=1234))}
@@ -150,7 +152,7 @@ def test_mapping_function_composition(Item, SubItem):
         handle_union(str, handle_object(str), int, handle_object(int)),
         handle_union(
             Tuple[Item, ...],
-            handle_collection(tuple, handle_instruct(Atomic, Item, SubItem)),
+            handle_collection(tuple, handle_instruct(AtomicMeta, Item, SubItem)),
             Tuple[str, ...],
             handle_collection(tuple, handle_object(str)),
         ),

@@ -6,10 +6,20 @@ import functools
 import inspect
 import itertools
 from copy import copy
-from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union
+from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, overload
+from typing_extensions import get_origin, get_args
 
 from .typedef import is_typing_definition, parse_typedef, ismetasubclass
-from .typing import T, U
+
+from .typing import (
+    EllipsisType,
+    TypeHint,
+    Atomic,
+    isabstractcollectiontype,
+)
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 
 def curry(function):
@@ -83,7 +93,7 @@ def handle_object(cls, cast_function=identity):
 
 
 @curry
-def handle_instruct(metaclass: Type, from_cls: Type[T], to_cls: Type[U], cast_function=identity):
+def handle_instruct(metaclass, from_cls, to_cls, cast_function=identity):
     from . import public_class
 
     assert ismetasubclass(from_cls, metaclass)
@@ -92,7 +102,7 @@ def handle_instruct(metaclass: Type, from_cls: Type[T], to_cls: Type[U], cast_fu
             raise TypeError(f"{to_cls} is not a child of {from_cls}")
     assert to_cls is not from_cls
 
-    def handler(item: T) -> U:
+    def handler(item):
         if isinstance(item, from_cls):
             return to_cls(**dict(iter(cast_function(item))))
         return item
@@ -108,9 +118,11 @@ def handle_mapping(
         cls = dict
     check_cls = collections.abc.Mapping
     if is_typing_definition(cls):
-        assert issubclass(cls.__origin__, check_cls)
+        origin_cls = get_origin(cls)
+        assert origin_cls is not None
+        assert issubclass(origin_cls, check_cls)
         check_cls = parse_typedef(cls)
-        cls = cls.__origin__
+        cls = origin_cls
     else:
         assert issubclass(cls, check_cls)
 
@@ -126,13 +138,21 @@ def handle_mapping(
 
 
 def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], Iterable[T]]:
-    if cls.__module__ == "collections.abc":
-        cls = list
+    if isabstractcollectiontype(cls):
+        # ARJ: We can't materialize an MutableMapping, Sequence, et al because it is
+        # an abstract class.
+        if issubclass(cls, collections.abc.Mapping):
+            return handle_mapping(cls, *cast_functions)
+        # So now it's just things like List[T], Set[T], ...
+        cls = cast(Type[T], list)
+
     check_cls = collections.abc.Collection
     if is_typing_definition(cls):
-        assert issubclass(cls.__origin__, check_cls)
+        origin_cls = get_origin(cls)
+        assert origin_cls is not None
+        assert issubclass(origin_cls, check_cls)
         check_cls = parse_typedef(cls)
-        cls = cls.__origin__
+        cls = origin_cls
     else:
         assert issubclass(cls, check_cls)
     if not cast_functions:
@@ -160,9 +180,25 @@ def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], 
     return handler
 
 
+@overload
 def wrapper_for_type(
-    type_hint, class_mapping: Mapping[Type[T], Type[T]], metaclass: Type[T]
+    type_hint: EllipsisType, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
+) -> EllipsisType:
+    ...
+
+
+@overload
+def wrapper_for_type(
+    type_hint: TypeHint, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
 ) -> Callable[[Any], Any]:
+    ...
+
+
+def wrapper_for_type(
+    type_hint: Union[TypeHint, EllipsisType],
+    class_mapping: Mapping[Type[Atomic], Type[Atomic]],
+    metaclass,
+) -> Union[Callable[[Any], Any], EllipsisType]:
     """
     Given an origin mapping type like:
 
@@ -184,38 +220,42 @@ def wrapper_for_type(
     if type_hint is Ellipsis:
         return type_hint
     if is_typing_definition(type_hint):
-        if hasattr(type_hint, "_name") and type_hint._name is None:
-            if type_hint.__origin__ is Union:
-                return handle_union(
-                    *[
-                        (parse_typedef(arg), wrapper_for_type(arg, class_mapping, metaclass))
-                        for arg in type_hint.__args__
-                    ]
-                )
-        container_type = getattr(type_hint, "__origin__", None)
-        if isinstance(container_type, type) and issubclass(
+        container_type = get_origin(type_hint)
+        if container_type is Union:
+            return handle_union(
+                *[
+                    (parse_typedef(arg), wrapper_for_type(arg, class_mapping, metaclass))
+                    for arg in get_args(type_hint)
+                ]
+            )
+        elif isinstance(container_type, type) and issubclass(
             container_type, collections.abc.Container
         ):
             if issubclass(container_type, collections.abc.Mapping):
-                assert len(type_hint.__args__) == 2
+                assert len(get_args(type_hint)) == 2
                 return handle_mapping(
                     container_type,
-                    wrapper_for_type(type_hint.__args__[0], class_mapping, metaclass),
-                    wrapper_for_type(type_hint.__args__[1], class_mapping, metaclass),
+                    wrapper_for_type(get_args(type_hint)[0], class_mapping, metaclass),
+                    wrapper_for_type(get_args(type_hint)[1], class_mapping, metaclass),
                 )
             else:
                 return handle_collection(
                     container_type,
                     *(
                         wrapper_for_type(arg, class_mapping, metaclass)
-                        for arg in type_hint.__args__
+                        for arg in get_args(type_hint)
                     ),
                 )
         else:
             raise NotImplementedError(f"{type_hint} unsupported!")
     elif isinstance(type_hint, type) and ismetasubclass(type_hint, metaclass):
+        from_cls: Type[Atomic]
+
         try:
-            from_cls, to_cls = type_hint, class_mapping[type_hint]
+            from_cls, to_cls = (
+                cast(Type[Atomic], type_hint),
+                class_mapping[cast(Type[Atomic], type_hint)],
+            )
         except KeyError as e:
             raise ValueError(
                 f"Unable to find the counterpart for {type_hint}! Currently have {class_mapping}"

@@ -8,7 +8,7 @@ t.name_or_id = 1
 
 
 class TestH(Base, history=True):
-    __slots__ = {"name_or_id": Union[int, str]}
+    name_or_id: Union[int, str]
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -16,7 +16,7 @@ class TestH(Base, history=True):
 
 
 class Test(Base):
-    __slots__ = {"name_or_id": Union[int, str]}
+    name_or_id: Union[int, str]
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -24,7 +24,7 @@ class Test(Base):
 
 
 class TestOptimized(Base, fast=True):
-    __slots__ = {"name_or_id": Union[int, str]}
+    name_or_id: Union[int, str]
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -32,7 +32,10 @@ class TestOptimized(Base, fast=True):
 
 
 class ComplexTest(Base):
-    __slots__ = {"id": int, "name": str, "type": int, "value": float}
+    id: int
+    name: str
+    type: int
+    value: float
 
     def __init__(self, **kwargs):
         self.id = 0
@@ -43,7 +46,7 @@ class ComplexTest(Base):
 
 
 class Next(ComplexTest):
-    __slots__ = {"next": int}
+    next: int
 
 
 def main():
@@ -97,8 +100,8 @@ if __name__ == "__main__":
     import random
 
     try:
-        from pycallgraph import PyCallGraph  # pytype: skip-file
-        from pycallgraph.output import GraphvizOutput
+        from pycallgraph import PyCallGraph  # type:ignore
+        from pycallgraph.output import GraphvizOutput  # type:ignore
     except ImportError:
         PyCallGraph = None
 
