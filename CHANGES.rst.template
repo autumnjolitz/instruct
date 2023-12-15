@@ -48,9 +48,6 @@ Unreleased Version
 
 Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{ version.compare_url }}>`_){% endif %}
 {%- endif %}
-{% if '' in version.sections_dict and version.sections_dict[''].commits -%}
-{{ render_section(version.sections_dict['']) }}
-{% endif -%}
 {% for type in changelog.sections %}
 {%- if type in version.sections_dict %}
 {%- with section = version.sections_dict[type] %}
@@ -58,6 +55,10 @@ Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{
 {%- endwith %}
 {%- endif %}
 {%- endfor %}
+{% if '' in version.sections_dict and version.sections_dict[''].commits -%}
+{{ render_section(version.sections_dict[''], 'Other') }}
+{% endif -%}
+
 {% endmacro -%}
 
 {#- template -#}
