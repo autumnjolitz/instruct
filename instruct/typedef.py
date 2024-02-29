@@ -23,7 +23,9 @@ from .typing import ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
 
-if sys.version_info < (3, 10):
+LOWER_THAN_310 = sys.version_info < (3, 10)
+
+if LOWER_THAN_310:
     get_origin = _get_origin
 else:
 
@@ -446,8 +448,9 @@ def is_typing_definition(item):
         origin = get_origin(item)
         if origin is not None:
             return is_typing_definition(origin)
-    if isinstance(item, (types.UnionType)):
-        return True
+    if not LOWER_THAN_310:
+        if isinstance(item, (types.UnionType,)):
+            return True
     return False
 
 
