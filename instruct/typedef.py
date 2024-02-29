@@ -1,6 +1,8 @@
 from __future__ import annotations
 import collections.abc
 from functools import wraps
+import types
+import sys
 from collections.abc import Mapping as AbstractMapping
 from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type
 
@@ -13,7 +15,7 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 
-from typing_extensions import get_origin
+from typing_extensions import get_origin as _get_origin
 from typing_extensions import get_args
 
 from .utils import flatten_restrict as flatten
@@ -21,10 +23,19 @@ from .typing import ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
 
+if sys.version_info < (3, 10):
+    get_origin = _get_origin
+else:
+
+    def get_origin(cls):
+        t = _get_origin(cls)
+        if isinstance(t, type) and issubclass(t, types.UnionType):
+            return Union[cls.__args__]
+        return t
+
 
 def make_custom_typecheck(func) -> Type[ICustomTypeCheck]:
-    """Create a custom type that will turn `isinstance(item, klass)` into `func(item)`
-    """
+    """Create a custom type that will turn `isinstance(item, klass)` into `func(item)`"""
     typename = "WrappedType<{}>"
 
     class WrappedType(type):
@@ -435,6 +446,8 @@ def is_typing_definition(item):
         origin = get_origin(item)
         if origin is not None:
             return is_typing_definition(origin)
+    if isinstance(item, (types.UnionType)):
+        return True
     return False
 
 

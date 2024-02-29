@@ -1,5 +1,6 @@
 import json
 import pprint
+import sys
 from typing import Union, List, Tuple, Optional, Dict, Any, Type
 
 try:
@@ -1489,3 +1490,43 @@ def test_empty():
         pass
 
     assert list(Foo()) == []
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.8 or higher")
+def test_using_builtin_unions():
+    class TestUnion(SimpleBase):
+        field: str | int
+
+    TestUnion("foo")
+    TestUnion(1)
+    with pytest.raises(TypeError):
+        TestUnion(1.5)
+
+
+def test_with_init_subclass():
+    Registry = {}
+
+    class Foo(SimpleBase):
+        def __init_subclass__(cls, swallow: str, **kwargs):
+            Registry[cls] = swallow
+            super().__init_subclass__()
+
+    f = Foo()
+
+    class Bar(Foo, swallow="Barn!"):
+        ...
+
+    assert Bar in Registry
+    assert Registry[Bar] == "Barn!"
+    assert len(Registry) == 1
+
+    class BarBar(Bar, swallow="Farter"):
+        def __init_subclass__(cls, **kwargs):
+            return
+
+    assert len(Registry) == 2
+
+    class BreakChainBar(BarBar):
+        ...
+
+    assert len(Registry) == 2
