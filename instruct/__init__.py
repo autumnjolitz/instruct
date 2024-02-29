@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import os
@@ -134,7 +135,7 @@ def public_class(
                         return public_atomic_classes[0]
                     return public_atomic_classes
             else:
-                next_cls, = atomic_classes
+                (next_cls,) = atomic_classes
         return public_class(next_cls, *rest, preserve_subtraction=preserve_subtraction)
     cls = cls.__public_class__()
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
@@ -204,7 +205,7 @@ def keys(
             return cls._all_accessible_fields
         return KeysView(tuple(cls._slots))
     if len(property_path) == 1:
-        key, = property_path
+        (key,) = property_path
         if key not in cls._nested_atomic_collection_keys:
             return keys(cls._slots[key])
         if len(cls._nested_atomic_collection_keys[key]) == 1:
@@ -471,7 +472,6 @@ if _SUPPORTED_CELLTYPE:
     def make_class_cell():
         return CellType(None)
 
-
 else:
 
     def make_class_cell() -> CellType:
@@ -489,7 +489,7 @@ else:
             return bar
 
         fake_function = closure_maker()
-        class_cell, = fake_function.__closure__
+        (class_cell,) = fake_function.__closure__
         del fake_function
         return class_cell
 
@@ -1029,9 +1029,10 @@ def apply_skip_keys(
             current_coerce = None
         else:
             while hasattr(current_coerce_cast_function, "__union_subtypes__"):
-                current_coerce_types, current_coerce_cast_function = (
-                    current_coerce_cast_function.__union_subtypes__
-                )
+                (
+                    current_coerce_types,
+                    current_coerce_cast_function,
+                ) = current_coerce_cast_function.__union_subtypes__
             current_coerce = (current_coerce_types, current_coerce_cast_function)
             del current_coerce_types, current_coerce_cast_function
 
@@ -1117,6 +1118,16 @@ def is_defined_coerce(cls, key):
             if key in coerce_mappings:
                 return coerce_mappings[key]
     return None
+
+
+def wrap_init_subclass(func):
+    @functools.wraps(func)
+    def __init_subclass__(cls, **kwargs):
+        if cls._is_data_class:
+            return
+        return func(cls, **kwargs)
+
+    return __init_subclass__
 
 
 class Atomic(type):
@@ -1286,6 +1297,7 @@ class Atomic(type):
         **mixins,
     ):
         if concrete_class:
+            attrs["_is_data_class"] = ReadOnly(True)
             cls = super().__new__(klass, class_name, bases, attrs)
             if not getattr(cls, "__hash__", None):
                 cls.__hash__ = object.__hash__
@@ -1387,10 +1399,26 @@ class Atomic(type):
         nested_atomic_collections: Dict[str, Atomic] = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
         column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
+        base_class_has_subclass_init = False
 
-        for mixin_name in mixins:
+        for cls in bases:
+            if cls is object:
+                break
+            base_class_has_subclass_init = hasattr(cls, "__init_subclass__")
+            if base_class_has_subclass_init:
+                break
+
+        init_subclass_kwargs = {}
+
+        for mixin_name in tuple(mixins):
             if mixins[mixin_name]:
-                mixin_cls = klass.MIXINS[mixin_name]
+                try:
+                    mixin_cls = klass.MIXINS[mixin_name]
+                except KeyError:
+                    if base_class_has_subclass_init:
+                        init_subclass_kwargs[mixin_name] = mixins[mixin_name]
+                        continue
+                    raise ValueError(f"{mixin_name!r} is not a registered Mixin on Atomic!")
                 if isinstance(mixins[mixin_name], type):
                     mixin_cls = mixins[mixin_name]
                 bases = (mixin_cls,) + bases
@@ -1645,6 +1673,10 @@ class Atomic(type):
 
         ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         ns_globals[class_name] = ReadOnly(None)
+        init_subclass = None
+
+        if "__init_subclass__" in support_cls_attrs:
+            init_subclass = support_cls_attrs.pop("__init_subclass__")
 
         if combined_columns:
             exec(
@@ -1789,7 +1821,10 @@ class Atomic(type):
 
         support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = dc = ReadOnly(None)
         support_cls_attrs["_parent"] = parent_cell = ReadOnly(None)
-        support_cls = super().__new__(klass, class_name, bases, support_cls_attrs)
+        support_cls_attrs["_is_data_class"] = ReadOnly(False)
+        support_cls = super().__new__(
+            klass, class_name, bases, support_cls_attrs, **init_subclass_kwargs
+        )
 
         for prop_name, value in support_cls_attrs.items():
             if isinstance(value, property):
@@ -1823,6 +1858,8 @@ class Atomic(type):
         data_class.__qualname__ = f"{support_cls.__qualname__}.{data_class.__name__}"
         parent_cell.value = support_cls
         klass.REGISTRY.add(support_cls)
+        if init_subclass is not None:
+            support_cls.__init_subclass__ = classmethod(wrap_init_subclass(init_subclass))
         return support_cls
 
     def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
