@@ -448,7 +448,7 @@ def is_typing_definition(item):
         origin = get_origin(item)
         if origin is not None:
             return is_typing_definition(origin)
-    if LOWER_THAN_310:
+    if not LOWER_THAN_310:
         if isinstance(item, (types.UnionType,)):
             return True
     return False
