@@ -1,12 +1,14 @@
 import json
 import pprint
 import sys
-from typing import Union, List, Tuple, Optional, Dict, Any, Type
+from typing import Union, List, Tuple, Optional, Dict, Any, Type, TypeVar
 
 try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
+
+from typing_extensions import get_type_hints
 
 from enum import Enum
 import datetime
@@ -34,6 +36,21 @@ from instruct import (
     clear,
     asdict,
 )
+
+
+def test_simple() -> None:
+    class Data(SimpleBase):
+        foo: int
+        bar: str
+        baz: Dict[str, Any]
+        cool: Annotated[int, "is this cool?", "yes"]
+
+    assert get_type_hints(Data) == {
+        "foo": int,
+        "bar": str,
+        "baz": Dict[str, Any],
+        "cool": int,
+    }
 
 
 class Data(Base, history=True):
@@ -1530,3 +1547,21 @@ def test_with_init_subclass():
         ...
 
     assert len(Registry) == 2
+
+
+def test_simple_generics():
+    T = TypeVar("T")
+    assert isinstance(T, TypeVar)
+
+    class Foo(SimpleBase):
+        field: T
+
+    assert isinstance(Foo._slots["field"], TypeVar)
+    assert Foo.__parameters__ == (T,)
+
+    # any_instance = Foo(None)
+    # assert any_instance.field is None
+
+    cls = Foo[int]
+    assert isinstance(cls(1).field, int)
+    assert get_type_hints(cls)["field"] is int
