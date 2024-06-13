@@ -5,6 +5,9 @@ from instruct.typedef import (
     make_custom_typecheck,
     has_collect_class,
     find_class_in_definition,
+    is_typing_definition,
+    get_args,
+    issubormetasubclass,
 )
 from instruct import Base, Atomic
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
@@ -18,7 +21,6 @@ NoneType = type(None)
 
 
 def test_parse_typedef():
-
     custom_type = make_custom_typecheck(lambda val: val == 3)
     assert isinstance(3, custom_type)
     assert not isinstance("a", custom_type)
@@ -162,3 +164,35 @@ def test_find_atomic_classes():
     type_hints = Optional[Bar]
     items = tuple(find_class_in_definition(type_hints, Atomic, metaclass=True))
     assert items == (Bar,)
+
+
+def test_parse_typedef_generics():
+    T = TypeVar("T")
+    assert is_typing_definition(T)
+    assert tuple(find_class_in_definition((T,), TypeVar)) == (T,)
+    assert tuple(find_class_in_definition(T, TypeVar)) == (T,)
+    U = TypeVar("U")
+    ListOfT = List[T]
+    ListOfTint = ListOfT[int]
+
+    assert not isinstance("any", parse_typedef(T))
+    assert not isinstance([1, 2, 3], parse_typedef(ListOfT))
+    assert not isinstance("any", parse_typedef(ListOfTint))
+    assert not isinstance([None, 2, 3], parse_typedef(ListOfTint))
+
+    assert isinstance([1, 2, 3], parse_typedef(ListOfTint))
+
+    cls = parse_typedef(ListOfT)
+    assert callable(cls)
+    assert isinstance(cls, type)
+    cls_int = cls[int]
+    assert isinstance([1, 2, 3], cls_int)
+
+    SomeDictGeneric = Dict[T, U]
+    SomeGenericSeq = Tuple[T, U]
+    assert not isinstance({"1": 1}, parse_typedef(SomeDictGeneric))
+    DictStrInt = SomeDictGeneric[str, int]
+    assert isinstance({"1": 1}, parse_typedef(DictStrInt))
+    assert isinstance((1, "str"), parse_typedef(SomeGenericSeq[int, str]))
+    assert not isinstance((1, 1), parse_typedef(SomeGenericSeq[int, str]))
+    assert not isinstance((1, 1), parse_typedef(Tuple[int, str]))

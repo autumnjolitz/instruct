@@ -6,6 +6,16 @@ from typing import Union, Iterable, Any, Mapping
 from .types import FrozenMapping
 
 
+def invert_mapping(mapping):
+    inverted = {}
+    for key, value in mapping.items():
+        try:
+            inverted[value].append(key)
+        except KeyError:
+            inverted[value] = [key]
+    return {key: tuple(value) for key, value in inverted.items()}
+
+
 def support_eager_eval(func):
     @functools.wraps(func)
     def wrapper(*args, eager=False, **kwargs):
@@ -57,7 +67,6 @@ def flatten_fields(item: Union[Mapping[str, Any], Iterable[Union[str, Iterable[A
     elif isinstance(item, (AbstractIterable, AbstractMapping)) and not isinstance(
         item, (bytearray, bytes)
     ):
-
         is_mapping = False
         if isinstance(item, AbstractMapping):
             iterable = ((key, item[key]) for key in item)
