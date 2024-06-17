@@ -26,7 +26,7 @@ from typing_extensions import get_origin as _get_origin
 from typing_extensions import get_args
 
 from .utils import flatten_restrict as flatten
-from .typing import ICustomTypeCheck
+from .typing import CustomTypeCheck as ICustomTypeCheck
 from .constants import Range
 from .exceptions import RangeError
 

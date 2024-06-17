@@ -11,6 +11,15 @@
 {%- endfor -%}
 {%- endmacro -%}
 
+{#- macro: remove_prefix -#}
+{%- macro remove_prefix(s, prefix) -%}
+{%- if s.startswith(prefix) -%}
+{{ s[prefix.__len__():] }}
+{%- else -%}
+{{ s }}
+{%- endif -%}
+{%- endmacro -%}
+
 {#- macro: render_section -#}
 {%- macro render_section(section, default_type_name="") -%}
 {%- if section.type or default_type_name -%}
@@ -29,7 +38,7 @@
 {%- macro render_version(version) -%}
 
 {%- if version.tag or version.planned_tag -%}
-Version {{ (version.tag or version.planned_tag)[1:] }}
+Version {{ remove_prefix(version.tag or version.planned_tag, 'v') }}
 -------------------
 
 Release {% if version.date %}{{ version.date }}{%else%}YYYY-MM-DD{% endif %}
@@ -37,11 +46,8 @@ Release {% if version.date %}{{ version.date }}{%else%}YYYY-MM-DD{% endif %}
 Unreleased Version
 -------------------
 
-Release ????-??-??
+Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{ version.compare_url }}>`_){% endif %}
 {%- endif %}
-{% if '' in version.sections_dict and version.sections_dict[''].commits -%}
-{{ render_section(version.sections_dict['']) }}
-{% endif -%}
 {% for type in changelog.sections %}
 {%- if type in version.sections_dict %}
 {%- with section = version.sections_dict[type] %}
@@ -49,9 +55,10 @@ Release ????-??-??
 {%- endwith %}
 {%- endif %}
 {%- endfor %}
-{%- if not (version.tag or version.planned_tag) -%}
-Compare with `latest <{{ version.compare_url }}>`_.
-{% endif %}
+{% if '' in version.sections_dict and version.sections_dict[''].commits -%}
+{{ render_section(version.sections_dict[''], 'Other') }}
+{% endif -%}
+
 {% endmacro -%}
 
 {#- template -#}

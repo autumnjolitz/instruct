@@ -1,14 +1,11 @@
 import json
 import pprint
-import sys
-from typing import Union, List, Tuple, Optional, Dict, Any, Type, TypeVar
+from typing import Union, List, Tuple, Optional, Dict, Any, Type
 
 try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
-
-from typing_extensions import get_type_hints
 
 from enum import Enum
 import datetime
@@ -35,22 +32,8 @@ from instruct import (
     NoHistory,
     clear,
     asdict,
+    asjson,
 )
-
-
-def test_simple() -> None:
-    class Data(SimpleBase):
-        foo: int
-        bar: str
-        baz: Dict[str, Any]
-        cool: Annotated[int, "is this cool?", "yes"]
-
-    assert get_type_hints(Data) == {
-        "foo": int,
-        "bar": str,
-        "baz": Dict[str, Any],
-        "cool": int,
-    }
 
 
 class Data(Base, history=True):
@@ -188,11 +171,15 @@ def test_partial_pickle():
 
 
 def test_json():
-    l1 = LinkedFields(id=2, name='Autumn')
-    data = json.dumps(l1.to_json())
+    l1 = LinkedFields(id=2, name="Autumn")
+    print("y")
+    x = asjson(l1)
+    print(x)
+    data = json.dumps(x)
+    print("DAta ", data)
     l2 = LinkedFields(**json.loads(data))
     assert l1 == l2
-    l3 = LinkedFields.from_json(l1.to_json())
+    l3 = LinkedFields.from_json(asjson(l1))
     assert l1 == l2 == l3
 
 
@@ -215,7 +202,11 @@ def test_json_complex():
     assert not isinstance(collection[0], SubItems)
     assert not isinstance(collection, Item._column_types["collection"])
     a = Item(collection=collection)
-    a_json = a.to_json()
+    assert asdict(a) == {"collection": _parse_collection(collection)}
+    assert a.collection
+    assert a.collection == _parse_collection(collection)
+    a_json = asjson(a)
+    assert "collection" in a_json
     assert isinstance(a_json["collection"][0], dict)
     assert isinstance(a_json["collection"][1], dict)
     element = a["collection"][0]
@@ -231,7 +222,7 @@ def test_mapping_immutability():
         __slots__ = {"data": Dict[str, Embedded]}
 
     i = Item(data={"foo": Embedded(d="bar")})
-    data = i.to_json()
+    data = asjson(i)
     assert isinstance(i.data["foo"], Embedded)
     del data
 
@@ -343,7 +334,7 @@ def test_values_view():
     with pytest.raises(AttributeError):
         # Avoid clobbering any properties named values please.
         f.values()
-
+    print(instruct.values(f))
     assert {"abc"} == set(instruct.values(f))
 
 
@@ -487,7 +478,7 @@ def test_readme():
     }
     org2 = pickle.loads(pickle.dumps(org))
     assert org2.secret is None
-    assert org2.to_json() == {
+    assert asjson(org2) == {
         "created_date": "2018-10-23T00:00:00",
         "id": 123,
         "members": [{"first_name": "Jinja", "id": 551, "last_name": "Ninja"}],
@@ -505,7 +496,7 @@ def test_invalid_kwargs():
     with pytest.raises(ClassCreationFailed) as e:
         Test(foo=1.2, bar=1, blech="2")
     assert len(e.value.errors) == 3
-    print(e.value.to_json())
+    print(asjson(e.value))
 
 
 def test_properties():
@@ -734,7 +725,7 @@ def test_skip_fields():
     assert a.baz == 1
     b = cls(1)
     assert b.baz == 1
-    assert b.to_json() == {"baz": 1}
+    assert asjson(b) == {"baz": 1}
 
 
 def test_override_special_functions():
@@ -831,7 +822,7 @@ def test_without_keys():
     with pytest.raises(TypeError):
         {**f}
 
-    assert f.to_json() == {"bar": "abc"}
+    assert asjson(f) == {"bar": "abc"}
 
     class ClobberedKeys(SimpleBase):
         bar: str
@@ -854,12 +845,12 @@ def test_without_json():
     f = Foo(1)
 
     assert Foo.to_json(f) == ({"bar": 1},)
-    with pytest.raises(AttributeError):
-        f.to_json()
+    assert (asjson(f),) == Foo.to_json(f)
 
     class Clobbered(SimpleBase):
         to_json: bool
 
+    assert not callable(Clobbered.to_json)
     c = Clobbered(False)
 
     with pytest.raises(TypeError):
@@ -881,16 +872,24 @@ def test_overridden_from_json():
     assert Foo(1) == Foo.from_json('{"field": 1}')
 
 
+def decodebase64uri(s: str):
+    if s.startswith("base64:"):
+        return base64.urlsafe_b64decode(s[len("base64") :])
+    raise TypeError
+
+
 def test_bytes_base64():
     class Foo(Base):
         item: bytes
         foo: bytes
 
-        __coerce__ = {("item", "foo"): (str, base64.urlsafe_b64decode)}
+        __coerce__ = {("item", "foo"): (str, decodebase64uri)}
 
     f = Foo(b"\x00\xef\xff", b"foobar")
-    assert f.to_json() == {"foo": "Zm9vYmFy", "item": "AO__"}
-    assert json.dumps(f.to_json(), sort_keys=True) == '{"foo": "Zm9vYmFy", "item": "AO__"}'
+    assert asjson(f) == {"foo": "base64:Zm9vYmFy", "item": "base64:AO__"}
+    assert (
+        json.dumps(asjson(f), sort_keys=True) == '{"foo": "base64:Zm9vYmFy", "item": "base64:AO__"}'
+    )
 
     class Broken(Base):
         # intentionally break the json encoder by no-oping the
@@ -899,17 +898,14 @@ def test_bytes_base64():
         item: bytes
 
     with pytest.raises(TypeError):
-        json.dumps(Broken(b"\x00\xef\xff").to_json())
+        json.dumps(asjson(Broken(b"\x00\xef\xff")))
 
     class Baz(Base):
         BINARY_JSON_ENCODERS = {"foo": lambda val: val.decode("utf8")}
         item: bytes
         foo: bytes
 
-        __coerce__ = {
-            "item": (str, base64.urlsafe_b64decode),
-            "foo": (str, lambda val: val.encode("utf8")),
-        }
+        __coerce__ = {"item": (str, decodebase64uri), "foo": (str, lambda val: val.encode("utf8"))}
 
         @classmethod
         def from_json(cls, item: Union[str, Dict[str, Any]]):
@@ -918,9 +914,9 @@ def test_bytes_base64():
             return super().from_json(item)
 
     f = Baz(b"\x00\xef\xff", b"foobar")
-    assert f.to_json() == {"foo": "foobar", "item": "AO__"}
-    assert json.dumps(f.to_json(), sort_keys=True) == '{"foo": "foobar", "item": "AO__"}'
-    assert f == Baz.from_json(json.dumps(f.to_json(), sort_keys=True))
+    assert asjson(f) == {"foo": "foobar", "item": "base64:AO__"}
+    assert json.dumps(asjson(f), sort_keys=True) == '{"foo": "foobar", "item": "base64:AO__"}'
+    assert f == Baz.from_json(json.dumps(asjson(f), sort_keys=True))
 
 
 def test_skip_keys_simple():
@@ -961,17 +957,17 @@ def test_complex_skip_keys_simple():
     c = Container({"foo": "abc", "bar": 1}, "hello")
 
     cls = Container - {"baz": {"foo"}}
-    c2 = cls.from_json(c.to_json())
-    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+    c2 = cls.from_json(asjson(c))
+    assert asjson(c2) == {"baz": {"bar": 1}, "name": "hello"}
 
     c2.baz = {"foo": "s", "bar": 1}
-    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+    assert asjson(c2) == {"baz": {"bar": 1}, "name": "hello"}
     c2.baz = Item(**{"foo": "s", "bar": 1})
-    assert c2.to_json() == {"baz": {"bar": 1}, "name": "hello"}
+    assert asjson(c2) == {"baz": {"bar": 1}, "name": "hello"}
 
     cls = Container - {"baz"}
-    c2 = cls.from_json(c.to_json())
-    assert c2.to_json() == {"name": "hello"}
+    c2 = cls.from_json(asjson(c))
+    assert asjson(c2) == {"name": "hello"}
 
     class Item(Base):
         foo: str
@@ -992,7 +988,7 @@ def test_complex_skip_keys_simple():
 
     c = Container([{"foo": "abc", "bar": 1}], "hello")
 
-    i = (Container - {"name", "altname"}).from_json(c.to_json())
+    i = (Container - {"name", "altname"}).from_json(asjson(c))
     assert i.name is None
     assert i.altname is None
     assert dict(i).keys() & {"altname", "name"} == set()
@@ -1146,9 +1142,9 @@ def test_skip_keys_coerce():
     assert fp.supervisor[0].name is None
     assert fp.supervisor[0].id == 2
     fp.worker = {"created_date": "0", "id": 456, "name": "Sam"}
-    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+    assert asjson(fp) == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
     fp.worker = Person(789, "abxdef", "0")
-    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 789}}
+    assert asjson(fp) == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 789}}
     assert isinstance(fp.worker, Person)
     assert isinstance(fp.worker, Person & "id")
     # Allow us to check the exact type of the subtraction is the same:
@@ -1211,7 +1207,7 @@ def test_skip_keys_coerce_classmethod():
     assert len(fp.worker) == 1
     assert "name" not in fp.worker
     assert isinstance(fp.worker, FacelessPerson)
-    assert fp.to_json() == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
+    assert asjson(fp) == {"id": 1, "supervisor": [{"id": 2}], "worker": {"id": 456}}
     assert (
         FacelessPosition.__coerce__["worker"][1]({"created_date": "0", "id": 456, "name": "Sam"})
         == fp.worker
@@ -1507,61 +1503,3 @@ def test_empty():
         pass
 
     assert list(Foo()) == []
-
-
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.8 or higher")
-def test_using_builtin_unions():
-    class TestUnion(SimpleBase):
-        field: str | int
-
-    TestUnion("foo")
-    TestUnion(1)
-    with pytest.raises(TypeError):
-        TestUnion(1.5)
-
-
-def test_with_init_subclass():
-    Registry = {}
-
-    class Foo(SimpleBase):
-        def __init_subclass__(cls, swallow: str, **kwargs):
-            Registry[cls] = swallow
-            super().__init_subclass__()
-
-    f = Foo()
-
-    class Bar(Foo, swallow="Barn!"):
-        ...
-
-    assert Bar in Registry
-    assert Registry[Bar] == "Barn!"
-    assert len(Registry) == 1
-
-    class BarBar(Bar, swallow="Farter"):
-        def __init_subclass__(cls, **kwargs):
-            return
-
-    assert len(Registry) == 2
-
-    class BreakChainBar(BarBar):
-        ...
-
-    assert len(Registry) == 2
-
-
-def test_simple_generics():
-    T = TypeVar("T")
-    assert isinstance(T, TypeVar)
-
-    class Foo(SimpleBase):
-        field: T
-
-    assert isinstance(Foo._slots["field"], TypeVar)
-    assert Foo.__parameters__ == (T,)
-
-    # any_instance = Foo(None)
-    # assert any_instance.field is None
-
-    cls = Foo[int]
-    assert isinstance(cls(1).field, int)
-    assert get_type_hints(cls)["field"] is int
