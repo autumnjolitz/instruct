@@ -111,7 +111,6 @@ from .exceptions import (
 )
 from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags
 
-T = TypeVar("T")
 __version__, __version_info__  # Silence unused import warning.
 
 logger = logging.getLogger(__name__)
@@ -128,6 +127,10 @@ AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 _GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hints).parameters
 _NATIVE_CLOSURE_SUPPORT = "closure" in inspect.signature(exec).parameters
 _SUPPORTED_CELLTYPE = hasattr(types, "CellType")
+
+
+def is_atomic_type(cls: type) -> TypeGuard[Type[Atomic]]:
+    return ismetasubclass(cls, AtomicMeta)
 
 
 @overload
@@ -206,9 +209,9 @@ def public_class(
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
     if any((cls._skipped_fields, cls._modified_fields)):
-        bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, AtomicMeta))
+        bases: Tuple[Type[Atomic], ...] = tuple(x for x in cls.__bases__ if is_atomic_type(x))
         while len(bases) == 1 and any((bases[0]._skipped_fields, bases[0]._modified_fields)):
-            bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, AtomicMeta))
+            bases = tuple(x for x in cls.__bases__ if is_atomic_type(x))
         if len(bases) == 1:
             return cast(Type[Atomic], bases[0])
     return cls
@@ -636,7 +639,7 @@ def skipped_fields(instance_or_cls: Union[Atomic, Type[Atomic]]) -> Optional[Ski
                     skipped_on_typedef_merged.update(skipped_on_typedef)
             if skipped_on_typedef_merged:
                 skipped[key] = skipped_on_typedef_merged
-        elif ismetasubclass(typedef, AtomicMeta) and issubclass(typedef, AtomicImpl):
+        elif isinstance(typedef, type) and is_atomic_type(typedef):
             atomic_cls: Type[Atomic] = typedef
             skipped_on_typedef = skipped_fields(atomic_cls)
             if skipped_on_typedef:
@@ -1234,8 +1237,8 @@ def create_proxy_property(
     return new_property, isinstance_compatible_types
 
 
-EMPTY_FROZEN_SET = frozenset()
-EMPTY_MAPPING = FrozenMapping({})
+EMPTY_FROZEN_SET: FrozenSet[Any] = frozenset()
+EMPTY_MAPPING: FrozenMapping[Any, Any] = FrozenMapping({})
 
 
 def __no_op_skip_get__(self):
@@ -1778,6 +1781,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         assert isinstance(attrs, dict)
         support_cls_attrs = attrs
         del attrs
+        globalns: Mapping[str, Any]
 
         if "__slots__" not in support_cls_attrs and "__annotations__" in support_cls_attrs:
             try:
@@ -1794,7 +1798,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 support_cls_attrs,
                 # First look in the module, then failsafe to the typing to support
                 # unimported 'Optional', et al
-                globalns,
+                cast(Dict[str, Any], globalns),
                 **kwargs,
             )
             support_cls_attrs["__slots__"] = hints
@@ -1847,7 +1851,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
 
         combined_slots: Dict[str, TypeHint]
         nested_atomic_collections: Dict[str, Union[Type[Atomic], Tuple[Type[Atomic], ...]]]
-        combined_columns: Dict[Type, Type] = {}
+        combined_columns: Dict[str, Type] = {}
 
         combined_slots = {}
         nested_atomic_collections = {}
@@ -1986,7 +1990,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         derived_classes = {}
         current_class_columns = {}
         current_class_slots = {}
-        avail_generics = ()
+        avail_generics: Tuple[TypeVar, ...] = ()
         generics_by_field = {}
         for key, typehint_or_anonymous_struct_decl in support_cls_attrs["__slots__"].items():
             if isinstance(typehint_or_anonymous_struct_decl, dict):
@@ -2321,6 +2325,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
 
         dc = ImmutableValue(None)
         dc_parent = ImmutableValue(None)
+        if init_subclass is not None:
+            support_cls_attrs["__init_subclass__"] = classmethod(wrap_init_subclass(init_subclass))
 
         support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = cast(
             ImmutableValue[Type[AtomicImpl]], dc
@@ -2370,8 +2376,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         reg = inspect.getattr_static(klass, "REGISTRY")
         reg.value.add(support_cls)
 
-        if init_subclass is not None:
-            support_cls.__init_subclass__ = classmethod(wrap_init_subclass(init_subclass))
+        # if init_subclass is not None:
+        #     support_cls.__init_subclass__ = classmethod(wrap_init_subclass(init_subclass))
         return support_cls
 
     def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
@@ -2447,7 +2453,7 @@ class Delta(NamedTuple):
     state: str
     old: Any
     new: Any
-    index: int
+    index: int  # type: ignore[assignment]
 
 
 class LoggedDelta(NamedTuple):
