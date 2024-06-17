@@ -1,34 +1,68 @@
 from __future__ import annotations
 import collections.abc
-from functools import wraps
-import types
+import inspect
 import sys
 import typing
+import warnings
+from functools import wraps
+from types import FunctionType
+from contextlib import suppress
 from collections.abc import (
     Mapping as AbstractMapping,
-    Sequence as AbstractSequence,
+    MutableMapping as AbstractMutableMapping,
     Iterable as AbstractIterable,
+    MutableSequence as AbstractMutableSequence,
+    Collection as AbstractCollection,
 )
-from typing import Union, Any, AnyStr, List, Tuple, cast, Optional, Callable, Type, TypeVar
-from contextlib import suppress
+from typing import (
+    Union,
+    Any,
+    AnyStr,
+    List,
+    Tuple,
+    cast,
+    Optional,
+    Callable,
+    Type,
+    TypeVar,
+    Mapping,
+    Iterable,
+    overload,
+    Generic,
+    Generator,
+    Set,
+    Dict,
+    cast as cast_type,
+)
 from weakref import WeakKeyDictionary
 
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
-try:
-    from typing import Annotated
-except ImportError:
-    from typing_extensions import Annotated
+if typing.TYPE_CHECKING:
+    from . import AtomicMeta
 
-from typing_extensions import get_origin as _get_origin
-from typing_extensions import get_args
+from .typing import Protocol, Literal, Annotated, TypeGuard, is_typing_definition
+
+from typing_extensions import (
+    get_origin as _get_origin,
+    get_original_bases,
+    is_protocol,
+    get_protocol_members,
+)
+from typing_extensions import get_args, get_type_hints
 
 from .utils import flatten_restrict as flatten
-from .typing import CustomTypeCheck as ICustomTypeCheck
+from .typing import (
+    CustomTypeCheck as ICustomTypeCheck,
+    TypingDefinition,
+    EllipsisType,
+    Atomic,
+    TypeHint,
+)
 from .constants import Range
-from .exceptions import RangeError
+from .exceptions import RangeError, TypeError as InstructTypeError
+
+T = TypeVar("T")
+U = TypeVar("U")
+
 
 if sys.version_info >= (3, 11):
     from typing import TypeVarTuple, Unpack
@@ -49,6 +83,8 @@ if sys.version_info >= (3, 10):
         return t
 
 else:
+    from typing_extensions import ParamSpec
+
     UnionTypes = (Union,)
     get_origin = _get_origin
 
