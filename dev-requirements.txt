@@ -1,6 +1,6 @@
 twine
 build
-black>=23.7.0; python_version >= '3.8'
+black~=23.7.0; python_version >= '3.8'
 invoke
 packaging
 # bump-my-version
