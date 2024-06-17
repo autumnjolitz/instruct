@@ -7,8 +7,8 @@ from collections.abc import (
     Container as AbstractContainer,
     Set as AbstractSet,
 )
-from types import MethodType
-from weakref import WeakKeyDictionary, WeakValueDictionary
+from types import MethodType, new_class
+from weakref import WeakValueDictionary
 from typing import (
     Any,
     Dict,
@@ -33,8 +33,10 @@ from typing import (
 
 if sys.version_info[:2] >= (3, 11):
     from typing import Self
+    from typing import TypeVarTuple
 else:
     from typing_extensions import Self
+    from typing_extensions import TypeVarTuple
 
 
 if sys.version_info[:2] >= (3, 10):
@@ -42,11 +44,21 @@ if sys.version_info[:2] >= (3, 10):
 else:
     from typing_extensions import TypeGuard
 
+if sys.version_info[:2] >= (3, 9):
+    from typing import get_type_hints
+else:
+    from typing_extensions import get_type_hints
+
 
 if TYPE_CHECKING:
     from typing import Iterator
     from .typing import Atomic, TypingDefinition, CustomTypeCheck
 
+
+if sys.version_info[:2] >= (3, 12):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 
 UnionType = type(Union[str])
 
@@ -54,13 +66,48 @@ T = TypeVar("T")
 U = TypeVar("U")
 
 
+if TYPE_CHECKING:
+    from weakref import WeakKeyDictionary as _WeakKeyDictionary
+
+    class WeakKeyDictionary(_WeakKeyDictionary, Generic[T, U]):
+        pass
+
+else:
+    from weakref import WeakKeyDictionary
+
+_Marks: WeakKeyDictionary[Callable, Dict[str, Any]] = WeakKeyDictionary()
+
+
 def mark(**kwargs: Any):
     def wrapper(func):
-        for key, value in kwargs.items():
-            setattr(func, f"_instruct_{key}", value)
+        try:
+            _Marks[func] = {**_Marks[func], **kwargs}
+        except KeyError:
+            _Marks[func] = {**kwargs}
         return func
 
     return wrapper
+
+
+def getmarks(func, *names, default=None):
+    try:
+        marks = _Marks[func]
+    except KeyError:
+        if names:
+            return (default,) * len(names)
+        return {}
+    else:
+        if not names:
+            return {**marks}
+        results = []
+        for name in names:
+            try:
+                value = marks[name]
+            except KeyError:
+                results.append(default)
+            else:
+                results.append(value)
+        return tuple(results)
 
 
 class IAtomic:
@@ -92,6 +139,92 @@ class IAtomic:
 
         def __iter__(self) -> Iterator[Tuple[str, Any]]:
             ...
+
+
+Ts = TypeVarTuple("Ts")
+
+# ARJ: Because we cannot inherit Generic (due to a metaclass layout conflict),
+# we must instead create a wrap-around type that can be used with
+# the AtomicMeta class
+if TYPE_CHECKING:
+
+    class Genericizable(Generic[Unpack[Ts]]):
+        ...
+
+else:
+    generic_cache = WeakKeyDictionary()
+
+    class Genericizable:
+        __slots__ = ()
+
+        def __new__(cls, *args, **kwargs):
+            args = ()
+            try:
+                args = cls.__args__
+            except AttributeError:
+                args = ()
+            if len(cls.__parameters__) != len(args):
+                return super(cls, cls).__new__(cls[cls.__default__])
+            return super().__new__(cls)
+
+        def __class_getitem__(self, key):
+            from . import public_class
+
+            if not isinstance(key, tuple):
+                args = (key,)
+            else:
+                args = key
+            if self is Genericizable:
+                return new_class(
+                    f"Genericable[{args!s}]",
+                    (self,),
+                    exec_body=lambda ns: ns.update({"__slots__": (), "__parameters__": args}),
+                )
+
+            self = public_class(self)
+            if self.__parameters__ and len(args) == len(self.__parameters__):
+                params = self.__parameters__
+                param_mapping = {p: n for p, n in zip(self.__parameters__, args)}
+                new_params = tuple(
+                    t if not isinstance(param_mapping[t], TypeVar) else param_mapping[t]
+                    for t in params
+                )
+                try:
+                    cached_generics = generic_cache[self]
+                    return cached_generics[args]
+                except KeyError:
+                    cached_generics = generic_cache[self] = WeakValueDictionary()
+
+                new_annotations = {}
+                complex_fields = []
+                typehints = get_type_hints(self, include_extras=True)
+                for field_name in self.__parameters_by_field__:
+                    typevar_params = self.__parameters_by_field__[field_name]
+                    typehint = typehints[field_name]
+                    if isinstance(typehint, TypeVar):
+                        new_annotations[field_name] = param_mapping[typehint]
+                    else:
+                        complex_fields.append(field_name)
+
+                for attr_name in self.__parameters_by_field__.keys() & frozenset(complex_fields):
+                    typevar_params = self.__parameters_by_field__[attr_name]
+                    attr_type_args = []
+                    for new_type, typevar in zip(args, typevar_params):
+                        attr_type_args.append(new_type)
+                    type_genericable = self._columns[attr_name]
+                    new_annotations[attr_name] = type_genericable[tuple(attr_type_args)]
+                new_cls = cached_generics[args] = type(
+                    self.__name__,
+                    (self - frozenset(new_annotations.keys()),),
+                    {
+                        "__annotations__": new_annotations,
+                        "__args__": args,
+                        "__parameters__": new_params,
+                    },
+                )
+
+                return new_cls
+            raise TypeError(f"{self} is not a generic class")
 
 
 class AtomicImpl(IAtomic):

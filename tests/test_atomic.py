@@ -1,7 +1,7 @@
 import json
 import pprint
 import sys
-from typing import Union, List, Tuple, Optional, Dict, Any, Type, TypeVar
+from typing import Union, List, Tuple, Optional, Dict, Any, Type, Generic
 
 try:
     from typing import Annotated
@@ -19,6 +19,7 @@ import instruct
 import inflection
 from instruct.types import IAtomic
 from instruct import (
+    public_class,
     Base,
     add_event_listener,
     ClassCreationFailed,
@@ -41,6 +42,11 @@ if sys.version_info < (3, 9):
     from typing_extensions import get_type_hints
 else:
     from typing import get_type_hints
+
+if sys.version_info >= (3, 13):
+    from typing import TypeVar
+else:
+    from typing_extensions import TypeVar
 
 
 def test_simple() -> None:
@@ -1576,12 +1582,37 @@ def test_simple_generics():
     class Foo(SimpleBase):
         field: T
 
+    assert str(Foo).endswith(f"Foo[{T!s}]")
+
     assert isinstance(Foo._slots["field"], TypeVar)
     assert Foo.__parameters__ == (T,)
 
-    # any_instance = Foo(None)
-    # assert any_instance.field is None
+    # with pytest.raises(TypeError):
+    assert public_class(Foo(1)) is Foo[Any]
+    assert str(public_class(Foo(1))) == "Foo[typing.Any]"
 
     cls = Foo[int]
+    assert Foo[int] is cls
     assert isinstance(cls(1).field, int)
     assert get_type_hints(cls)["field"] is int
+
+    U = TypeVar("U", default=str)
+
+    class Bar(SimpleBase, Generic[U]):
+        field: U
+
+    assert isinstance(Bar._slots["field"], TypeVar)
+    assert Bar.__parameters__ == (U,)
+
+    cls = Bar[int]
+    assert isinstance(cls(1).field, int)
+    assert get_type_hints(cls)["field"] is int
+
+    with pytest.raises(TypeError):
+        cls[str]
+
+    any_instance = Bar("foobar")
+    assert public_class(any_instance) is Bar[str]
+    print(str(public_class(any_instance)))
+    assert any_instance.field == "foobar"
+    assert isinstance(any_instance, Bar[str])
