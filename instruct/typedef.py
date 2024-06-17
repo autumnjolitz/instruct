@@ -3,6 +3,7 @@ import collections.abc
 import inspect
 import sys
 import warnings
+import typing
 from functools import wraps
 from types import FunctionType
 from contextlib import suppress
@@ -33,7 +34,6 @@ from typing import (
     Dict,
     cast as cast_type,
 )
-from weakref import WeakKeyDictionary
 from typing_extensions import (
     get_origin as _get_origin,
     get_original_bases,
@@ -50,6 +50,7 @@ from .typing import (
     Atomic,
     TypeHint,
     CustomTypeCheck,
+    Never,
 )
 from .utils import flatten_restrict as flatten
 from .exceptions import RangeError, TypeError as InstructTypeError
@@ -84,26 +85,39 @@ else:
     get_origin = _get_origin
 
 
+if typing.TYPE_CHECKING:
+    from weakref import WeakKeyDictionary as _WeakKeyDictionary
+
+    class WeakKeyDictionary(_WeakKeyDictionary, Generic[T, U]):
+        pass
+
+else:
+    from weakref import WeakKeyDictionary
+
+
 def is_union_typedef(t) -> bool:
     return _get_origin(t) in UnionTypes
 
 
-_abstract_custom_types = WeakKeyDictionary()
+_abstract_custom_types: WeakKeyDictionary[
+    CustomTypeCheck, Tuple[Callable, Callable]
+] = WeakKeyDictionary()
 
 
 class CustomTypeCheckMetaBase(type, Generic[T]):
     __slots__ = ()
 
+    @staticmethod
     def set_name(t, name):
         return _abstract_custom_types[t][0](name)
 
+    @staticmethod
     def set_type(t, type):
         return _abstract_custom_types[t][1](type)
 
 
-def is_abstract_custom_typecheck(o: Type) -> bool:
-    cls_type = type(o)
-    return isinstance(cls_type, CustomTypeCheckMetaBase)
+def is_abstract_custom_typecheck(o: Type) -> TypeGuard[CustomTypeCheckMetaBase]:
+    return isinstance(o, CustomTypeCheckMetaBase)
 
 
 def make_custom_typecheck(*args, is_abstract_type=False):
@@ -366,7 +380,7 @@ def _make_custom_typecheck(
     return CustomTypeCheckType
 
 
-def ismetasubclass(cls, metacls):
+def ismetasubclass(cls: Any, metacls: Type[T]) -> TypeGuard[Type[T]]:
     return issubclass(type(cls), metacls)
 
 
@@ -421,7 +435,10 @@ def has_collect_class(
 
 
 def find_class_in_definition(
-    type_hints: Union[Type, Tuple[Type, ...], List[Type]], root_cls: Type, *, metaclass=False
+    type_hints: Union[Type, Tuple[Type, ...], List[Type], TypeHint],
+    root_cls: Type,
+    *,
+    metaclass=False,
 ):
     if type_hints is Ellipsis:
         return
@@ -510,7 +527,8 @@ def find_class_in_definition(
         return None
 
     elif isinstance(type_hints, (tuple, list)):
-        for index, type_cls in enumerate(type_hints[:]):
+        new_type_hint = tuple(type_hints)
+        for index, type_cls in enumerate(new_type_hint[:]):
             if test_func(type_cls):
                 replacement = yield type_cls
             else:
@@ -518,8 +536,11 @@ def find_class_in_definition(
                     type_cls, root_cls, metaclass=metaclass
                 )
             if replacement is not None:
-                type_hints = type_hints[:index] + (replacement,) + type_hints[index + 1 :]
-        return type_hints
+                new_type_hint = new_type_hint[:index] + (replacement,) + new_type_hint[index + 1 :]
+        return new_type_hint
+
+
+M = Union[TypingDefinition, Type[Iterable], Type[Any], Tuple[Type[Any], ...]]
 
 
 def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type], check_ranges=()):
@@ -1114,74 +1135,82 @@ def parse_typedef(
             return tuple(parse_typedef(decl) for decl in typedef)
         else:
             raise NotImplementedError(f"Unknown typedef definition {typedef!r} ({type(typedef)})!")
+    typehint: TypeHint = typedef
+    as_origin_cls = get_origin(typehint)
+    type_args = get_args(typehint)
 
-    as_origin_cls = get_origin(typedef)
-    args = get_args(typedef)
-
-    if typedef is AnyStr:
-        return create_custom_type(typedef, check_ranges=check_ranges)
-    elif typedef is Any:
+    if typehint is AnyStr:
+        return create_custom_type(typehint, check_ranges=check_ranges)
+    elif typehint is Any:
         return object
-    elif typedef is Union:
+    elif typehint is Union:
         raise TypeError("A bare union means nothing!")
     elif as_origin_cls is Annotated:
-        typedef, *raw_metadata = args
+        actual_typedef: Union[Type, TypingDefinition]
+        actual_typedef, *raw_metadata = type_args
         # Skip to the internal type:
         # flags = []
-        p_check_ranges = []
+        pending_check_ranges = []
         for annotation in raw_metadata:
             if isinstance(annotation, Range):
-                p_check_ranges.append(annotation)
+                pending_check_ranges.append(annotation)
             # elif (getattr(annotation, '__module__', '') or '').startswith('instruct.constants'):
             #     flags.append(annotation)
-        check_ranges = tuple(p_check_ranges)
-        del p_check_ranges
-        new_type = parse_typedef(typedef, check_ranges=check_ranges)
+        check_ranges = tuple(pending_check_ranges)
+        del pending_check_ranges
+        new_type = parse_typedef(actual_typedef, check_ranges=check_ranges)
         if check_ranges:
-            if is_typing_definition(typedef):
-                new_name = str(typedef)
+            if is_typing_definition(actual_typedef):
+                new_name = str(actual_typedef)
                 if new_name.startswith(("typing_extensions.")):
                     new_name = new_name[len("typing_extensions.") :]
                 if new_name.startswith(("typing.")):
                     new_name = new_name[len("typing.") :]
             else:
-                new_name = typedef.__name__
-            CustomTypeCheckMetaBase.set_name(new_type, new_name)
-            CustomTypeCheckMetaBase.set_type(new_type, typedef)
+                new_name = actual_typedef.__name__
+            assert isinstance(new_type, CustomTypeCheckMetaBase)
+            type(new_type).set_name(new_type, new_name)
         return new_type
     elif as_origin_cls is Union:
-        assert args
-        return create_custom_type(typedef, *args, check_ranges=check_ranges)
+        assert type_args
+        return create_custom_type(typehint, *type_args, check_ranges=check_ranges)
     elif as_origin_cls is Literal:
-        if not args:
+        if not type_args:
             raise NotImplementedError("Literals must be non-empty!")
         # ARJ: We *really* should make one single type, however,
         # this messes with the message in the test_typedef::test_literal
         # and I'm not comfortable with changing the public messages globally.
-        new_type = create_custom_type(typedef, *args)
+        new_type = create_custom_type(typehint, *type_args)
         return new_type
-    elif as_origin_cls is not None or isinstance(typedef, TypeVar) or is_protocol(typedef):
-        if is_typing_definition(typedef) and hasattr(typedef, "_name") and typedef._name is None:
+
+    elif (
+        as_origin_cls is not None
+        or isinstance(typehint, TypeVar)
+        or is_protocol(cast(type, typehint))
+    ):
+        if hasattr(typehint, "_name") and typehint._name is None:
             # special cases!
             raise NotImplementedError(
-                f"The type definition for {typedef} is not supported, report as an issue."
+                f"The type definition for {typehint} is not supported, report as an issue."
             )
-        args = get_args(typedef)
-        if args or as_origin_cls is None:
+        type_args = get_args(typehint)
+        if type_args or as_origin_cls is None:
             if as_origin_cls is not None:
-                cls = create_custom_type(as_origin_cls, *args, check_ranges=check_ranges)
+                cls = create_custom_type(as_origin_cls, *type_args, check_ranges=check_ranges)
             else:
-                cls = create_custom_type(typedef, *args, check_ranges=check_ranges)
-            new_name = str(typedef)
+                cls = create_custom_type(typehint, *type_args, check_ranges=check_ranges)
+            new_name = str(typehint)
             if new_name.startswith(("typing_extensions.")):
                 new_name = new_name[len("typing_extensions.") :]
             if new_name.startswith(("typing.")):
                 new_name = new_name[len("typing.") :]
-            type(cls).set_name(cls, new_name)
-            type(cls).set_type(cls, typedef)
+            assert isinstance(cls, CustomTypeCheckMetaBase)
+            metaclass: CustomTypeCheckMetaBase = type(cls)
+            metaclass.set_name(cls, new_name)
+            metaclass.set_type(cls, typehint)
             return cls
         return as_origin_cls
 
     raise NotImplementedError(
-        f"The type definition for {typedef!r} ({type(typedef)}) is not supported yet, report as an issue."
+        f"The type definition for {typehint!r} ({type(typehint)}) is not supported yet, report as an issue."
     )
