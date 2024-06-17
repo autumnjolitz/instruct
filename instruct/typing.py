@@ -32,9 +32,11 @@ else:
 if sys.version_info[:2] >= (3, 11):
     from typing import TypeVarTuple
     from typing import Self, Required, NotRequired
+    from typing import Never
 else:
     from typing_extensions import TypeVarTuple
     from typing_extensions import Self, Required, NotRequired
+    from typing_extensions import Never
 
 if sys.version_info[:2] >= (3, 12):
     from typing import TypeAliasType, Unpack, TypeVar
