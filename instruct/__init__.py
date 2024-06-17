@@ -27,7 +27,7 @@ from collections import ChainMap
 from enum import IntEnum
 from importlib import import_module
 from itertools import chain
-from types import CodeType, FunctionType, SimpleNamespace, new_class
+from types import CodeType, FunctionType, SimpleNamespace, prepare_class
 from typing import (
     Any,
     Callable,
@@ -87,12 +87,14 @@ from .types import (
     AttrsDict,
     ClassOrInstanceFuncsDescriptor,
     mark,
+    getmarks,
     AtomicImpl,
     ImmutableValue,
     ImmutableMapping,
     ImmutableCollection,
     IAtomic,
     InstanceCallable,
+    Genericizable,
 )
 from .typing import Atomic
 from .types import ReadOnly
@@ -1541,6 +1543,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
     def register_mixin(cls: Type[AtomicMeta], name, klass):
         mixin_attribute = inspect.getattr_static(cls, "MIXINS")
         mixin_attribute.value[name] = klass
+        return cls
 
     def __init__(self, *args, **kwargs):
         # We use kwargs to pass to __new__ and therefore we need
@@ -1567,43 +1570,6 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             FrozenMapping(show_all_fields(cls, deep_traverse_on=include_fields)) - include_fields
         )
         return cast(Type[Atomic], self - skip_fields)
-
-    def __getitem__(self, key):
-        if not isinstance(key, tuple):
-            new_params = (key,)
-        else:
-            new_params = key
-        if self.__parameters__:
-            assert len(new_params) == len(self.__parameters__)
-            param_mapping = {p: n for p, n in zip(self.__parameters__, new_params)}
-            new_annotations = {}
-            complex_fields = []
-            typehints = get_type_hints(self)
-            for field_name in self.__parameters_by_field__:
-                typevar_params = self.__parameters_by_field__[field_name]
-                typehint = typehints[field_name]
-                if isinstance(typehint, TypeVar):
-                    new_annotations[field_name] = param_mapping[typehint]
-                else:
-                    complex_fields.append(field_name)
-
-            for attr_name in self.__parameters_by_field__.keys() & frozenset(complex_fields):
-                typevar_params = self.__parameters_by_field__[attr_name]
-                attr_type_args = []
-                for new_type, typevar in zip(new_params, typevar_params):
-                    attr_type_args.append(new_type)
-                type_genericable = self._columns[attr_name]
-                new_annotations[attr_name] = type_genericable[tuple(attr_type_args)]
-            return type(
-                self.__name__,
-                (self - frozenset(new_annotations.keys()),),
-                {
-                    "__annotations__": new_annotations,
-                    "__args__": new_params,
-                    "__parameters__": self.__parameters__,
-                },
-            )
-        raise AttributeError(key)
 
     def __sub__(self: IAtomic, skip: Union[Mapping[str, Any], Iterable[Any]]) -> Type[Atomic]:
         assert isinstance(skip, (list, frozenset, set, tuple, dict, str, FrozenMapping))
@@ -1773,7 +1739,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             "__setitem__",
         ):
             if key in attrs:
-                if hasattr(attrs[key], "_instruct_base_cls"):
+                (marked_value,) = getmarks(attrs[key], "base_cls", default=NOT_SET)
+                if marked_value is not NOT_SET and marked_value:
                     pending_base_class_funcs.append(key)
                     continue
                 data_class_attrs[key] = attrs.pop(key)
@@ -1860,6 +1827,10 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         base_class_has_subclass_init = False
 
         cls: Union[type, Type[Atomic]]
+
+        for index, cls in enumerate(bases):
+            if get_origin(cls) is Generic:
+                bases = (*bases[:index], Genericizable[get_args(cls)], *bases[index + 1 :])
 
         for cls in bases:
             if cls is object:
@@ -2053,8 +2024,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 del current_class_slots[key]
                 del current_class_columns[key]
         # ARJ: https://stackoverflow.com/a/54497260
-        # if avail_generics and Generic not in bases:
-        #     bases = (*bases[:-1], *bases[-1], Generic[avail_generics])
+        if avail_generics and not any(issubclass(b, Genericizable) for b in bases):
+            bases = (*bases[:-1], Genericizable[avail_generics], bases[-1])
 
         # Gather listeners:
         listeners, post_coerce_failure_handlers = gather_listeners(
@@ -2311,6 +2282,14 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         # Ensure public class has zero slots!
         support_cls_attrs["__slots__"] = ()
         if avail_generics:
+            pending_generic_defaults = []
+            for t in avail_generics:
+                default = inspect.getattr_static(t, "__default__", NOT_SET)
+                if default is not NOT_SET and default is not None:
+                    pending_generic_defaults.append(default)
+                else:
+                    pending_generic_defaults.append(Any)
+            support_cls_attrs["__default__"] = tuple(pending_generic_defaults)
             support_cls_attrs["__parameters__"] = tuple(avail_generics)
             support_cls_attrs["__parameters_by_field__"] = ImmutableMapping[
                 str, Tuple[TypeVar, ...]
@@ -2385,6 +2364,25 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
 
     def from_many_json(cls: Type[T], iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
         return tuple(cls(**item) for item in iterable)
+
+    def __str__(self):
+        try:
+            params = self.__parameters__
+        except AttributeError:
+            return super().__str__()
+        specialized_params = [str(x) for x in params]
+        try:
+            args = self.__args__
+        except AttributeError:
+            pass
+        else:
+            for index, arg in enumerate(args):
+                if is_typing_definition(arg):
+                    specialized_params[index] = str(arg)
+                else:
+                    specialized_params[index] = arg.__name__
+        param_s = ", ".join(specialized_params)
+        return f"{self.__qualname__}[{param_s}]"
 
     def to_json(*instances):
         """
