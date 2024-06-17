@@ -739,7 +739,7 @@ _set_defaults = make_defaults()
 """.strip()
 
 
-def make_defaults(fields, defaults_var_template):
+def make_defaults(fields: Tuple[str, ...], defaults_var_template: str):
     defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
     code = env.from_string(DEFAULTS_FRAGMENT).render(item=defaults_var_template)
     return code
@@ -1472,7 +1472,7 @@ def apply_skip_keys(
 
 def list_callables(cls):
     for key in dir(cls):
-        value = inspect.getattr_static(cls, key)
+        value = getattr(cls, key)
         if isinstance(value, type):
             continue
         elif not callable(value):
@@ -1711,17 +1711,18 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         return new_cls
 
     def __new__(
-        klass,
-        class_name,
-        bases,
-        attrs,
+        klass: Type[AtomicMeta],
+        class_name: str,
+        bases: Tuple[Union[Type, Type[Atomic]], ...],
+        attrs: Dict[str, Any],
         *,
-        fast=None,
-        concrete_class=False,
-        skip_fields=FrozenMapping(),
-        include_fields=FrozenMapping(),
-        **mixins: Any,
-    ):
+        fast: Optional[bool] = None,
+        concrete_class: bool = False,
+        # metadata:
+        skip_fields: FrozenMapping = FrozenMapping(),
+        include_fields: FrozenMapping = FrozenMapping(),
+        **mixins: bool,
+    ) -> Type[Atomic]:
         if concrete_class:
             parent_has_hash = None
             if "__hash__" not in attrs:
@@ -1753,7 +1754,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         if include_fields and skip_fields:
             raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
-        pending_base_class_functions = []
+        pending_base_class_funcs = []
         # Move overrides to the data class,
         # so we call them first, then the codegen pieces.
         # Suitable for a single level override.
@@ -1770,10 +1771,11 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         ):
             if key in attrs:
                 if hasattr(attrs[key], "_instruct_base_cls"):
-                    pending_base_class_functions.append(key)
+                    pending_base_class_funcs.append(key)
                     continue
                 data_class_attrs[key] = attrs.pop(key)
-        base_class_functions = tuple(pending_base_class_functions)
+        base_class_functions = tuple(pending_base_class_funcs)
+        assert isinstance(attrs, dict)
         support_cls_attrs = attrs
         del attrs
 
@@ -1820,17 +1822,17 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 )
             coerce_mappings = dict(unpack_coerce_mappings(coerce_mappings))
 
-        if not isinstance(support_cls_attrs["__coerce__"], ImmutableMapping):
-            support_cls_attrs["__coerce__"] = ImmutableMapping(coerce_mappings)
+            if not isinstance(support_cls_attrs["__coerce__"], ImmutableMapping):
+                support_cls_attrs["__coerce__"] = ImmutableMapping(coerce_mappings)
 
-        coerce_mappings = cast(CoerceMapping, coerce_mappings)
+            coerce_mappings = cast(CoerceMapping, coerce_mappings)
 
         # A support column is a __slot__ element that is unmanaged.
-        support_columns = []
+        pending_support_columns: List[str] = []
         if isinstance(support_cls_attrs["__slots__"], tuple):
             # Classes with tuples in them are assumed to be
             # data class definitions (i.e. supporting things like a change log)
-            support_columns.extend(support_cls_attrs["__slots__"])
+            pending_support_columns.extend(support_cls_attrs["__slots__"])
             support_cls_attrs["__slots__"] = FrozenMapping()
 
         if not isinstance(support_cls_attrs["__slots__"], AbstractMapping):
@@ -1843,12 +1845,17 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         if fast is None:
             fast = not __debug__
 
+        combined_slots: Dict[str, TypeHint]
+        nested_atomic_collections: Dict[str, Union[Type[Atomic], Tuple[Type[Atomic], ...]]]
         combined_columns: Dict[Type, Type] = {}
+
         combined_slots = {}
-        nested_atomic_collections: Dict[str, AtomicMeta] = {}
+        nested_atomic_collections = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
         column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
         base_class_has_subclass_init = False
+
+        cls: Union[type, Type[Atomic]]
 
         for cls in bases:
             if cls is object:
@@ -1856,6 +1863,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             base_class_has_subclass_init = hasattr(cls, "__init_subclass__")
             if base_class_has_subclass_init:
                 break
+            del cls
 
         init_subclass_kwargs = {}
 
@@ -1895,9 +1903,12 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         if "__extra_slots__" in support_cls_attrs:
             pending_extra_slots.extend(support_cls_attrs["__extra_slots__"])
         # Base class inherited items:
+        inherited_listeners: Dict[str, List[Callable]]
+
         annotated_metadata = {}
         inherited_listeners = {}
         for cls in bases:
+            skipped_properties: Tuple[str, ...]
             skipped_properties = ()
             if (
                 hasattr(cls, "__slots__")
@@ -1922,38 +1933,40 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                     else:
                         inherited_listeners[key] = value
             if hasattr(cls, "__extra_slots__"):
-                support_columns.extend(list(cls.__extra_slots__))
+                pending_support_columns.extend(list(cls.__extra_slots__))
 
             if ismetasubclass(cls, AtomicMeta):
+                parent_atomic: Type[AtomicImpl] = cast(Type[AtomicImpl], cls)
                 # Only AtomicMeta Descendants will merge in the helpers of
                 # _columns: Dict[str, Type]
-                if cls._annotated_metadata:
-                    annotated_metadata.update(cls._annotated_metadata)
-                if cls._column_types:
-                    column_types.update(cls._column_types)
-                if cls._nested_atomic_collection_keys:
-                    for key, value in cls._nested_atomic_collection_keys.items():
+                if parent_atomic._annotated_metadata:
+                    annotated_metadata.update(parent_atomic._annotated_metadata)
+                if parent_atomic._column_types:
+                    column_types.update(parent_atomic._column_types)
+                if parent_atomic._nested_atomic_collection_keys:
+                    for key, value in parent_atomic._nested_atomic_collection_keys.items():
                         # Override of this collection definition, so don't inherit!
                         if key in combined_columns:
                             continue
                         nested_atomic_collections[key] = value
 
-                if cls._columns:
-                    combined_columns.update(cls._columns)
-                if cls._slots:
-                    combined_slots.update(cls._slots)
-                if cls._support_columns:
-                    support_columns.extend(cls._support_columns)
-                skipped_properties = cls._no_op_properties
+                if parent_atomic._columns:
+                    combined_columns.update(parent_atomic._columns)
+                if parent_atomic._slots:
+                    combined_slots.update(parent_atomic._slots)
+                if parent_atomic._support_columns:
+                    pending_support_columns.extend(parent_atomic._support_columns)
+                skipped_properties = parent_atomic._no_op_properties
 
-                if hasattr(cls, "setter_wrapper"):
-                    setter_wrapper.append(cls.setter_wrapper)
-                if hasattr(cls, "__getter_template__"):
-                    getter_templates.append(cls.__getter_template__)
-                if hasattr(cls, "__setter_template__"):
-                    setter_templates.append(cls.__setter_template__)
-                if hasattr(cls, "__defaults__init__template__"):
-                    defaults_templates.append(cls.__defaults__init__template__)
+                if hasattr(parent_atomic, "setter_wrapper"):
+                    setter_wrapper.append(parent_atomic.setter_wrapper)
+                if hasattr(parent_atomic, "__getter_template__"):
+                    getter_templates.append(parent_atomic.__getter_template__)
+                if hasattr(parent_atomic, "__setter_template__"):
+                    setter_templates.append(parent_atomic.__setter_template__)
+                if hasattr(parent_atomic, "__defaults__init__template__"):
+                    defaults_templates.append(parent_atomic.__defaults__init__template__)
+                del parent_atomic
             # Collect all publicly accessible properties:
             for key in dir(cls):
                 value = getattr(cls, key)
@@ -2082,7 +2095,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         all_coercions = {}
         # the `__class__` field of the generated functions will be incomplete,
         # so track them so we can replace them with a derived type made ``__class__``
-        class_cell_fixups = []
+        class_cell_fixups: List[Union[Tuple[str, Callable[..., Any]], Tuple[str, property]]] = []
         for key, raw_typedef in tuple(current_class_slots.items()):
             disabled_derived = None
             if raw_typedef in klass.REGISTRY:
@@ -2138,10 +2151,10 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             class_cell_fixups.append((key, new_property))
 
         # Support columns are left as-is for slots
-        support_columns = tuple(_dedupe(support_columns))
+        support_columns = tuple(_dedupe(pending_support_columns))
 
-        ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
-        ns_globals[class_name] = ImmutableValue[Optional[Type[AtomicImpl]]](None)
+        dataclass_attrs = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
+        dataclass_attrs[class_name] = ImmutableValue[Optional[Type[AtomicImpl]]](None)
 
         init_subclass = None
 
@@ -2153,16 +2166,16 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 compile(
                     make_fast_dumps(combined_columns, class_name), "<make_fast_dumps>", mode="exec"
                 ),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
-            class_cell_fixups.append(("_asdict", cast(FunctionType, ns_globals["_asdict"])))
-            class_cell_fixups.append(("_astuple", cast(FunctionType, ns_globals["_astuple"])))
-            class_cell_fixups.append(("_aslist", cast(FunctionType, ns_globals["_aslist"])))
+            class_cell_fixups.append(("_asdict", cast(FunctionType, dataclass_attrs["_asdict"])))
+            class_cell_fixups.append(("_astuple", cast(FunctionType, dataclass_attrs["_astuple"])))
+            class_cell_fixups.append(("_aslist", cast(FunctionType, dataclass_attrs["_aslist"])))
             exec(
                 compile(make_fast_eq(combined_columns), "<make_fast_eq>", mode="exec"),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
             exec(
                 compile(
@@ -2170,10 +2183,10 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                     "<make_fast_clear>",
                     mode="exec",
                 ),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
-            class_cell_fixups.append(("clear", cast(FunctionType, ns_globals["_clear"])))
+            class_cell_fixups.append(("clear", cast(FunctionType, dataclass_attrs["_clear"])))
             exec(
                 compile(
                     make_fast_getset_item(
@@ -2186,8 +2199,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                     "<make_fast_getset_item>",
                     mode="exec",
                 ),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
             iter_fields = []
             for field in combined_columns:
@@ -2196,8 +2209,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 iter_fields.append(field)
             exec(
                 compile(make_fast_iter(iter_fields), "<make_fast_iter>", mode="exec"),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
             del iter_fields
             pickle_fields = []
@@ -2207,8 +2220,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 pickle_fields.append(field)
             exec(
                 compile(make_set_get_states(pickle_fields), "<make_set_get_states>", mode="exec"),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
             exec(
                 compile(
@@ -2216,11 +2229,11 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                     "<make_defaults>",
                     mode="exec",
                 ),
-                ns_globals,
-                ns_globals,
+                dataclass_attrs,
+                dataclass_attrs,
             )
             class_cell_fixups.append(
-                ("_set_defaults", cast(FunctionType, ns_globals["_set_defaults"]))
+                ("_set_defaults", cast(FunctionType, dataclass_attrs["_set_defaults"]))
             )
 
         for key in (
@@ -2238,13 +2251,13 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             # Move the autogenerated functions into the support class
             # Any overrides that *may* call them will be assigned
             # to the concrete class instead
-            if key in ns_globals:
+            if key in dataclass_attrs:
                 if key in base_class_functions:
                     continue
                 logger.debug(f"Copying {key} into {class_name} attributes")
-                support_cls_attrs[key] = ns_globals.pop(key)
-        if "_set_defaults" in ns_globals:
-            data_class_attrs["_set_defaults"] = ns_globals.pop("_set_defaults")
+                support_cls_attrs[key] = dataclass_attrs.pop(key)
+        if "_set_defaults" in dataclass_attrs:
+            data_class_attrs["_set_defaults"] = dataclass_attrs.pop("_set_defaults")
 
         # Any keys subtracted must have no-nop setters in order to
         # allow for subtype relationship will behaving as if those keys are fundamentally
@@ -2254,9 +2267,9 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 __no_op_skip_get__, __no_op_skip_set__
             )
 
-        if ns_globals:
+        if dataclass_attrs:
             logger.debug(
-                f"Did not add the following to {class_name} attributes: {tuple(ns_globals.keys())}"
+                f"Did not add the following to {class_name} attributes: {tuple(dataclass_attrs.keys())}"
             )
 
         support_cls_attrs["_columns"] = ImmutableMapping[str, CustomTypeCheck](combined_columns)
@@ -2316,7 +2329,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             ImmutableValue[Type[AtomicImpl]], dc_parent
         )
         support_cls = cast(
-            Type[Atomic], super().__new__(klass, class_name, bases, support_cls_attrs)
+            Type[Atomic],
+            super().__new__(klass, class_name, bases, support_cls_attrs, **init_subclass_kwargs),
         )  # type:ignore[misc]
 
         for prop_name, value in support_cls_attrs.items():
@@ -2331,7 +2345,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 continue
             setattr(support_cls, prop_name, value)
 
-        ns_globals["klass"] = support_cls
+        dataclass_attrs["klass"] = support_cls
         dataclass_slots = (
             tuple("_{}_".format(key) for key in combined_columns) + support_columns + extra_slots
         )
@@ -2341,9 +2355,12 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             data_class_attrs=data_class_attrs,
             class_slots=current_class_slots,
         )
-        ns_globals["_dataclass_attrs"] = data_class_attrs
-        exec(compile(dataclass_template, "<dcs>", mode="exec"), ns_globals, ns_globals)
-        dc.value = data_class = ns_globals[f"_{class_name}"]
+        dataclass_attrs["_dataclass_attrs"] = data_class_attrs
+        exec(compile(dataclass_template, "<dcs>", mode="exec"), dataclass_attrs, dataclass_attrs)
+
+        data_class: Type[Atomic]
+
+        dc.value = data_class = cast(Type[Atomic], dataclass_attrs[f"_{class_name}"])
         data_class.__module__ = support_cls.__module__
         for key, value in data_class_attrs.items():
             if callable(value):
@@ -2542,13 +2559,46 @@ class History(metaclass=AtomicMeta):
 AtomicMeta.register_mixin("history", History)
 
 
-DEFAULTS = """{%- for field in fields %}
-result._{{field}}_ = None
-{%- endfor %}
-"""
+def _cls_keys(
+    cls: Type[Atomic], instance: Optional[Atomic] = None, *, all: bool = False
+) -> Union[InstanceKeysView[Atomic, str], ClassKeysView[Atomic, str], ImmutableCollection[str]]:
+    if instance is not None:
+        return keys(instance, all=all)
+    class_keys: ClassKeysView[Atomic, str] = keys(cls, all=all)
+    return class_keys
 
 
-class IMapping(metaclass=AtomicMeta):
+def _instance_keys(
+    self: Atomic, *, all: bool = False
+) -> Union[InstanceKeysView[Atomic, str], ImmutableCollection[str]]:
+    return keys(self, all=all)
+
+
+def _cls_values(cls: Type[Atomic], item: Atomic):
+    return values(item)
+
+
+def _instance_values(self):
+    return values(self)
+
+
+def _cls_items(cls: Type[Atomic], item: Atomic):
+    return items(item)
+
+
+def _instance_items(self: Atomic):
+    return items(self)
+
+
+def _cls_get(cls: Type[Atomic], instance: Atomic, key: str, default=None):
+    return get(instance, key, default)
+
+
+def _instance_get(self: Atomic, key: str, default=None):
+    return get(self, key, default)
+
+
+class IMapping(Generic[Atomic], metaclass=AtomicMeta):
     """
     Allow an instruct class instance to have the `keys()` function which is
     mandatory to support **item unpacking.
@@ -2558,45 +2608,58 @@ class IMapping(metaclass=AtomicMeta):
 
     __slots__ = ()
 
-    @ClassOrInstanceFuncsDescriptor
-    def keys(cls, instance=None, *, all=False) -> Set[str]:
-        if instance is not None:
-            return keys(instance, all=all)
-        return keys(cls, all=all)
-
-    @keys.instance_function
-    def keys(self, *, all=False) -> Set[str]:
-        return keys(self, all=all)
-
-    @ClassOrInstanceFuncsDescriptor
-    def values(cls, item):
-        return values(item)
-
-    @values.instance_function
-    def values(self):
-        return values(self)
-
-    @ClassOrInstanceFuncsDescriptor
-    def items(cls, item):
-        return items(item)
-
-    @items.instance_function
-    def items(self):
-        return items(self)
-
-    @ClassOrInstanceFuncsDescriptor
-    def get(cls, instance, key, default=None):
-        return get(instance, key, default)
-
-    @get.instance_function
-    def get(self, key, default=None):
-        return get(self, key, default)
+    keys: ClassOrInstanceFuncsDescriptor[Atomic] = ClassOrInstanceFuncsDescriptor[Atomic](
+        _cls_keys, cast(InstanceCallable[Atomic], _instance_keys)
+    )
+    values: ClassOrInstanceFuncsDescriptor[Atomic] = ClassOrInstanceFuncsDescriptor[Atomic](
+        _cls_values, cast(InstanceCallable[Atomic], _instance_values)
+    )
+    items: ClassOrInstanceFuncsDescriptor[Atomic] = ClassOrInstanceFuncsDescriptor[Atomic](
+        _cls_items, cast(InstanceCallable[Atomic], _instance_items)
+    )
+    get: ClassOrInstanceFuncsDescriptor[Atomic] = ClassOrInstanceFuncsDescriptor[Atomic](
+        _cls_get, cast(InstanceCallable[Atomic], _instance_get)
+    )
 
 
+del _instance_keys, _cls_values, _instance_values, _cls_items, _instance_items, _cls_get
+del _instance_get
 AtomicMeta.register_mixin("mapping", IMapping)
 
 
-def add_event_listener(*fields):
+def add_event_listener(*fields: str):
+    """
+    Event listeners are functions that are run when an attribute is set.
+
+    Supports:
+        def listener(self, new):
+            ...
+
+        def listener(self, old, new):
+            ...
+
+        def listener(self, name: str, old, new):
+            ...
+
+    >>> from instruct import SimpleBase
+    >>> class Foo(SimpleBase):
+    ...     field_one: str
+    ...     field_two: int
+    ...     field_three: Union[str, int]
+    ...     @add_event_listener('field_one', 'field_two')
+    ...     def _on_field_change(self, name: str, old_value: Union[str, int, None], new_value: Union[int, str]):
+    ...         if name == 'field_one':
+    ...             if not new_value:
+    ...                 self.field_one = 'No empty!'
+    ...         elif name == 'field_two':
+    ...             if new_value < 0:
+    ...                  self.field_two = 0
+    ...
+    >>> astuple(Foo('', -1))
+    ('No empty!', 0, None)
+    >>>
+    """
+
     def wrapper(func):
         func._event_listener_funcs = getattr(func, "_event_listener_funcs", ()) + fields
         return func
@@ -2604,7 +2667,31 @@ def add_event_listener(*fields):
     return wrapper
 
 
-def handle_type_error(*fields):
+def handle_type_error(*fields: str):
+    """
+    Use this to call a function when an attempt to set a field fails due to a type
+    mismatch. If a true-ish value is returned, then the default TypeError will not
+    be thrown.
+
+    >>> from instruct import SimpleBase
+    >>> class Foo(SimpleBase):
+    ...     field_one: str
+    ...     field_two: int
+    ...     field_three: Union[str, int]
+    ...     @handle_type_error('field_two')
+    ...     def _try_cast_field_two(self, val):
+    ...         try:
+    ...             self.field_two = int(val, 10)
+    ...         except Exception:
+    ...             pass
+    ...         else:
+    ...             return True
+    ...
+    >>> f = Foo('My Foo', '255')
+    >>> astuple(f)
+    ('My Foo', 255, None)
+    """
+
     def wrapper(func):
         func._post_coerce_failure_funcs = getattr(func, "_post_coerce_failure_funcs", ()) + fields
         return func
@@ -2613,76 +2700,35 @@ def handle_type_error(*fields):
 
 
 def load_cls(cls, args, kwargs, skip_fields: Optional[FrozenMapping] = None):
+    """
+    :internal: interface for ``__reduce__`` to call.
+    """
     if skip_fields:
         cls = cls - skip_fields
     return cls(*args, **kwargs)
-
-
-def _encode_simple_nested_base(iterable, *, immutable=None):
-    """
-    Handle an List[Base], Tuple[Base], Mapping[Any, Base]
-    and coerce to json. Does not deeply traverse by design.
-    """
-
-    # Empty items short circuit:
-    if not iterable:
-        return iterable
-    if isinstance(iterable, AbstractMapping):
-        destination = iterable
-        if immutable:
-            if hasattr(iterable, "copy"):
-                destination = iterable.copy()
-            else:
-                # initialize an empty form of an AbstractMapping:
-                destination = type(iterable)()
-        for key in iterable:
-            value = iterable[key]
-            if hasattr(value, "to_json"):
-                destination[key] = value.to_json()
-            else:
-                destination[key] = value
-        return iterable
-    elif isinstance(iterable, Sequence):
-        if immutable is None and isinstance(iterable, (tuple, frozenset)):
-            immutable = True
-        elif immutable is None and isinstance(iterable, (list, set)):
-            immutable = False
-        if immutable is None:
-            try:
-                iterable[0] = iterable[0]
-            except Exception:
-                immutable = True
-            else:
-                immutable = False
-        if immutable:
-            # Convert to a mutable list and replace items
-            iterable = list(iterable)
-        for index, item in enumerate(iterable):
-            if hasattr(item, "to_json"):
-                iterable[index] = item.to_json()
-        return iterable
-    return iterable
 
 
 class JSONSerializable(metaclass=AtomicMeta):
     __slots__ = ()
 
     def to_json(self) -> Dict[str, Any]:
-        return AtomicMeta.to_json(self)[0]
+        return self.__json__()
 
     def __json__(self) -> Dict[str, Any]:
-        return self.to_json()
+        assert ismetasubclass(type(self), AtomicMeta)
+        return AtomicMeta.to_json(cast(AtomicMeta, self))[0]
 
     @classmethod
-    def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_json(cls: AtomicMeta, data: Dict[str, Any]) -> Type[Atomic]:
         return cls(**data)
 
     @classmethod
-    def from_many_json(cls: Type[T], iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
+    def from_many_json(cls: AtomicMeta, iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
         return tuple(cls.from_json(item) for item in iterable)
 
 
 AtomicMeta.register_mixin("json", JSONSerializable)
+
 
 # ARJ: How we create the ``__init__`` body on the concrete class (i.e. one with ``__slots__``)
 # This is really opaque and needs to be rethought as almost no one uses it. It's meant
@@ -2727,34 +2773,53 @@ class SimpleBase(metaclass=AtomicMeta):
 
         # Get the public, unmessed with class:
         cls = public_class(self)
-        skipped_fields = _dump_skipped_fields(type(self))
-        return load_cls, (cls, (), {}, skipped_fields), self.__getstate__()
+        s = skipped_fields(self)
+        return load_cls, (cls, (), {}, s), self.__getstate__()
 
     @classmethod
     def _create_invalid_type(cls, field_name, val, val_type, types_required):
-        if len(types_required) > 1:
-            if len(types_required) == 2:
-                expects = "either an {.__name__} or {.__name__}".format(*types_required)
-            else:
-                expects = (
-                    f'either an {", ".join(x.__name__ for x in types_required[:-1])} '
-                    f"or a {types_required[-1].__name__}"
+        pending_types_required_names = []
+        # ARJ: hmm, you know... the "types_required" field really  can be made into a static
+        # string and stored on the type once...
+        for req_cls in types_required:
+            # ARJ: Handle Literal[1, 2, 3]-cases.. :/
+            if issubclass(req_cls, CustomTypeCheck) and req_cls.__origin__ is Literal:
+                pending_types_required_names.extend(
+                    f'"{arg}"' if isinstance(arg, str) else str(arg) for arg in req_cls.__args__
                 )
+                continue
+            pending_types_required_names.append(req_cls.__name__)
+        types_required_names = tuple(pending_types_required_names)
+        if len(types_required_names) > 1:
+            if len(types_required_names) == 2:
+                left, right = types_required_names
+                expects = f"either an {left} or {right}"
+            else:
+                *rest_types, end = types_required_names
+                rest = ", ".join([x for x in rest_types])
+                expects = f"either an {rest} or a {end}"
         else:
-            expects = f"a {types_required[0].__name__}"
-        return TypeError(
+            (expected_type,) = types_required_names
+            expects = f"a {expected_type}"
+        return InstructTypeError(
             f"Unable to set {field_name} to {val!r} ({val_type.__name__}). {field_name} expects "
-            f"{expects}"
+            f"{expects}",
+            field_name,
+            val,
         )
 
     @classmethod
     def _create_invalid_value(cls, message, *args, **kwargs):
-        return ValueError(message, *args, **kwargs)
+        return InstructValueError(message, *args, **kwargs)
 
     def _handle_init_errors(self, errors, errored_keys, unrecognized_keys):
         if unrecognized_keys:
             fields = ", ".join(unrecognized_keys)
-            errors.append(self._create_invalid_value(f"Unrecognized fields {fields}"))
+            errors.append(
+                self._create_invalid_value(
+                    f"Unrecognized fields {fields}", fields=unrecognized_keys
+                )
+            )
         if errors:
             typename = inflection.titleize(type(self).__name__[1:])
             if len(errors) == 1:
@@ -2786,6 +2851,7 @@ class SimpleBase(metaclass=AtomicMeta):
             except Exception as e:
                 errors.append(e)
                 errored_keys.append(key)
+
         class_keys = self._all_accessible_fields
         # Set by keywords
         for key in class_keys & kwargs.keys():
@@ -2800,9 +2866,10 @@ class SimpleBase(metaclass=AtomicMeta):
             unrecognized_keys = kwargs.keys() - class_keys
         self._handle_init_errors(errors, errored_keys, unrecognized_keys)
         self._flags = Flags.INITIALIZED
+        self.__post_init__()
 
-    @mark(base_cls=True)
-    def _clear(self, fields: Iterable[str] = None):
+    # ARJ: Now you don't need to override __init__ just to do post init things
+    def __post_init__(self: Self):
         pass
 
     @mark(base_cls=True)
@@ -2816,13 +2883,6 @@ class SimpleBase(metaclass=AtomicMeta):
     @mark(base_cls=True)
     def _aslist(self) -> List[Any]:
         return []
-
-    @mark(base_cls=True)
-    def _set_defaults(self):
-        # ARJ: Override to set defaults instead of inside the `__init__` function
-        # Note: Always call ``super()._set_defaults()`` FIRST as if you
-        # call it afterwards, the inheritance tree will zero initialize it first
-        return self
 
     @mark(base_cls=True)
     def __iter__(self):
