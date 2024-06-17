@@ -5,12 +5,25 @@ from instruct.typedef import (
     make_custom_typecheck,
     has_collect_class,
     find_class_in_definition,
-    is_typing_definition,
-    get_args,
-    issubormetasubclass,
 )
 from instruct import Base, AtomicMeta
-from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
+from instruct.typing import Self, Protocol
+from typing import (
+    List,
+    Union,
+    AnyStr,
+    Any,
+    Optional,
+    Generic,
+    TypeVar,
+    Tuple,
+    FrozenSet,
+    Set,
+    Dict,
+    Mapping,
+    TypeVar,
+    Collection,
+)
 
 try:
     from typing import Literal
@@ -68,6 +81,70 @@ def test_parse_typedef():
     assert not isinstance({1.0: "a", 4: "b", "c": object()}, TypedDict)
 
 
+def test_parse_typedef_simple_protocol():
+    class Appendable(Protocol):
+        def append(self: Self, o: Any) -> None:
+            ...
+
+    cls = parse_typedef(Appendable)
+    val = [1, 2, 3]
+    assert isinstance(val, cls)
+    assert isinstance([1, "foo"], cls)
+    assert not isinstance({1, 2, 3}, cls)
+
+
+@pytest.mark.xfail
+def test_parse_typedef_complex_protocol():
+    T = TypeVar("T", bound=Collection)
+
+    class ImplementsAppend(Protocol[T]):
+        def append(self: Self, o: T) -> None:
+            ...
+
+    cls = parse_typedef(ImplementsAppend)
+    val = [1, 2, 3]
+    isinstance(val, cls)
+    assert isinstance(val, cls[int])
+
+
+def test_parse_typedef_init():
+    ListOfInts = parse_typedef(List[int])
+    assert isinstance(ListOfInts([1, 2, 3]), ListOfInts)
+    with pytest.raises(TypeError):
+        assert not isinstance(ListOfInts([1, 2, 3.1]), ListOfInts)
+
+    v = ListOfInts()
+    with pytest.raises(TypeError):
+        v.append("s")
+    with pytest.raises(TypeError):
+        v.extend([1, 2, "s"])
+    assert v == [1, 2]
+
+    with pytest.raises(TypeError):
+        v[0:4] = [1, 2, 3.5, 4]
+
+    cls = parse_typedef(Mapping[str, int])
+    with pytest.raises(TypeError) as exc:
+        i = cls({"a": 1, "b": 2})
+    assert str(exc.value).startswith("Cannot instantiate abstract class")
+    cls = parse_typedef(Dict[str, int])
+    i = cls({"a": 1, "b": 2})
+    with pytest.raises(TypeError) as exc:
+        i[2] = 4
+    assert str(exc.value).startswith("Key")
+
+    with pytest.raises(TypeError):
+        i["bart"] = 4.5
+    i["bart"] = 4
+
+    with pytest.raises(TypeError) as exc:
+        i.setdefault("fot", 31.4)
+    assert str(exc.value).startswith("Value")
+    assert "fot" not in i
+    i.setdefault("fot", 31)
+    assert i["fot"] == 31
+
+
 def test_enum():
     class MyEnum(Enum):
         A = "a"
@@ -82,8 +159,8 @@ def test_enum():
 
 
 def test_custom_name():
-    types = parse_typedef(Union[List[str], List[float]])
-    assert not frozenset(x.__name__ for x in types) - frozenset(["List[str]", "List[float]"])
+    cls = parse_typedef(Union[List[str], List[float]])
+    assert not frozenset(str(x) for x in cls) - frozenset(["List[str]", "List[float]"])
 
 
 def test_literal():
@@ -101,7 +178,9 @@ def test_literal():
     assert f.binary_mode == "wb"
     with pytest.raises(TypeError) as exc:
         f.binary_mode = "blah blah"
-    assert str(exc.value).endswith('binary_mode expects either an "rb", "wb", "r+b" or a "w+b"')
+    assert str(exc.value).endswith(
+        'binary_mode expects either an "rb", "wb", "r+b" or a "w+b"'
+    ), str(exc.value)
 
 
 def test_generic():
@@ -114,6 +193,13 @@ def test_generic():
     # To do: support generics?
     with pytest.raises(NotImplementedError):
         parse_typedef(Item[int])
+
+
+def test_tuple_two():
+    anonymous_pair_t = parse_typedef(Tuple[str, str])
+    assert isinstance(("", ""), anonymous_pair_t)
+    assert isinstance(("b", "a"), anonymous_pair_t)
+    assert not isinstance(("b", 1), anonymous_pair_t)
 
 
 def test_set():
@@ -168,35 +254,3 @@ def test_find_atomic_classes():
     type_hints = Optional[Bar]
     items = tuple(find_class_in_definition(type_hints, AtomicMeta, metaclass=True))
     assert items == (Bar,)
-
-
-def test_parse_typedef_generics():
-    T = TypeVar("T")
-    assert is_typing_definition(T)
-    assert tuple(find_class_in_definition((T,), TypeVar)) == (T,)
-    assert tuple(find_class_in_definition(T, TypeVar)) == (T,)
-    U = TypeVar("U")
-    ListOfT = List[T]
-    ListOfTint = ListOfT[int]
-
-    assert not isinstance("any", parse_typedef(T))
-    assert not isinstance([1, 2, 3], parse_typedef(ListOfT))
-    assert not isinstance("any", parse_typedef(ListOfTint))
-    assert not isinstance([None, 2, 3], parse_typedef(ListOfTint))
-
-    assert isinstance([1, 2, 3], parse_typedef(ListOfTint))
-
-    cls = parse_typedef(ListOfT)
-    assert callable(cls)
-    assert isinstance(cls, type)
-    cls_int = cls[int]
-    assert isinstance([1, 2, 3], cls_int)
-
-    SomeDictGeneric = Dict[T, U]
-    SomeGenericSeq = Tuple[T, U]
-    assert not isinstance({"1": 1}, parse_typedef(SomeDictGeneric))
-    DictStrInt = SomeDictGeneric[str, int]
-    assert isinstance({"1": 1}, parse_typedef(DictStrInt))
-    assert isinstance((1, "str"), parse_typedef(SomeGenericSeq[int, str]))
-    assert not isinstance((1, 1), parse_typedef(SomeGenericSeq[int, str]))
-    assert not isinstance((1, 1), parse_typedef(Tuple[int, str]))
