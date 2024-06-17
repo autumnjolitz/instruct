@@ -9,7 +9,7 @@ from instruct.typedef import (
     get_args,
     issubormetasubclass,
 )
-from instruct import Base, Atomic
+from instruct import Base, AtomicMeta
 from typing import List, Union, AnyStr, Any, Optional, Generic, TypeVar, Tuple, FrozenSet, Set, Dict
 
 try:
@@ -147,22 +147,26 @@ def test_find_atomic_classes():
     class Bar(Base):
         field: Item
 
-    assert (Item,) == tuple(find_class_in_definition(Item, Atomic, metaclass=True))
+    assert (Item,) == tuple(find_class_in_definition(Item, AtomicMeta, metaclass=True))
     # find_class_in_definition only goes one level and will always return the immediate atomic level
-    assert (Bar,) == tuple(find_class_in_definition(Bar, Atomic, metaclass=True))
+    assert (Bar,) == tuple(find_class_in_definition(Bar, AtomicMeta, metaclass=True))
 
     type_hints = Tuple[Item, ...]
-    items = tuple(find_class_in_definition(type_hints, Atomic, metaclass=True))
+    items = tuple(find_class_in_definition(type_hints, AtomicMeta, metaclass=True))
     assert items == (Item,)
     assert items[0] is Item
-    items = tuple(find_class_in_definition(Tuple[Tuple[Item, Item], ...], Atomic, metaclass=True))
+    items = tuple(
+        find_class_in_definition(Tuple[Tuple[Item, Item], ...], AtomicMeta, metaclass=True)
+    )
     assert items == (Item, Item)
     items = tuple(
-        find_class_in_definition(Tuple[Tuple[Dict[str, Item], int], ...], Atomic, metaclass=True)
+        find_class_in_definition(
+            Tuple[Tuple[Dict[str, Item], int], ...], AtomicMeta, metaclass=True
+        )
     )
     assert items == (Item,)
     type_hints = Optional[Bar]
-    items = tuple(find_class_in_definition(type_hints, Atomic, metaclass=True))
+    items = tuple(find_class_in_definition(type_hints, AtomicMeta, metaclass=True))
     assert items == (Bar,)
 
 

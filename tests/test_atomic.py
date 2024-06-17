@@ -31,7 +31,7 @@ from instruct import (
     NoPickle,
     Range,
     RangeError,
-    Atomic,
+    AtomicMeta,
     NoHistory,
     clear,
     asdict,
@@ -1408,7 +1408,7 @@ def test_annotated_constants():
         field5: Annotated[str, NoIterable, NoJSON]
 
     i = Item("a", "b", "c", "d", "e")
-    assert Atomic.to_json(i)[0] == {"field1": "a", "field3": "c"}
+    assert AtomicMeta.to_json(i)[0] == {"field1": "a", "field3": "c"}
     assert i.__reduce__()[-1] == {"field2": "b", "field3": "c", "field5": "e"}
     assert dict(i) == {"field1": "a", "field2": "b", "field4": "d"}
     assert i._asdict() == {
