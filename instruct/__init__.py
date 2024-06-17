@@ -102,12 +102,13 @@ def public_class(
     preserve_subtraction indicates that we want the public facing subtracted class as opposed
     to its root parent.
     """
+    cls: Type[T]
     if not isinstance(instance_or_type, type):
-        cls: Type[T] = type(instance_or_type)
+        cls = type(instance_or_type)
     else:
-        cls: Type[T] = instance_or_type
-    if not isinstance(cls, Atomic):
-        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+        cls = instance_or_type
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError(f"Can only call on AtomicMeta-metaclassed types!, {cls}")
     if property_path:
         key, *rest = property_path
         if key not in cls._slots:
@@ -144,9 +145,9 @@ def public_class(
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
     if any((cls._skipped_fields, cls._modified_fields)):
-        bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+        bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, AtomicMeta))
         while len(bases) == 1 and any((bases[0]._skipped_fields, bases[0]._modified_fields)):
-            bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, Atomic))
+            bases = tuple(x for x in cls.__bases__ if ismetasubclass(x, AtomicMeta))
         if len(bases) == 1:
             return bases[0]
     return cls
@@ -157,9 +158,11 @@ def clear(instance: T, fields: Optional[Iterable[str]] = None) -> T:
     Clear all fields on an instruct class instance.
     """
     if isinstance(instance, type):
-        raise TypeError("Can only call on an Atomic-metaclassed instance! You passed in a type!")
-    if not isinstance(instance.__class__, Atomic):
-        raise TypeError("Can only call on an Atomic-metaclassed type!")
+        raise TypeError(
+            "Can only call on an AtomicMeta-metaclassed instance! You passed in a type!"
+        )
+    if not isinstance(instance.__class__, AtomicMeta):
+        raise TypeError("Can only call on an AtomicMeta-metaclassed type!")
     if fields:
         unrecognized_keys = frozenset(fields) - frozenset(keys(instance))
         if unrecognized_keys:
@@ -198,8 +201,8 @@ def keys(
     else:
         cls = instance_or_cls
         instance = None
-    if not isinstance(cls, Atomic):
-        raise TypeError(f"Can only call on Atomic-metaclassed types!, {cls}")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError(f"Can only call on AtomicMeta-metaclassed types!, {cls}")
     if not property_path:
         if instance is not None and not all:
             return AtomicKeysView(instance)
@@ -225,8 +228,8 @@ def values(instance) -> AtomicValuesView:
     Analogous to dict.values(...)
     """
     cls = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is not None:
         return AtomicValuesView(instance)
     raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
@@ -237,8 +240,8 @@ def items(instance: T) -> ItemsView:
     Analogous to dict.items(...)
     """
     cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is not None:
         return ItemsView(instance)
     raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
@@ -250,8 +253,8 @@ def get(instance: T, key, default=None) -> Optional[Any]:
     exist on the type.
     """
     cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Can only call on Atomic-metaclassed types!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is None:
         raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
     try:
@@ -265,8 +268,8 @@ def asdict(instance: T) -> Dict[str, Any]:
     Return a dictionary version of the instance
     """
     cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._asdict()
 
 
@@ -275,8 +278,8 @@ def astuple(instance: T) -> Tuple[Any, ...]:
     Return a tuple of values from the instance
     """
     cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._astuple()
 
 
@@ -285,8 +288,8 @@ def aslist(instance: T) -> List[Any]:
     Return a list of values from the instance
     """
     cls: Type[T] = type(instance)
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._aslist()
 
 
@@ -304,8 +307,8 @@ def show_all_fields(
         cls = type(instance_or_cls)
     else:
         cls = instance_or_cls
-    if not isinstance(cls, Atomic):
-        raise TypeError("Must be an Atomic-metaclassed type!")
+    if not isinstance(cls, AtomicMeta):
+        raise TypeError("Must be an AtomicMeta-metaclassed type!")
     all_fields = {}
     for key, value in cls._slots.items():
         all_fields[key] = {}
@@ -316,7 +319,7 @@ def show_all_fields(
             if key in cls._nested_atomic_collection_keys:
                 for item in cls._nested_atomic_collection_keys[key]:
                     all_fields[key].update(show_all_fields(item, deep_traverse_on=next_deep_level))
-            elif ismetasubclass(value, Atomic):
+            elif ismetasubclass(value, AtomicMeta):
                 all_fields[key].update(show_all_fields(value, deep_traverse_on=next_deep_level))
         if not all_fields[key]:
             all_fields[key] = None
@@ -339,7 +342,7 @@ def _dump_skipped_fields(cls) -> Optional[FrozenMapping[str, Any]]:
                     skipped_on_typedef_merged.update(skipped_on_typedef)
             if skipped_on_typedef_merged:
                 skipped[key] = skipped_on_typedef_merged
-        elif ismetasubclass(typedef, Atomic):
+        elif ismetasubclass(typedef, AtomicMeta):
             skipped_on_typedef = _dump_skipped_fields(typedef)
             if skipped_on_typedef:
                 skipped[key] = skipped_on_typedef
@@ -676,7 +679,7 @@ def replace_class_references(
 
 
 def insert_class_closure(
-    klass: Atomic, function: Optional[Callable[..., Any]]
+    klass: AtomicMeta, function: Optional[Callable[..., Any]]
 ) -> Optional[Callable[..., Any]]:
     """
     an implicit super() works by looking at __class__ to fill in the
@@ -965,13 +968,13 @@ def transform_typing_to_coerce(
         type_hints = Union[type_hints]
     assert is_typing_definition(type_hints) or isinstance(type_hints, type)
 
-    return type_hints, wrapper_for_type(type_hints, class_mapping, Atomic)
+    return type_hints, wrapper_for_type(type_hints, class_mapping, AtomicMeta)
 
 
 class ModifiedSkipTypes(NamedTuple):
-    replacement_type_definition: Atomic
+    replacement_type_definition: AtomicMeta
     replacement_coerce_definition: Optional[Tuple[Any, Callable]]
-    mutant_classes: FrozenSet[Tuple[Atomic, Atomic]]
+    mutant_classes: FrozenSet[Tuple[AtomicMeta, AtomicMeta]]
 
 
 def create_union_coerce_function(
@@ -1007,18 +1010,18 @@ def create_union_coerce_function(
 
 def apply_skip_keys(
     skip_key_fields: Union[FrozenSet[str], Set[str], Dict[str, Any]],
-    current_definition: Atomic,
+    current_definition: AtomicMeta,
     current_coerce: Optional[Tuple[Any, Callable[[Any], Any]]],
 ) -> ModifiedSkipTypes:
     """
-    If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.
+    If the current definition is AtomicMeta, then AtomicMeta - fields should be compatible with AtomicMeta.
 
     So we will cast the base class to it's child class as the child should be compatible.
 
     Current issues:
-        - How do we unpack a Tuple[Union[Atomic1, Atomic2], ...] and transform to
-            Tuple[Union[Atomic1 - skip_fields, Atomic2 - skip_fields]] ?
-        - How do we handle Dict[str, Atomic1] -> Dict[str, Atomic1 - skip_fields] ?
+        - How do we unpack a Tuple[Union[AtomicMeta1, AtomicMeta2], ...] and transform to
+            Tuple[Union[AtomicMeta1 - skip_fields, AtomicMeta2 - skip_fields]] ?
+        - How do we handle Dict[str, AtomicMeta1] -> Dict[str, AtomicMeta1 - skip_fields] ?
 
     Basically this has to traverse the graph, branching out and replacing nodes.
     """
@@ -1041,13 +1044,13 @@ def apply_skip_keys(
 
     if (
         isinstance(current_definition, type)
-        and ismetasubclass(current_definition, Atomic)
+        and ismetasubclass(current_definition, AtomicMeta)
         or is_typing_definition(current_definition)
         or isinstance(current_definition, tuple)
     ):
         new_coerce_definition = None
         original_definition = current_definition
-        gen = find_class_in_definition(current_definition, Atomic, metaclass=True)
+        gen = find_class_in_definition(current_definition, AtomicMeta, metaclass=True)
         replace_class_refs = []
         try:
             result = None
@@ -1133,14 +1136,14 @@ def wrap_init_subclass(func):
     return __init_subclass__
 
 
-class Atomic(type):
+class AtomicMeta(type):
     __slots__ = ()
     REGISTRY = ReadOnly(set())
     MIXINS = ReadOnly({})
-    SKIPPED_FIELDS: Mapping[FrozenSet[str], Atomic] = WeakValueDictionary()
+    SKIPPED_FIELDS: Mapping[FrozenSet[str], AtomicMeta] = WeakValueDictionary()
 
     if TYPE_CHECKING:
-        _data_class: Atomic
+        _data_class: AtomicMeta
         _columns: Mapping[str, Any]
         _slots: Mapping[str, type]
         _column_types: Mapping[str, Union[Type, Tuple[Type, ...]]]
@@ -1149,8 +1152,8 @@ class Atomic(type):
         _properties: typing.KeysView[str]
         _configuration: AttrsDict
         _all_accessible_fields: typing.KeysView[str]
-        # i.e. key -> List[Union[AtomicDerived, bool]] means key can hold an Atomic derived type.
-        _nested_atomic_collection_keys: Mapping[str, Tuple[Atomic, ...]]
+        # i.e. key -> List[Union[AtomicMetaDerived, bool]] means key can hold an AtomicMeta derived type.
+        _nested_atomic_collection_keys: Mapping[str, Tuple[AtomicMeta, ...]]
 
     def __public_class__(self):
         """
@@ -1174,9 +1177,9 @@ class Atomic(type):
         yield from self._columns.keys()
 
     def __and__(
-        self: Atomic,
+        self: AtomicMeta,
         include_fields: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
-    ) -> Atomic:
+    ) -> AtomicMeta:
         assert isinstance(include_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
         include_fields: FrozenMapping = flatten_fields.collect(include_fields)
         include_fields -= self._skipped_fields
@@ -1224,12 +1227,14 @@ class Atomic(type):
             )
         raise AttributeError(key)
 
-    def __sub__(self: Atomic, skip_fields: Union[Mapping[str, Any], Iterable[Any]]) -> Atomic:
+    def __sub__(
+        self: AtomicMeta, skip_fields: Union[Mapping[str, Any], Iterable[Any]]
+    ) -> AtomicMeta:
         assert isinstance(skip_fields, (list, frozenset, set, tuple, dict, str, FrozenMapping))
         debug_mode = is_debug_mode("skip")
 
         root_class = type(self)
-        cls: Type[Atomic] = public_class(self)
+        cls: Type[AtomicMeta] = public_class(self)
 
         if not skip_fields:
             return self
@@ -1442,7 +1447,7 @@ class Atomic(type):
 
         combined_columns: Dict[Type, Type] = {}
         combined_slots = {}
-        nested_atomic_collections: Dict[str, Atomic] = {}
+        nested_atomic_collections: Dict[str, AtomicMeta] = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
         column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
         base_class_has_subclass_init = False
@@ -1464,7 +1469,7 @@ class Atomic(type):
                     if base_class_has_subclass_init:
                         init_subclass_kwargs[mixin_name] = mixins[mixin_name]
                         continue
-                    raise ValueError(f"{mixin_name!r} is not a registered Mixin on Atomic!")
+                    raise ValueError(f"{mixin_name!r} is not a registered Mixin on AtomicMeta!")
                 if isinstance(mixins[mixin_name], type):
                     mixin_cls = mixins[mixin_name]
                 bases = (mixin_cls,) + bases
@@ -1499,7 +1504,7 @@ class Atomic(type):
             if (
                 hasattr(cls, "__slots__")
                 and cls.__slots__ != ()
-                and not ismetasubclass(cls, Atomic)
+                and not ismetasubclass(cls, AtomicMeta)
             ):
                 # Because we cannot control the circumstances of a base class's construction
                 # and it has __slots__, which will destroy our multiple inheritance support,
@@ -1509,7 +1514,7 @@ class Atomic(type):
                 # subject to this limitation.
                 raise TypeError(
                     f"Multi-slot classes (like {cls.__name__}) must be defined "
-                    "with `metaclass=Atomic`. Mixins with empty __slots__ are not subject to "
+                    "with `metaclass=AtomicMeta`. Mixins with empty __slots__ are not subject to "
                     "this restriction."
                 )
             if hasattr(cls, "_listener_funcs"):
@@ -1521,8 +1526,8 @@ class Atomic(type):
             if hasattr(cls, "__extra_slots__"):
                 support_columns.extend(list(cls.__extra_slots__))
 
-            if ismetasubclass(cls, Atomic):
-                # Only Atomic Descendants will merge in the helpers of
+            if ismetasubclass(cls, AtomicMeta):
+                # Only AtomicMeta Descendants will merge in the helpers of
                 # _columns: Dict[str, Type]
                 if cls._annotated_metadata:
                     annotated_metadata.update(cls._annotated_metadata)
@@ -1582,8 +1587,10 @@ class Atomic(type):
             else:
                 typehint = typehint_or_anonymous_struct_decl
             del typehint_or_anonymous_struct_decl
-            if not ismetasubclass(typehint, Atomic):
-                nested_atomics = tuple(find_class_in_definition(typehint, Atomic, metaclass=True))
+            if not ismetasubclass(typehint, AtomicMeta):
+                nested_atomics = tuple(
+                    find_class_in_definition(typehint, AtomicMeta, metaclass=True)
+                )
                 if nested_atomics:
                     nested_atomic_collections[key] = nested_atomics
                 del nested_atomics
@@ -2010,7 +2017,7 @@ class Undefined(object):
 UNDEFINED = Undefined()
 
 
-class History(metaclass=Atomic):
+class History(metaclass=AtomicMeta):
     __slots__ = ("_changes", "_changed_keys", "_changed_index", "_suppress_history")
     setter_wrapper = "history-setter-wrapper.jinja"
 
@@ -2094,7 +2101,7 @@ class History(metaclass=Atomic):
             key_counter[key] += 1
 
 
-Atomic.register_mixin("history", History)
+AtomicMeta.register_mixin("history", History)
 
 
 DEFAULTS = """{%- for field in fields %}
@@ -2103,7 +2110,7 @@ result._{{field}}_ = None
 """
 
 
-class IMapping(metaclass=Atomic):
+class IMapping(metaclass=AtomicMeta):
     """
     Allow an instruct class instance to have the `keys()` function which is
     mandatory to support **item unpacking.
@@ -2148,7 +2155,7 @@ class IMapping(metaclass=Atomic):
         return get(self, key, default)
 
 
-Atomic.register_mixin("mapping", IMapping)
+AtomicMeta.register_mixin("mapping", IMapping)
 
 
 def add_event_listener(*fields):
@@ -2219,11 +2226,11 @@ def _encode_simple_nested_base(iterable, *, immutable=None):
     return iterable
 
 
-class JSONSerializable(metaclass=Atomic):
+class JSONSerializable(metaclass=AtomicMeta):
     __slots__ = ()
 
     def to_json(self) -> Dict[str, Any]:
-        return Atomic.to_json(self)[0]
+        return AtomicMeta.to_json(self)[0]
 
     def __json__(self) -> Dict[str, Any]:
         return self.to_json()
@@ -2246,10 +2253,10 @@ def mark(**kwargs):
     return wrapper
 
 
-Atomic.register_mixin("json", JSONSerializable)
+AtomicMeta.register_mixin("json", JSONSerializable)
 
 
-class SimpleBase(metaclass=Atomic):
+class SimpleBase(metaclass=AtomicMeta):
     __slots__ = ("_flags",)
     __setter_template__ = ReadOnly("self._{key}_ = val")
     __getter_template__ = ReadOnly("return self._{key}_")
@@ -2417,7 +2424,7 @@ __all__ = [
     # class instantiation status:
     "Flags",
     # metaclass
-    "Atomic",
+    "AtomicMeta",
     # history
     "History",
     "Delta",
