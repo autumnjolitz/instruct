@@ -319,7 +319,7 @@ def create_custom_type(container_type, *args, check_ranges=()):
                         return isinstance(value, types)
 
             elif origin_cls is Literal:
-                from . import Atomic, public_class
+                from . import AtomicMeta, public_class
 
                 def test_func(value) -> bool:
                     """
@@ -336,7 +336,7 @@ def create_custom_type(container_type, *args, check_ranges=()):
                                 arg_type = arg
                             else:
                                 arg_type = type(arg)
-                            if isinstance(arg_type, Atomic):
+                            if isinstance(arg_type, AtomicMeta):
                                 arg_type = public_class(arg_type, preserve_subtraction=True)
                             if isinstance(value, arg_type):
                                 return True
