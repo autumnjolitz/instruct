@@ -1,9 +1,10 @@
 import sys
 import typing
+from contextlib import suppress
 from collections.abc import Collection as AbstractCollection
 from typing import Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic
 
-from typing_extensions import get_origin
+from typing_extensions import get_origin, get_args
 
 if sys.version_info[:2] >= (3, 8):
     from typing import Protocol, Literal, runtime_checkable, TypedDict
@@ -167,13 +168,27 @@ def is_typing_definition(item: Any) -> TypeGuard[TypingDefinition]:
     """
     Check if the given item is a type hint.
     """
-    module_name: str = getattr(item, "__module__", "")
-    if module_name in ("typing", "typing_extensions"):
+
+    with suppress(AttributeError):
+        cls_module = type(item).__module__
+        if cls_module in ("typing", "typing_extensions") or cls_module.startswith(
+            ("typing.", "typing_extensions.")
+        ):
+            return True
+    with suppress(AttributeError):
+        module = item.__module__
+        if module in ("typing", "typing_extensions") or module.startswith(
+            ("typing.", "typing_extensions.")
+        ):
+            return True
+    if isinstance(item, (TypeVar, TypeVarTuple, ParamSpec)):
         return True
-    if module_name == "builtins":
-        origin = get_origin(item)
-        if origin is not None:
-            return is_typing_definition(origin)
+    origin = get_origin(item)
+    args = get_args(item)
+    if origin is not None:
+        return True
+    elif args:
+        return True
     return False
 
 

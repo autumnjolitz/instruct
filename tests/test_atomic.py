@@ -1,6 +1,7 @@
 import json
 import pprint
-from typing import Union, List, Tuple, Optional, Dict, Any, Type
+import sys
+from typing import Union, List, Tuple, Optional, Dict, Any, Type, TypeVar
 
 try:
     from typing import Annotated
@@ -16,6 +17,7 @@ from collections.abc import Mapping as AbstractMapping
 import pytest
 import instruct
 import inflection
+from instruct.types import IAtomic
 from instruct import (
     Base,
     add_event_listener,
@@ -34,6 +36,28 @@ from instruct import (
     asdict,
     asjson,
 )
+
+if sys.version_info < (3, 9):
+    from typing_extensions import get_type_hints
+else:
+    from typing import get_type_hints
+
+
+def test_simple() -> None:
+    class Data(SimpleBase):
+        foo: int
+        bar: str
+        baz: Dict[str, Any]
+        cool: Annotated[int, "is this cool?", "yes"]
+
+    assert get_type_hints(Data) == {
+        "foo": int,
+        "bar": str,
+        "baz": Dict[str, Any],
+        "cool": int,
+    }
+    assert isinstance(Data, IAtomic)
+    assert isinstance(Data(), IAtomic)
 
 
 class Data(Base, history=True):
@@ -1152,7 +1176,7 @@ def test_skip_keys_coerce():
     assert instruct.public_class(fp.worker, preserve_subtraction=True) is not Person
 
 
-def test_skip_keys_coerce_classmethod():
+def test_skip_keys_coerce_classmethod() -> None:
     class Person(Base):
         id: int
         name: str
@@ -1503,3 +1527,61 @@ def test_empty():
         pass
 
     assert list(Foo()) == []
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.8 or higher")
+def test_using_builtin_unions():
+    class TestUnion(SimpleBase):
+        field: str | int
+
+    TestUnion("foo")
+    TestUnion(1)
+    with pytest.raises(TypeError):
+        TestUnion(1.5)
+
+
+def test_with_init_subclass():
+    Registry = {}
+
+    class Foo(SimpleBase):
+        def __init_subclass__(cls, swallow: str, **kwargs):
+            Registry[cls] = swallow
+            super().__init_subclass__()
+
+    f = Foo()
+
+    class Bar(Foo, swallow="Barn!"):
+        ...
+
+    assert Bar in Registry
+    assert Registry[Bar] == "Barn!"
+    assert len(Registry) == 1
+
+    class BarBar(Bar, swallow="Farter"):
+        def __init_subclass__(cls, **kwargs):
+            return
+
+    assert len(Registry) == 2
+
+    class BreakChainBar(BarBar):
+        ...
+
+    assert len(Registry) == 2
+
+
+def test_simple_generics():
+    T = TypeVar("T")
+    assert isinstance(T, TypeVar)
+
+    class Foo(SimpleBase):
+        field: T
+
+    assert isinstance(Foo._slots["field"], TypeVar)
+    assert Foo.__parameters__ == (T,)
+
+    # any_instance = Foo(None)
+    # assert any_instance.field is None
+
+    cls = Foo[int]
+    assert isinstance(cls(1).field, int)
+    assert get_type_hints(cls)["field"] is int
