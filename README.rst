@@ -46,11 +46,10 @@ Current Capabilities:
 - Replace references to an embedded class in a ``__coerce__`` function with the subtracted form in case of embedded property subtractions [Done]
 - Allow use of Annotated i.e. ``field: Annotated[int, NoJSON, NoPickle]`` and have ``to_json`` and ``pickle.dumps(...)`` skip "field" [Done]
   + Would grant a more powerful interface to controlling code-gen'ed areas via ``cls._annotated_metadata`` (maps field -> what's inside the ``Annotation``) [Done]
+- Allow Generics i.e. ``class F(instruct.Base, Generic[T]): ...`` -> ``F[str](...)``
 
 Next Goals:
 
-- Allow Generics i.e. ``class F(instruct.Base, T): ...`` -> ``F[str](...)``
-  + Would be able to allow specialized subtypes
 - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
 - Cython compatibility
 
