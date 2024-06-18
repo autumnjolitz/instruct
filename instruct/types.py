@@ -110,12 +110,12 @@ def getmarks(func, *names, default=None):
         return tuple(results)
 
 
-class IAtomic:
+class AbstractAtomic:
     __slots__ = ()
 
     if TYPE_CHECKING:
-        REGISTRY: ImmutableCollection[Set[Type[AtomicImpl]]]
-        MIXINS: ImmutableMapping[str, AtomicImpl]
+        REGISTRY: ImmutableCollection[Set[Type[BaseAtomic]]]
+        MIXINS: ImmutableMapping[str, BaseAtomic]
         BINARY_JSON_ENCODERS: Dict[str, Callable[[Union[bytearray, bytes]], Any]]
 
         _set_defaults: Callable[[], None]
@@ -126,16 +126,16 @@ class IAtomic:
         _all_coercions: ImmutableMapping[str, Tuple[Union[TypingDefinition, Type], Callable]]
         _support_columns: Tuple[str, ...]
         _annotated_metadata: ImmutableMapping[str, Tuple[Any, ...]]
-        _nested_atomic_collection_keys: ImmutableMapping[str, Tuple[Type[AtomicImpl], ...]]
+        _nested_atomic_collection_keys: ImmutableMapping[str, Tuple[Type[BaseAtomic], ...]]
         _skipped_fields: FrozenMapping[str, None]
         _modified_fields: FrozenSet[str]
         _properties: KeysView[str]
-        _configuration: ImmutableMapping[str, Type[AtomicImpl]]
+        _configuration: ImmutableMapping[str, Type[BaseAtomic]]
         __extra_slots__: ImmutableCollection[str]
         _all_accessible_fields: ImmutableCollection[KeysView[str]]
         _listener_funcs: ImmutableMapping[str, Iterable[Callable]]
-        _data_class: ImmutableValue[Type[AtomicImpl]]
-        _parent: ImmutableValue[Type[AtomicImpl]]
+        _data_class: ImmutableValue[Type[BaseAtomic]]
+        _parent: ImmutableValue[Type[BaseAtomic]]
 
         def __iter__(self) -> Iterator[Tuple[str, Any]]:
             ...
@@ -227,7 +227,7 @@ else:
             raise TypeError(f"{self} is not a generic class")
 
 
-class AtomicImpl(IAtomic):
+class BaseAtomic(AbstractAtomic):
     __slots__ = ()
 
     @mark(base_cls=True)
