@@ -1830,7 +1830,11 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
 
         for index, cls in enumerate(bases):
             if get_origin(cls) is Generic:
-                bases = (*bases[:index], Genericizable[get_args(cls)], *bases[index + 1 :])
+                bases = (
+                    *bases[:index],
+                    Genericizable[get_args(cls)],  # type:ignore
+                    *bases[index + 1 :],
+                )
 
         for cls in bases:
             if cls is object:
@@ -2025,7 +2029,11 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 del current_class_columns[key]
         # ARJ: https://stackoverflow.com/a/54497260
         if avail_generics and not any(issubclass(b, Genericizable) for b in bases):
-            bases = (*bases[:-1], Genericizable[avail_generics], bases[-1])
+            bases = (
+                *bases[:-1],
+                Genericizable[avail_generics],  # type:ignore
+                bases[-1],
+            )
 
         # Gather listeners:
         listeners, post_coerce_failure_handlers = gather_listeners(
