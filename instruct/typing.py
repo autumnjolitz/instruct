@@ -2,7 +2,7 @@ import sys
 import typing
 from contextlib import suppress
 from collections.abc import Collection as AbstractCollection
-from typing import Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic
+from typing import Collection, ClassVar, Tuple, Dict, Type, Callable, Union, Any, Generic, NewType
 
 from typing_extensions import get_origin, get_args
 
@@ -48,7 +48,7 @@ if sys.version_info[:2] >= (3, 13):
 elif sys.version_info[:2] >= (3, 8):
     from typing_extensions import NoDefault  # type: ignore[attr-defined]
 else:
-    NoDefault = object()
+    NoDefault = NewType("NoDefault", None)
 
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
@@ -242,3 +242,15 @@ def isabstractcollectiontype(
 TypeHint: TypeAlias = Union[TypingDefinition, Type]
 
 Atomic = TypeVar("Atomic", bound=AtomicImpl)
+
+if sys.version_info[:2] >= (3, 13):
+
+    def typevar_has_no_default(t) -> TypeGuard[Literal[NoDefault]]:
+        return t.__default__ is NoDefault
+
+else:
+
+    def typevar_has_no_default(t) -> TypeGuard[Literal[NoDefault]]:
+        with suppress(AttributeError):
+            return t.__default__ is NoDefault
+        return False

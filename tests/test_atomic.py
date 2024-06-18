@@ -1332,6 +1332,8 @@ def test_public_class():
     class NamelessPerson(Person - {"name"}):
         pass
 
+    print(str(Person - {"name"}))
+
     TimelessSponsoredPosition = Position - {"sponsor": {"created_date"}}
     assert not NamelessPerson._skipped_fields
 
@@ -1612,7 +1614,9 @@ def test_simple_generics():
         cls[str]
 
     any_instance = Bar("foobar")
-    assert public_class(any_instance) is Bar[str]
+    default_cls = public_class(any_instance)
+    assert default_cls.__default__ == (str,)
+    assert default_cls is Bar[str], f"{default_cls}, {Bar[str]}"
     print(str(public_class(any_instance)))
     assert any_instance.field == "foobar"
     assert isinstance(any_instance, Bar[str])
