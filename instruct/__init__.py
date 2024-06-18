@@ -24,7 +24,7 @@ from collections import ChainMap
 from enum import IntEnum
 from importlib import import_module
 from itertools import chain
-from types import CodeType, FunctionType, SimpleNamespace, prepare_class
+from types import CodeType, FunctionType, SimpleNamespace
 from typing import (
     Any,
     Callable,
