@@ -39,6 +39,7 @@ jobs:
         name: Check style with black
         run: |
           cat instruct/about.py
+          python/bin/python -m black --version
           python/bin/python -m black --check instruct
 
   verify_types:
