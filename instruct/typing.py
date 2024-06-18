@@ -43,12 +43,17 @@ if sys.version_info[:2] >= (3, 12):
 else:
     from typing_extensions import TypeAliasType, Unpack, TypeVar
 
+NoDefaultType = NewType("NoDefaultType", object)
 if sys.version_info[:2] >= (3, 13):
-    from typing import NoDefault
+    from typing import NoDefault as _NoDefault
+
+    NoDefault: NoDefaultType = NoDefaultType(_NoDefault)
 elif sys.version_info[:2] >= (3, 8):
-    from typing_extensions import NoDefault  # type: ignore[attr-defined]
+    from typing_extensions import NoDefault as _NoDefault  # type: ignore[attr-defined]
+
+    NoDefault: NoDefaultType = NoDefaultType(_NoDefault)
 else:
-    NoDefault = NewType("NoDefault", None)
+    NoDefault: NoDefaultType = NoDefaultType(None)
 
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
@@ -245,12 +250,12 @@ Atomic = TypeVar("Atomic", bound=AtomicImpl)
 
 if sys.version_info[:2] >= (3, 13):
 
-    def typevar_has_no_default(t) -> TypeGuard[Literal[NoDefault]]:
+    def typevar_has_no_default(t) -> TypeGuard[NoDefaultType]:
         return t.__default__ is NoDefault
 
 else:
 
-    def typevar_has_no_default(t) -> TypeGuard[Literal[NoDefault]]:
+    def typevar_has_no_default(t) -> TypeGuard[NoDefaultType]:
         with suppress(AttributeError):
             return t.__default__ is NoDefault
         return False
