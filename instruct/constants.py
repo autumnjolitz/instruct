@@ -78,6 +78,23 @@ class _NoHistory(object):
         pass
 
 
+class _Undefined(object):
+    def __new__(cls):
+        return Undefined
+
+    def __reduce__(self):
+        return (_Undefined, ())
+
+    def __copy__(self) -> _Undefined:
+        return Undefined
+
+    def __deepcopy__(self, memo) -> _Undefined:
+        return Undefined
+
+    def __call__(self, default):
+        pass
+
+
 try:
     NoPickle  # type: ignore
 except NameError:
@@ -97,6 +114,11 @@ try:
     NoHistory  # type: ignore
 except NameError:
     NoHistory = object.__new__(_NoHistory)
+
+try:
+    Undefined  # type: ignore
+except NameError:
+    Undefined = object.__new__(_Undefined)
 
 
 class RangeFlags(IntEnum):
