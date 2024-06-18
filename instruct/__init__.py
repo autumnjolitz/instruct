@@ -80,6 +80,7 @@ from .typing import (
     MutatedCastType,
     CustomTypeCheck,
     Self,
+    NoDefault,
 )
 from .typing import T, CellType, CoerceMapping, NoneType
 from .types import (
@@ -2292,8 +2293,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         if avail_generics:
             pending_generic_defaults = []
             for t in avail_generics:
-                default = inspect.getattr_static(t, "__default__", NOT_SET)
-                if default is not NOT_SET and default is not None:
+                default = inspect.getattr_static(t, "__default__", NoDefault)
+                if default is not NoDefault and default is not None:
                     pending_generic_defaults.append(default)
                 else:
                     pending_generic_defaults.append(Any)

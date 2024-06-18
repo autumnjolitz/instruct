@@ -43,6 +43,13 @@ if sys.version_info[:2] >= (3, 12):
 else:
     from typing_extensions import TypeAliasType, Unpack, TypeVar
 
+if sys.version_info[:2] >= (3, 13):
+    from typing import NoDefault
+elif sys.version_info[:2] >= (3, 8):
+    from typing_extensions import NoDefault  # type: ignore[attr-defined]
+else:
+    NoDefault = object()
+
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
         from types import CellType
