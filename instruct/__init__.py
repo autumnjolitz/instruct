@@ -112,7 +112,7 @@ from .exceptions import (
     ValueError as InstructValueError,
     TypeError as InstructTypeError,
 )
-from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags
+from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags, Undefined
 
 __version__, __version_info__  # Silence unused import warning.
 
@@ -253,7 +253,7 @@ class ImplInitErrors(Protocol):
 
 
 def implements_init_errors(item) -> TypeGuard[ImplInitErrors]:
-    return callable(getattr(item, "_handle_init_errors", None))
+    return callable(inspect.getattr_static(item, "_handle_init_errors", None))
 
 
 class SupportsPostInit(Protocol):
@@ -925,7 +925,7 @@ def replace_class_references(
 
     if not changed:
         if is_a_classmethod and classmethod_dest is not classmethod_owner:
-            return getattr(classmethod_dest, function.__name__)
+            return inspect.getattr_static(classmethod_dest, function.__name__)
         return function
     args: Tuple[Any, ...] = (
         code.co_argcount,
@@ -969,7 +969,7 @@ def replace_class_references(
             return classmethod(new_function)
         # Assign the classmethod then return its wrapped form:
         setattr(classmethod_dest, dest_func_name, classmethod(new_function))
-        wrapped = getattr(classmethod_dest, dest_func_name)
+        wrapped = inspect.getattr_static(classmethod_dest, dest_func_name)
         return wrapped
     return new_function
 
@@ -1949,7 +1949,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 del parent_atomic
             # Collect all publicly accessible properties:
             for key in dir(cls):
-                value = getattr(cls, key)
+                value = inspect.getattr_static(cls, key)
                 if isinstance(value, property):
                     if key in skipped_properties:
                         continue
@@ -2471,22 +2471,6 @@ class LoggedDelta(NamedTuple):
     delta: Delta
 
 
-class Undefined(object):
-    SINGLETON = None
-
-    def __new__(cls):
-        if Undefined.SINGLETON is not None:
-            return Undefined.SINGLETON
-        Undefined.SINGLETON = super().__new__(cls)
-        return Undefined.SINGLETON
-
-    def __repr__(self):
-        return "Undefined"
-
-
-UNDEFINED = Undefined()
-
-
 class History(metaclass=AtomicMeta):
     __slots__ = ("_changes", "_changed_keys", "_changed_index", "_suppress_history")
     setter_wrapper = "history-setter-wrapper.jinja"
@@ -2494,13 +2478,13 @@ class History(metaclass=AtomicMeta):
     if TYPE_CHECKING:
         _columns: FrozenSet[str]
 
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         t_s = time.time()
         self._suppress_history = frozenset(
             field for field, metadata in self._annotated_metadata.items() if NoHistory in metadata
         )
         self._changes = {
-            key: [Delta("default", UNDEFINED, value, 0)]
+            key: [Delta("default", Undefined, value, 0)]
             for key, value in self._asdict().items()
             if key not in self._suppress_history
         }
@@ -2509,7 +2493,7 @@ class History(metaclass=AtomicMeta):
         ]
         self._changed_index = len(self._changed_keys)
 
-        super().__init__(**kwargs)
+        super().__init__(*args, **kwargs)
 
     def __setattr__(self, key, value):
         super().__setattr__(key, value)
@@ -2676,7 +2660,9 @@ def add_event_listener(*fields: str):
     """
 
     def wrapper(func):
-        func._event_listener_funcs = getattr(func, "_event_listener_funcs", ()) + fields
+        func._event_listener_funcs = (
+            inspect.getattr_static(func, "_event_listener_funcs", ()) + fields
+        )
         return func
 
     return wrapper
@@ -2708,7 +2694,9 @@ def handle_type_error(*fields: str):
     """
 
     def wrapper(func):
-        func._post_coerce_failure_funcs = getattr(func, "_post_coerce_failure_funcs", ()) + fields
+        func._post_coerce_failure_funcs = (
+            inspect.getattr_static(func, "_post_coerce_failure_funcs", ()) + fields
+        )
         return func
 
     return wrapper
@@ -2946,7 +2934,7 @@ __all__ = [
     # json support
     "JSONSerializable",
     # misc
-    "UNDEFINED",
+    "Undefined",
     "NoJSON",
     "NoPickle",
     "NoIterable",
