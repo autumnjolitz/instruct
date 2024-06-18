@@ -54,7 +54,7 @@ from .typing import (
 )
 from .utils import flatten_restrict as flatten
 from .exceptions import RangeError, TypeError as InstructTypeError
-from .types import IAtomic
+from .types import AbstractAtomic
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -648,7 +648,7 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                             arg_type = arg
                         else:
                             arg_type = type(arg)
-                        if isinstance(arg_type, IAtomic):
+                        if isinstance(arg_type, AbstractAtomic):
                             arg_type = public_class(
                                 cast(Type["Atomic"], arg_type), preserve_subtraction=True
                             )

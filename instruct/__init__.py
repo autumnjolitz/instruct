@@ -15,9 +15,6 @@ from contextlib import suppress
 from base64 import urlsafe_b64encode
 from collections.abc import (
     Mapping as AbstractMapping,
-    Sequence,
-    ItemsView as _ItemsView,
-    Set as AbstractSet,
     Iterable as AbstractIterable,
     KeysView as AbstractKeysView,
     ValuesView as AbstractValuesView,
@@ -71,6 +68,7 @@ from .typedef import (
     TypingDefinition,
 )
 from .typing import (
+    Atomic,
     CellType,
     NoneType,
     TypeHint,
@@ -81,24 +79,23 @@ from .typing import (
     CustomTypeCheck,
     Self,
     typevar_has_no_default,
+    T,
+    CoerceMapping,
 )
-from .typing import T, CellType, CoerceMapping, NoneType
 from .types import (
     FrozenMapping,
     AttrsDict,
     ClassOrInstanceFuncsDescriptor,
     mark,
     getmarks,
-    AtomicImpl,
+    BaseAtomic,
     ImmutableValue,
     ImmutableMapping,
     ImmutableCollection,
-    IAtomic,
+    AbstractAtomic,
     InstanceCallable,
     Genericizable,
 )
-from .typing import Atomic
-from .types import ReadOnly
 from .utils import flatten_fields, invert_mapping
 from .subtype import wrapper_for_type
 from .exceptions import (
@@ -262,9 +259,9 @@ class SupportsPostInit(Protocol):
 
 
 def supports_post_init_protocol(item: Union[Type[Atomic], Atomic]) -> TypeGuard[SupportsPostInit]:
-    if isinstance(item, AtomicImpl):
+    if isinstance(item, BaseAtomic):
         return hasattr(item, "__post_init__")
-    if isinstance(item, type) and issubclass(item, AtomicImpl):
+    if isinstance(item, type) and issubclass(item, BaseAtomic):
         return hasattr(item, "__post_init__")
     return False
 
@@ -664,15 +661,6 @@ def _dump_skipped_fields(instance_or_cls):
     return skipped_fields(instance_or_cls)
 
 
-class ItemsView(_ItemsView):
-    __slots__ = ()
-    if TYPE_CHECKING:
-        _mapping: Mapping[str, Any]
-
-    def __iter__(self):
-        yield from self._mapping
-
-
 def make_fast_clear(fields, set_block, class_name):
     set_block = set_block.format(key="%(key)s")
     code_template = env.get_template("fast_clear.jinja").render(
@@ -992,7 +980,7 @@ class Py311Code(Protocol):
 
 
 def insert_class_closure(
-    klass: Type[AtomicImpl], function: Optional[Callable[..., Any]]
+    klass: Type[BaseAtomic], function: Optional[Callable[..., Any]]
 ) -> Optional[Callable[..., Any]]:
     """
     an implicit super() works by looking at __class__ to fill in the
@@ -1523,10 +1511,10 @@ def wrap_init_subclass(func):
     return __init_subclass__
 
 
-class AtomicMeta(IAtomic, type, Generic[Atomic]):
+class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
     __slots__ = ()
-    REGISTRY = ImmutableCollection[Set[Type[AtomicImpl]]](set())
-    MIXINS = ImmutableMapping[str, AtomicImpl]({})
+    REGISTRY = ImmutableCollection[Set[Type[BaseAtomic]]](set())
+    MIXINS = ImmutableMapping[str, BaseAtomic]({})
     SKIPPED_FIELDS: Mapping[
         Tuple[str, FrozenMapping[str, None]], Type[Atomic]
     ] = WeakValueDictionary()
@@ -1558,7 +1546,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         return len(self._columns)
 
     def __and__(
-        self: IAtomic,
+        self: AbstractAtomic,
         include: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
     ) -> Type[Atomic]:
         assert isinstance(include, (list, frozenset, set, tuple, dict, str, FrozenMapping))
@@ -1572,7 +1560,9 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         )
         return cast(Type[Atomic], self - skip_fields)
 
-    def __sub__(self: IAtomic, skip: Union[Mapping[str, Any], Iterable[Any]]) -> Type[Atomic]:
+    def __sub__(
+        self: AbstractAtomic, skip: Union[Mapping[str, Any], Iterable[Any]]
+    ) -> Type[Atomic]:
         assert isinstance(skip, (list, frozenset, set, tuple, dict, str, FrozenMapping))
         debug_mode = is_debug_mode("skip")
 
@@ -1712,8 +1702,8 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         # ARJ: Used to create an "anchor"-base type that just marks
         # that this is now an "Atomic"-type (b/c there aren't good ways to express all
         #     members of a metaclass in a type-hint, so we make an anchor).
-        if AtomicImpl not in bases:
-            bases = (*bases, AtomicImpl)
+        if BaseAtomic not in bases:
+            bases = (*bases, BaseAtomic)
 
         assert isinstance(
             skip_fields, FrozenMapping
@@ -1916,7 +1906,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
                 pending_support_columns.extend(list(cls.__extra_slots__))
 
             if ismetasubclass(cls, AtomicMeta):
-                parent_atomic: Type[AtomicImpl] = cast(Type[AtomicImpl], cls)
+                parent_atomic: Type[BaseAtomic] = cast(Type[BaseAtomic], cls)
                 # Only AtomicMeta Descendants will merge in the helpers of
                 # _columns: Dict[str, Type]
                 if parent_atomic._annotated_metadata:
@@ -2138,7 +2128,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         support_columns = tuple(_dedupe(pending_support_columns))
 
         dataclass_attrs = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
-        dataclass_attrs[class_name] = ImmutableValue[Optional[Type[AtomicImpl]]](None)
+        dataclass_attrs[class_name] = ImmutableValue[Optional[Type[BaseAtomic]]](None)
 
         init_subclass = None
 
@@ -2271,12 +2261,12 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             annotated_metadata
         )
         support_cls_attrs["_nested_atomic_collection_keys"] = ImmutableMapping[
-            str, Tuple[Type[AtomicImpl], ...]
+            str, Tuple[Type[BaseAtomic], ...]
         ](nested_atomic_collections)
         support_cls_attrs["_skipped_fields"] = skip_fields
         if "_modified_fields" not in support_cls_attrs:
             support_cls_attrs["_modified_fields"] = ()
-        conf = AttrsDict[Type[AtomicImpl]](**mixins)
+        conf = AttrsDict[Type[BaseAtomic]](**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
         support_cls_attrs["__extra_slots__"] = ImmutableCollection[str](extra_slots)
@@ -2285,7 +2275,7 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         support_cls_attrs["_all_accessible_fields"] = ImmutableCollection[str](
             tuple(field for field in chain(combined_columns, properties))
         )
-        support_cls_attrs["_configuration"] = ImmutableMapping[str, Type[AtomicImpl]](conf)
+        support_cls_attrs["_configuration"] = ImmutableMapping[str, Type[BaseAtomic]](conf)
 
         support_cls_attrs["_listener_funcs"] = ImmutableMapping[str, Iterable[Callable]](listeners)
         # Ensure public class has zero slots!
@@ -2316,10 +2306,10 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
             support_cls_attrs["__init_subclass__"] = classmethod(wrap_init_subclass(init_subclass))
 
         support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = cast(
-            ImmutableValue[Type[AtomicImpl]], dc
+            ImmutableValue[Type[BaseAtomic]], dc
         )
         support_cls_attrs["_parent"] = parent_cell = cast(
-            ImmutableValue[Type[AtomicImpl]], dc_parent
+            ImmutableValue[Type[BaseAtomic]], dc_parent
         )
         support_cls = cast(
             Type[Atomic],
