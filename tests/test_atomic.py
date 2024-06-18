@@ -17,7 +17,7 @@ from collections.abc import Mapping as AbstractMapping
 import pytest
 import instruct
 import inflection
-from instruct.types import IAtomic
+from instruct.types import AbstractAtomic
 from instruct import (
     public_class,
     Base,
@@ -62,8 +62,8 @@ def test_simple() -> None:
         "baz": Dict[str, Any],
         "cool": int,
     }
-    assert isinstance(Data, IAtomic)
-    assert isinstance(Data(), IAtomic)
+    assert isinstance(Data, AbstractAtomic)
+    assert isinstance(Data(), AbstractAtomic)
 
 
 class Data(Base, history=True):

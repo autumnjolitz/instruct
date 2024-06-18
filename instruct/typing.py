@@ -80,14 +80,14 @@ else:
         CellType = type(foo().__closure__[0])
         del foo
 
-from .types import AtomicImpl, IAtomic
+from .types import BaseAtomic, AbstractAtomic
 
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 
 Annotated
 TypedDict
-IAtomic
+AbstractAtomic
 Unpack
 Required
 NotRequired
@@ -246,7 +246,7 @@ def isabstractcollectiontype(
 
 TypeHint: TypeAlias = Union[TypingDefinition, Type]
 
-Atomic = TypeVar("Atomic", bound=AtomicImpl)
+Atomic = TypeVar("Atomic", bound=BaseAtomic)
 
 if sys.version_info[:2] >= (3, 13):
 
