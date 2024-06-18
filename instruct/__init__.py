@@ -80,7 +80,7 @@ from .typing import (
     MutatedCastType,
     CustomTypeCheck,
     Self,
-    NoDefault,
+    typevar_has_no_default,
 )
 from .typing import T, CellType, CoerceMapping, NoneType
 from .types import (
@@ -2293,11 +2293,10 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         if avail_generics:
             pending_generic_defaults = []
             for t in avail_generics:
-                default = inspect.getattr_static(t, "__default__", NoDefault)
-                if default is not NoDefault and default is not None:
-                    pending_generic_defaults.append(default)
-                else:
+                if typevar_has_no_default(t):
                     pending_generic_defaults.append(Any)
+                else:
+                    pending_generic_defaults.append(t.__default__)  # type: ignore[attr-defined]
             support_cls_attrs["__default__"] = tuple(pending_generic_defaults)
             support_cls_attrs["__parameters__"] = tuple(avail_generics)
             support_cls_attrs["__parameters_by_field__"] = ImmutableMapping[
@@ -2378,20 +2377,23 @@ class AtomicMeta(IAtomic, type, Generic[Atomic]):
         try:
             params = self.__parameters__
         except AttributeError:
-            return super().__str__()
-        specialized_params = [str(x) for x in params]
-        try:
-            args = self.__args__
-        except AttributeError:
-            pass
-        else:
-            for index, arg in enumerate(args):
-                if is_typing_definition(arg):
-                    specialized_params[index] = str(arg)
-                else:
-                    specialized_params[index] = arg.__name__
-        param_s = ", ".join(specialized_params)
-        return f"{self.__qualname__}[{param_s}]"
+            params = ()
+        val = self.__qualname__
+        if params:
+            specialized_params = [str(x) for x in params]
+            try:
+                args = self.__args__
+            except AttributeError:
+                pass
+            else:
+                for index, arg in enumerate(args):
+                    if is_typing_definition(arg):
+                        specialized_params[index] = str(arg)
+                    else:
+                        specialized_params[index] = arg.__name__
+            param_s = ", ".join(specialized_params)
+            val = f"{val}[{param_s}]"
+        return val
 
     def to_json(*instances):
         """
