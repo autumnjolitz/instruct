@@ -1,8 +1,8 @@
 from pickle import loads, dumps
 
 import pytest
-from instruct.types import FrozenMapping, FROZEN_MAPPING_SINGLETONS
-from instruct.utils import flatten, flatten_fields
+from instruct.types import FrozenMapping, FROZEN_MAPPING_SINGLETONS, flatten_fields
+from instruct.utils import flatten
 
 
 def test_frozen_mapping():
