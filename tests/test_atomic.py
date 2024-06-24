@@ -559,7 +559,11 @@ def test_coerce_complex():
     f = Item(value=[{"value": 1}, {"value": 2}])
     assert tuple(item.value for item in f.value) == (1, 2)
     with pytest.raises(TypeError, match="Unable to set value"):
-        Item(value=[1, 2])
+        try:
+            Item(value=[1, 2])
+        except ClassCreationFailed as e:
+            (err,) = e.errors
+            raise err from None
 
     class SomeEnum(Enum):
         VALUE = "value"
