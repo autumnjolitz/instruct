@@ -53,6 +53,7 @@ from weakref import WeakValueDictionary
 import inflection
 from jinja2 import Environment, PackageLoader
 
+from . import exceptions
 from .about import __version__, __version_info__
 from .typedef import (
     parse_typedef,
@@ -67,11 +68,11 @@ from .typedef import (
     Literal,
     TypingDefinition,
 )
+from .compat import CellType
 from .typing import (
     Atomic,
-    CellType,
-    NoneType,
     TypeHint,
+    NoneType,
     ClassMethod,
     isclassmethod,
     ParentCastType,
@@ -86,8 +87,6 @@ from .types import (
     FrozenMapping,
     AttrsDict,
     ClassOrInstanceFuncsDescriptor,
-    mark,
-    getmarks,
     BaseAtomic,
     ImmutableValue,
     ImmutableMapping,
@@ -95,8 +94,10 @@ from .types import (
     AbstractAtomic,
     InstanceCallable,
     Genericizable,
+    flatten_fields,
 )
-from .utils import flatten_fields, invert_mapping
+from .utils import invert_mapping, mark, getmarks
+
 from .subtype import wrapper_for_type
 from .exceptions import (
     OrphanedListenersError,
@@ -550,6 +551,11 @@ def asjson(instance: Dict[str, Atomic]) -> Dict[str, Dict[str, Any]]:
     ...
 
 
+@overload
+def asjson(instance: Exception) -> Dict[str, str]:
+    ...
+
+
 def asjson(instance):
     """
     Handle an List[Base], Tuple[Base], Dict[Any, Base]
@@ -570,6 +576,8 @@ def asjson(instance):
             with suppress(TypeError):
                 instance[key] = asjson(value)
         return instance
+    if isinstance(instance, Exception):
+        return exceptions.asjson(instance)
     if not isinstance(instance, (bytearray, bytes, str)) and isinstance(instance, AbstractIterable):
         items = list(instance)
         for index, item in enumerate(items):
