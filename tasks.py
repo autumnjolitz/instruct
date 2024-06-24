@@ -91,6 +91,13 @@ def window(iterable: Iterable[T]) -> Iterable[Tuple[T, T]]:
 
 
 @task
+def update_changes(context: Context):
+    context.run(
+        r"git-changelog -I CHANGES.rst  -g '^Version (?P<version>[\d\.]+)' -m '.. |Changes|' -t path:CHANGES.rst.template -F '82c264ca9a125317945e4aa3f581f009b49014ad...' -i -o CHANGES.rst"
+    )
+
+
+@task
 def setup_metadata() -> Dict[str, str]:
     with open(_.project_root(Path, silent=True) / "setup.cfg") as fh:
         in_multiline = False
