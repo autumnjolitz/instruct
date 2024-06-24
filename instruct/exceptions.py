@@ -1,9 +1,136 @@
-import inflection
+from __future__ import annotations
 import builtins
-from typing import Dict, Any, Tuple, Union
+import traceback
+import typing
+import weakref
+import abc
+from typing import cast
+from contextlib import suppress
+
+from .lang import titleize, humanize
+from .typing import JSON
+
+if typing.TYPE_CHECKING:
+    from typing import Dict, Any, Tuple, Union, Optional, Type, TypeVar, Generic
+    from types import TracebackType
+    from .compat import Self, TypeGuard, Protocol
+    from .typing import ExceptionHasDebuggingInfo, ExceptionHasMetadata
+
+if typing.TYPE_CHECKING:
+    T = TypeVar("T")
+
+    class WeakSet(weakref.WeakSet, Generic[T]):
+        ...
+
+else:
+    from weakref import WeakSet
 
 
-class ClassDefinitionError(ValueError):
+@titleize.register
+def _(e: Exception) -> str:
+    """
+    >>> titleize(Exception("Foo!"))
+    'Exception'
+    >>> titleize(OSError("Baz!"))
+    'OS Error'
+    >>> class ExceptionJSONSerializationError(Exception):
+    ...     pass
+    ...
+    >>> titleize(ExceptionJSONSerializationError())
+    'Exception JSON Serialization Error'
+    """
+    type_name: str = type(e).__name__
+    return " ".join(_preserve_type_acronyms_in(titleize(type_name), type_name))
+
+
+@humanize.register
+def _(e: Exception) -> str:
+    return titleize(e)
+
+
+def _preserve_type_acronyms_in(s: str, reference: str):
+    index = 0
+    for part in s.split():
+        u_part = part.upper()
+        if reference[index : len(part) + index] == u_part:
+            yield u_part
+        else:
+            yield part
+        index += len(part)
+
+
+class JSONSerializableMeta(type):
+    def __init__(self, name, bases, attrs, **kwargs):
+        self.registry = weakref.WeakSet()
+        super().__init__(name, bases, attrs, **kwargs)
+
+    def __instancecheck__(self, instance):
+        if super().__instancecheck__(instance):
+            return True
+        cls = type(instance)
+        if issubclass(cls, tuple(self.registry)):
+            return True
+        with suppress(AttributeError):
+            if callable(cls.__json__):
+                self.register(cls)
+                return True
+        return False
+
+    def register(self, cls):
+        if isinstance(cls, self):
+            return cls
+        if issubclass(cls, tuple(self.registry)):
+            return cls
+        self.registry.add(cls)
+        return cls
+
+
+class JSONSerializable(metaclass=JSONSerializableMeta):
+    __slots__ = ()
+
+    def __init_subclass__(cls, abstract=False, **kwargs):
+        if abstract:
+            return super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "__json__"):
+
+            def __json__(self) -> Dict[str, JSON]:
+                return _default_exc_json(self, message=str(self))
+
+            cls.__json__ = __json__
+        elif not callable(cls.__json__):
+            raise TypeError("__json__ must be a method!")
+        return super().__init_subclass__(**kwargs)
+
+
+class ExceptionJSONSerializable(JSONSerializable, abstract=True):
+    __slots__ = ()
+
+
+class InstructError(Exception, ExceptionJSONSerializable):
+    message: str
+    metadata: Dict[str, JSON]
+    debugging_info: Dict[str, JSON]
+
+    def __str__(self) -> str:
+        return self.message
+
+    def __new__(cls: Type[Self], *args, **kwargs) -> Self:
+        self = super().__new__(cls, *args, **kwargs)
+        self.debugging_info = {}
+        self.metadata = {}
+        self.message = ""
+        return self
+
+    def set_debugging_info(self: Self, val: Dict[str, JSON]) -> Self:
+        self.debugging_info = val
+        return self
+
+    def set_metadata(self: Self, val: Dict[str, JSON]) -> Self:
+        self.metadata = val
+        return self
+
+
+class ClassDefinitionError(InstructError, ValueError):
     ...
 
 
@@ -23,29 +150,46 @@ class CoerceMappingValueError(ClassDefinitionError):
     ...
 
 
-class ExceptionJSONSerializable:
-    __slots__ = ()
-    message: str
-
-    def __str__(self) -> str:
-        return self.message
-
-    def __json__(self):
-        return {"type": inflection.titleize(type(self).__name__), "message": str(self.message)}
-
-    @classmethod
-    def _convert_exception_to_json(cls, item: Exception) -> Dict[str, str]:
-        assert isinstance(item, Exception), f"item {item!r} ({type(item)}) is not an exception!"
-        if isinstance(item, cls):
-            return item.__json__()
-        elif hasattr(item, "__json__"):
-            return item.__json__()
-        elif hasattr(item, "to_json"):
-            return item.to_json()
-        return {"type": inflection.titleize(type(item).__name__), "message": str(item)}
+def _exception_has_debugging_info(e: Exception) -> TypeGuard[ExceptionHasDebuggingInfo]:
+    if isinstance(e, ExceptionJSONSerializable):
+        return True
+    return hasattr(e, "debugging_info") and isinstance(e.debugging_info, dict)
 
 
-class TypeError(builtins.TypeError, ExceptionJSONSerializable):
+def _exception_has_metadata(e: Exception) -> TypeGuard[ExceptionHasMetadata]:
+    if isinstance(e, ExceptionJSONSerializable):
+        return True
+    return hasattr(e, "metadata") and isinstance(e.metadata, dict)
+
+
+def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, JSON]:
+    if message is None:
+        message = str(e)
+    extra_debugging_info = {}
+    if _exception_has_debugging_info(e):
+        extra_debugging_info = e.debugging_info
+    value = {
+        "type": titleize(e),
+        "message": message,
+        "debugging_info": {
+            "stack": traceback.format_exception(type(e), e, e.__traceback__, limit=10),
+            **extra_debugging_info,
+        },
+    }
+    if _exception_has_metadata(e):
+        value["metadata"] = e.metadata
+    return value
+
+
+def asjson(item: Exception) -> Dict[str, JSON]:
+    if not isinstance(item, Exception):
+        raise TypeError(f"{item!r} ({type(item).__name__}) is not an Exception!")
+    if isinstance(item, JSONSerializable):
+        return item.__json__()
+    return _default_exc_json(item)
+
+
+class TypeError(InstructError, builtins.TypeError, ExceptionJSONSerializable):
     data: Dict[str, Any]
 
     def __init__(self, message: str, name: Union[str, int], val: Any, **kwargs):
@@ -56,10 +200,11 @@ class TypeError(builtins.TypeError, ExceptionJSONSerializable):
         super().__init__(message)
 
     def __json__(self):
-        return {**super().__json__(), "name": self.name, "value": self.value}
+        defaults = super().__json__()
+        return {**defaults, "metadata": {"name": self.name, "value": self.value}}
 
 
-class ValueError(builtins.ValueError, ExceptionJSONSerializable):
+class ValueError(InstructError, builtins.ValueError, ExceptionJSONSerializable):
     data: Dict[str, Any]
 
     def __init__(self, message: str, *args, **kwargs):
@@ -68,12 +213,14 @@ class ValueError(builtins.ValueError, ExceptionJSONSerializable):
         super().__init__(message)
 
 
-class ClassCreationFailed(builtins.ValueError, builtins.TypeError, ExceptionJSONSerializable):
+class ValidationError(
+    InstructError, builtins.ValueError, builtins.TypeError, ExceptionJSONSerializable
+):
     errors: Tuple[Exception, ...]
     message: str
     data: Dict[str, Any]
 
-    def __init__(self, message, *errors: Exception, **kwargs):
+    def __init__(self, message: str, *errors: Exception, **kwargs):
         assert len(errors) > 0, "Must have varargs of errors!"
         assert all(isinstance(x, Exception) for x in errors)
         self.errors = errors
@@ -90,15 +237,25 @@ class ClassCreationFailed(builtins.ValueError, builtins.TypeError, ExceptionJSON
             if hasattr(item, "errors"):
                 stack.extend(item.__json__())
                 continue
-            item = cls._convert_exception_to_json(item)
+            item = asjson(item)
             item["parent_message"] = self.message
-            item["parent_type"] = inflection.titleize(cls.__name__)
+            item["parent_type"] = titleize(cls.__name__)
             results.append(item)
         return tuple(results)
 
 
-class RangeError(ValueError, TypeError):
-    def __init__(self, value, ranges, message=""):
+def validation_error_if_multiple(message, *errors, **kwargs):
+    if len(errors) > 1:
+        return ValidationError(message, *errors, **kwargs)
+    return errors[0]
+
+
+class ClassCreationFailed(ValidationError):
+    pass
+
+
+class RangeError(InstructError, builtins.TypeError, builtins.ValueError, ExceptionJSONSerializable):
+    def __init__(self, value, ranges, message: str = ""):
         ranges = tuple(rng.copy() for rng in ranges)
         self.ranges = ranges
         self.value = value
