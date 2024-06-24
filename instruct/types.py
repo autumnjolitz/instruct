@@ -6,9 +6,10 @@ from collections.abc import (
     Sequence as AbstractSequence,
     Container as AbstractContainer,
     Set as AbstractSet,
+    Iterable as AbstractIterable,
 )
 from types import MethodType, new_class
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, WeakKeyDictionary
 from typing import (
     Any,
     Dict,
@@ -31,6 +32,8 @@ from typing import (
     TYPE_CHECKING,
 )
 
+from .utils import mark, as_collectable
+
 if sys.version_info[:2] >= (3, 11):
     from typing import Self
     from typing import TypeVarTuple
@@ -52,7 +55,7 @@ else:
 
 if TYPE_CHECKING:
     from typing import Iterator
-    from .typing import Atomic, TypingDefinition, CustomTypeCheck
+    from .typing import Atomic, TypingDefinition, CustomTypeCheck, JSON
 
 
 if sys.version_info[:2] >= (3, 12):
@@ -64,50 +67,6 @@ UnionType = type(Union[str])
 
 T = TypeVar("T")
 U = TypeVar("U")
-
-
-if TYPE_CHECKING:
-    from weakref import WeakKeyDictionary as _WeakKeyDictionary
-
-    class WeakKeyDictionary(_WeakKeyDictionary, Generic[T, U]):
-        pass
-
-else:
-    from weakref import WeakKeyDictionary
-
-_Marks: WeakKeyDictionary[Callable, Dict[str, Any]] = WeakKeyDictionary()
-
-
-def mark(**kwargs: Any):
-    def wrapper(func):
-        try:
-            _Marks[func] = {**_Marks[func], **kwargs}
-        except KeyError:
-            _Marks[func] = {**kwargs}
-        return func
-
-    return wrapper
-
-
-def getmarks(func, *names, default=None):
-    try:
-        marks = _Marks[func]
-    except KeyError:
-        if names:
-            return (default,) * len(names)
-        return {}
-    else:
-        if not names:
-            return {**marks}
-        results = []
-        for name in names:
-            try:
-                value = marks[name]
-            except KeyError:
-                results.append(default)
-            else:
-                results.append(value)
-        return tuple(results)
 
 
 class AbstractAtomic:
@@ -566,3 +525,39 @@ class ClassOrInstanceFuncsDescriptor(Generic[T]):
                 return value
         assert self._instance_function is not None
         return MethodType(self._instance_function, instance)
+
+
+@as_collectable(FrozenMapping)
+def flatten_fields(item) -> Iterable[Tuple[str, Union[None, FrozenMapping]]]:
+    if isinstance(item, str):
+        yield (item, None)
+    elif isinstance(item, (AbstractIterable, AbstractMapping)) and not isinstance(
+        item, (bytearray, bytes)
+    ):
+        iterable: Union[Iterable[Any], Iterable[Tuple[Any, Any]]]
+        is_mapping = False
+        if isinstance(item, AbstractMapping):
+            iterable = ((key, item[key]) for key in item)
+            is_mapping = True
+        else:
+            iterable = item
+        for element in iterable:
+            if is_mapping:
+                key, value = element
+                if isinstance(value, str):
+                    yield (key, FrozenMapping({value: None}))
+                    continue
+                values = flatten_fields.collect(value)
+                if len(values) == 0:
+                    yield (key, None)
+                    continue
+                yield (key, values)
+                continue
+            if isinstance(element, str):
+                yield (element, None)
+            else:
+                yield from flatten_fields(element)
+    elif item is None:
+        return
+    else:
+        raise NotImplementedError(f"Unsupported type {type(item).__qualname__}")

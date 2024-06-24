@@ -1,9 +1,21 @@
 import functools
 import types
-from collections.abc import Iterable as AbstractIterable, Mapping as AbstractMapping
+from collections.abc import Iterable as AbstractIterable
 from enum import EnumMeta
-from typing import Union, Iterable, Any, TypeVar, Tuple
-from .types import FrozenMapping
+from typing import Any, TypeVar, Dict, Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Generic
+    from weakref import WeakKeyDictionary as _WeakKeyDictionary
+
+    T = TypeVar("T")
+    U = TypeVar("U")
+
+    class WeakKeyDictionary(_WeakKeyDictionary, Generic[T, U]):
+        pass
+
+else:
+    from weakref import WeakKeyDictionary
 
 
 def invert_mapping(mapping):
@@ -60,44 +72,39 @@ def flatten_restrict(iterable):
             yield item
 
 
-T = TypeVar("T")
-U = TypeVar("U")
+_Marks: WeakKeyDictionary[Callable, Dict[str, Any]] = WeakKeyDictionary()
 
 
-@as_collectable(FrozenMapping)
-def flatten_fields(item) -> Iterable[Tuple[str, Union[None, FrozenMapping]]]:
-    if isinstance(item, str):
-        yield (item, None)
-    elif isinstance(item, (AbstractIterable, AbstractMapping)) and not isinstance(
-        item, (bytearray, bytes)
-    ):
-        iterable: Union[Iterable[Any], Iterable[Tuple[Any, Any]]]
-        is_mapping = False
-        if isinstance(item, AbstractMapping):
-            iterable = ((key, item[key]) for key in item)
-            is_mapping = True
-        else:
-            iterable = item
-        for element in iterable:
-            if is_mapping:
-                key, value = element
-                if isinstance(value, str):
-                    yield (key, FrozenMapping({value: None}))
-                    continue
-                values = flatten_fields.collect(value)
-                if len(values) == 0:
-                    yield (key, None)
-                    continue
-                yield (key, values)
-                continue
-            if isinstance(element, str):
-                yield (element, None)
-            else:
-                yield from flatten_fields(element)
-    elif item is None:
-        return
+def mark(**kwargs: Any):
+    def wrapper(func):
+        try:
+            _Marks[func] = {**_Marks[func], **kwargs}
+        except KeyError:
+            _Marks[func] = {**kwargs}
+        return func
+
+    return wrapper
+
+
+def getmarks(func, *names, default=None):
+    try:
+        marks = _Marks[func]
+    except KeyError:
+        if names:
+            return (default,) * len(names)
+        return {}
     else:
-        raise NotImplementedError(f"Unsupported type {type(item).__qualname__}")
+        if not names:
+            return {**marks}
+        results = []
+        for name in names:
+            try:
+                value = marks[name]
+            except KeyError:
+                results.append(default)
+            else:
+                results.append(value)
+        return tuple(results)
 
 
 # def merge_fields(
