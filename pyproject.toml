@@ -27,9 +27,12 @@ multi_line_output=3
 
 [tool.git-changelog]
 input = 'CHANGES.rst'
+in_place = true
+output = 'CHANGES.rst'
+convention='conventional'
 marker_line = '.. |Changes|'
 template = 'path:CHANGES.rst.template'
-version_regex = '^Version (?P<version>\d\.\d\.\d)'
+version_regex = '^Version (?P<version>v?[\d\.]+)'
 filter_commits = 'ade6cd882d2771f4abe9927e78614886f7f01ad6..'
 parse_trailers = true
 parse_refs = true
