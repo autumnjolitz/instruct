@@ -1,7 +1,9 @@
 .. |Changes|
 
-Version 0.7.4
------------------
+.. |Changes|
+
+Version v0.7.4
+-------------------
 
 Release 2023-12-10
 
@@ -12,8 +14,8 @@ Release 2023-12-10
 - [0.7.3.post1] bump version for pypi (`ade6cd8 <https://github.com/autumnjolitz/instruct/commit/ade6cd882d2771f4abe9927e78614886f7f01ad6>`_ by Autumn).
 - [*] Port instruct to newer Python versions (#3) (`19c30b2 <https://github.com/autumnjolitz/instruct/commit/19c30b278c23cc63fadbbaeadc30409c15bce098>`_ by Autumn Jolitz).
 
-Version 0.7.3
------------------
+Version v0.7.3
+-------------------
 
 Release 2023-07-18
 
@@ -21,15 +23,15 @@ Release 2023-07-18
 - Export ``RangeFlags`` from ``__init__``
 - Unlock ``typing-extensions`` range
 
-Version 0.7.2
------------------
+Version v0.7.2
+-------------------
 
 Release 2022-05-13
 
 - Add dummy ``__iter__`` to ``SimpleBase`` which addresses principal of least astonishment for an empty class
 
-Version 0.7.1
------------------
+Version v0.7.1
+-------------------
 
 Release 2022-05-13
 
@@ -41,8 +43,8 @@ Release 2022-05-13
 - Allow ``__public_class__`` to be overridden in rare cases
 
 
-Version 0.7.0
------------------
+Version v0.7.0
+-------------------
 
 Release 2022-05-12
 
