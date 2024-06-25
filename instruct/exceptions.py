@@ -88,6 +88,11 @@ class JSONSerializableMeta(type):
 class JSONSerializable(metaclass=JSONSerializableMeta):
     __slots__ = ()
 
+    if typing.TYPE_CHECKING:
+
+        def __json__(self) -> Dict[str, JSON]:
+            ...
+
     def __init_subclass__(cls, abstract=False, **kwargs):
         if abstract:
             return super().__init_subclass__(**kwargs)
