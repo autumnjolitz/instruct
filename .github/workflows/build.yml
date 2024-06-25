@@ -101,7 +101,7 @@ jobs:
           fi
 
   test_matrix:
-    needs: [verify_style, verify_types]
+    needs: [verify_style, verify_types, update-changelog]
     strategy:
       fail-fast: false
       matrix:
