@@ -59,7 +59,8 @@ Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{
 {{ render_section(version.sections_dict[''], 'Other') }}
 {%- endif %}
 {%- if not (version.tag or version.planned_tag) %}
-.. |Changes|{% endif %}
+.. |Changes|
+{% endif %}
 {% endmacro -%}
 
 {#- template -#}
