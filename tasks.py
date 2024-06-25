@@ -92,9 +92,14 @@ def window(iterable: Iterable[T]) -> Iterable[Tuple[T, T]]:
 
 @task
 def update_changes(context: Context):
-    context.run(
-        r"git-changelog -I CHANGES.rst  -g '^Version (?P<version>[\d\.]+)' -m '.. |Changes|' -t path:CHANGES.rst.template -F '82c264ca9a125317945e4aa3f581f009b49014ad...' -i -o CHANGES.rst"
-    )
+    python_bin = _.python_path(str)
+    context.run(f"{python_bin} -m git_changelog")
+
+
+@task
+def test(context: Context):
+    python_bin = _.python_path(str)
+    context.run(f"{python_bin} -m pytest")
 
 
 @task
@@ -175,35 +180,46 @@ def build(context: Context) -> Tuple[Path, ...]:
 
 @task
 def project_root(
-    type: Union[Type[str], Type[Path], Literal["str", "Path"]] = "str"
+    as_type: Union[Type[str], Type[Path], Literal["str", "Path"]] = "str"
 ) -> Union[str, Path]:
     """
     Get the absolute path of the project root assuming tasks.py is in the repo root.
     """
-    if isinstance(type, builtins.type):
-        type = type.__name__
-    assert type in ("str", "Path"), f"{type} may be str or Path"
+    if isinstance(as_type, builtins.type):
+        return_type = as_type.__name__
+    else:
+        return_type = as_type
+    assert return_type in ("str", "Path"), f"{return_type} may be str or Path"
     root = Path(__file__).resolve().parent
-    if type == "str":
+    if return_type == "str":
         return str(root)
     return root
 
 
 @task
 def python_path(
-    type_name: Literal["str", "Path", str, Path] = "str",
+    as_type: Union[Literal["str", "Path"], Type[Path], Type[str]] = "str",
     *,
     skip_venv: bool = False,
 ) -> Union[str, Path]:
     """
     Return the best python to use
     """
-    if isinstance(type_name, type):
-        type_name = type_name.__name__
+    if isinstance(as_type, type):
+        type_name = as_type.__name__
+    else:
+        type_name = as_type
     assert type_name in ("Path", "str")
     root = Path(__file__).resolve().parent
     python = root / "python" / "bin" / "python"
+    if not skip_venv:
+        # try to see if the current venv is a repo-level venv:
+        with suppress(KeyError):
+            venv_python = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
+            if venv_python.exists() and root in venv_python.parents:
+                python = venv_python
     if not python.exists():
+        # If  we don't have a venv, can we fallback to the $USER's venvs?
         with suppress(KeyError):
             python = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
     if skip_venv or not python.exists():
