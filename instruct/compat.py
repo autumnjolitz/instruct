@@ -88,7 +88,7 @@ else:
 
     def typevar_has_no_default(t: TypeVar) -> TypeGuard[NoDefaultType]:
         with suppress(AttributeError):
-            return t.__default__ is NoDefault
+            return t.__default__ is NoDefault  # type:ignore[attr-defined]
         return False
 
 
