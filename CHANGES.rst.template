@@ -38,7 +38,7 @@
 {%- macro render_version(version) -%}
 
 {%- if version.tag or version.planned_tag -%}
-Version {{ remove_prefix(version.tag or version.planned_tag, 'v') }}
+Version {{ version.tag or version.planned_tag }}
 -------------------
 
 Release {% if version.date %}{{ version.date }}{%else%}YYYY-MM-DD{% endif %}
@@ -55,16 +55,16 @@ Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{
 {%- endwith %}
 {%- endif %}
 {%- endfor %}
-{% if '' in version.sections_dict and version.sections_dict[''].commits -%}
+{%- if '' in version.sections_dict and version.sections_dict[''].commits %}
 {{ render_section(version.sections_dict[''], 'Other') }}
-{% endif -%}
-
+{%- endif %}
+{%- if not (version.tag or version.planned_tag) %}
+.. |Changes|{% endif %}
 {% endmacro -%}
 
 {#- template -#}
 {%- if not in_place -%}
 {% endif %}.. |Changes|
-
 {% for version in changelog.versions_list -%}
 {{ render_version(version) }}
 {%- endfor -%}
