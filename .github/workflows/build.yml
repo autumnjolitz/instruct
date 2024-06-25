@@ -63,6 +63,42 @@ jobs:
         run: |
           python/bin/python -m mypy instruct
 
+  update-changelog:
+    needs: [verify_style, verify_types]
+    runs-on: 'ubuntu-latest'
+    permissions:
+      contents: write
+    steps:
+      -
+        uses: actions/checkout@v4
+      -
+        name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      -
+        name: Setup
+        run: |
+          python -m pip install --upgrade pip invoke typing-extensions
+          invoke setup --devel --no-project
+
+      -
+        name: Update changelog
+        run: |
+          invoke update-changes
+          if ! git diff-index --quiet HEAD --
+          then
+            git config user.name "$(git log -n 1 --pretty=format:%an)"
+            git config user.email "$(git log -n 1 --pretty=format:%ae)"
+            git add CHANGES.rst
+            git commit -m "docs: update CHANGES.rst"
+            invoke update-changes
+            git add CHANGES.rst
+            git commit --amend
+            git push
+            exit 253
+          fi
 
   test_matrix:
     needs: [verify_style, verify_types]
@@ -112,8 +148,9 @@ jobs:
         run: |
           python/bin/python -m pytest
 
+
   pypi-publish:
-    needs: [test_matrix, verify_style]
+    needs: [test_matrix, verify_style, update-changelog]
     runs-on: 'ubuntu-latest'
     environment:
       name: pypi
