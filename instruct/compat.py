@@ -1,9 +1,10 @@
 import sys
 import typing
 from contextlib import suppress
-from typing import NewType, Any
+from typing import NewType, Any, TypeVar as IntTypeVar, Union
 
 from typing_extensions import get_origin, get_args
+from typing_extensions import TypeVar as ExtTypeVar
 
 if sys.version_info[:2] >= (3, 8):
     from typing import Protocol, Literal, runtime_checkable, TypedDict
@@ -81,14 +82,14 @@ else:
 
 if sys.version_info[:2] >= (3, 13):
 
-    def typevar_has_no_default(t: TypeVar) -> TypeGuard[NoDefaultType]:
+    def typevar_has_no_default(t: Union[IntTypeVar, ExtTypeVar]) -> TypeGuard[NoDefaultType]:
         return t.__default__ is NoDefault
 
 else:
 
-    def typevar_has_no_default(t: TypeVar) -> TypeGuard[NoDefaultType]:
+    def typevar_has_no_default(t: Union[IntTypeVar, ExtTypeVar]) -> TypeGuard[NoDefaultType]:
         with suppress(AttributeError):
-            return t.__default__ is NoDefault  # type:ignore[attr-defined]
+            return t.__default__ is NoDefault  # type:ignore[union-attr]
         return False
 
 
