@@ -258,7 +258,19 @@ class VersionInfo:
         return self[:3]
 
     @property
+    def base_version(self: Self) -> str:
+        return f"{{self.major}}.{{self.minor}}.{{self.micro}}"
+
+    @property
     def public(self: Self) -> str:
+        value = f"{{self.major}}.{{self.minor}}.{{self.micro}}"
+        if self.pre is not None:
+            value = f"{{value}}{{self.pre[0]}}{{self.pre[1]}}"
+        if self.post is not None:
+            value = f"{{value}}post{{self.post}}"
+        return value
+
+    def __str__(self: Self) -> str:
         value = f"{{self.major}}.{{self.minor}}.{{self.micro}}"
         if self.pre is not None:
             value = f"{{value}}{{self.pre[0]}}{{self.pre[1]}}"
