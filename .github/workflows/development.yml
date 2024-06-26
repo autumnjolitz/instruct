@@ -53,11 +53,18 @@ jobs:
         name: Install dependencies
         run: |
           python -m pip install --upgrade pip invoke typing-extensions
-          invoke setup --tests
+          invoke setup --devel --tests --no-project
+          invoke python-path
+          python/bin/python -m pip install -r setup-requirements.txt
+      -
+        name: Prepare build artifacts
+        run: |
+          invoke build --validate
+          python/bin/python -m pip install --no-index dist/instruct*.whl
       -
         name: Test with pytest
         run: |
-          python/bin/python -m pytest
+          invoke test
 
   verify_style:
     runs-on: 'ubuntu-latest'
@@ -78,14 +85,11 @@ jobs:
       -
         name: Lint with flake8
         run: |
-          # stop the build if there are Python syntax errors or undefined names
-          python/bin/python -m flake8 instruct/ --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          python/bin/python -m flake8 instruct/ --ignore=E203,W503 --count --exit-zero --max-complexity=103 --max-line-length=127 --statistics
+          invoke lint
       -
         name: Check style with black
         run: |
-          python/bin/python -m black --check instruct
+          invoke black --check
 
   verify_types:
     runs-on: 'ubuntu-latest'

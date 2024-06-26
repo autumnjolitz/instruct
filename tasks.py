@@ -8,6 +8,7 @@ import io
 import sys
 import tempfile
 import tarfile
+import typing
 import zipfile
 from contextlib import suppress, contextmanager, closing
 from pathlib import Path
@@ -17,6 +18,38 @@ if sys.version_info[:2] >= (3, 8):
     from typing import Literal
 else:
     from typing_extensions import Literal
+if sys.version_info[:2] >= (3, 10):
+    from typing import TypeGuard, TypeAlias
+else:
+    from typing_extensions import TypeGuard, TypeAlias
+if sys.version_info[:2] >= (3, 11):
+    from typing import Never, assert_never
+else:
+    from typing_extensions import Never, assert_never
+
+if typing.TYPE_CHECKING:
+    from packaging.version import Version
+    from packaging.version import parse as parse_version
+
+    has_packaging = True
+
+else:
+    try:
+        import packaging.version
+    except ImportError:
+        has_packaging = False
+    else:
+        packaging.version
+        has_packaging = True
+
+    if has_packaging:
+        from packaging.version import Version
+        from packaging.version import parse as parse_version
+    else:
+        Version: TypeAlias = Never
+
+        def parse_version(v: str) -> Version:
+            raise ImportError("packaging not found!")
 
 
 from invoke.context import Context
@@ -130,16 +163,60 @@ def window(
 
 
 @task
-def update_changes(context: Context, version: str = ""):
+def last_logged_changes(context: Context) -> str:
+    """
+    Return the latest entry in CHANGES.rst.
+    """
     python_bin = _.python_path(str, silent=True)
-    extra = ""
-    if version:
-        extra = f"-B {version}"
-    result = context.run(f"{python_bin} -m git_changelog {extra}", warn=True)
+    cli = f"{python_bin} -m git_changelog"
+    result = context.run(f"{cli} -R", warn=True, hide="both")
     assert result is not None
-    if "already in changelog" in result.stderr:
-        perror("No new changes to create changelog with")
-        return
+    if result:
+        return result.stdout
+    perror(f"Unable to emit last release changes due to:\n{result.stderr}")
+    raise SystemExit(result.return_code)
+
+
+@task(
+    help={
+        "with_unreleased": "Add unreleased section if missing and populate",
+        "version": "override version",
+    }
+)
+def update_changelog(
+    context: Context, version: str = "", output: Optional[str] = None, with_unreleased: bool = False
+):
+    """
+    Update the change log (output defaults to CHANGES.rst)
+    """
+    python_bin = _.python_path(str, silent=True)
+    root = _.project_root(Path, silent=True)
+    default_changelog = root / "CHANGES.rst"
+    extra = f"-i -o {default_changelog!s}"
+    if output is not None:
+        output_file = Path(output).resolve()
+    else:
+        output_file = default_changelog
+    if output in ("-", "/dev/stdout"):
+        output = "-"
+        extra = ""
+    elif output_file != default_changelog:
+        extra = f"-o {output_file!s}"
+    if version:
+        extra = f"{extra} -B {version}"
+    if with_unreleased:
+        extra = f"{extra} -j emit_unreleased=true"
+    cli = f"{python_bin} -m git_changelog"
+    result = context.run(f"{cli} {extra}", warn=True, hide="both")
+    assert result is not None
+    if not result:
+        if "already in changelog" in result.stderr:
+            perror("No new changes to create changelog with")
+            return
+        perror(f"Unable to run {cli!r} due to:\n{result.stderr}")
+        raise SystemExit(result.return_code)
+    if output == "-":
+        return result.stdout
     with open(_.project_root(Path, silent=True) / "CHANGES.rst", "r+") as fh:
         body = fh.read()
         index = body.index(".. |Changes|")
@@ -153,15 +230,65 @@ def update_changes(context: Context, version: str = ""):
             body = body[:index] + body[index + 1 :]
             in_between = body[index : index + 2]
             deleted_newline_count += 1
+        while body[-2:] in ("\n", "\n"):
+            body = body[:-1]
+            deleted_newline_count += 1
         if deleted_newline_count:
             perror(f"deleted {deleted_newline_count} extra newlines")
             fh.seek(0)
+            fh.truncate(0)
             fh.write(body)
+    return
+
+
+@task
+def lint(context: Context):
+    root = _.project_root(Path, silent=True)
+    python_bin = _.python_path(str, silent=True)
+    context.run(
+        f"{python_bin} -m flake8 {root / 'instruct'!s} "
+        "--count --select=E9,F63,F7,F82 --show-source --statistics"
+    )
+    context.run(
+        f"{python_bin} -m flake8 {root / 'instruct'!s} "
+        "--ignore=E203,W503 --count --exit-zero "
+        "--max-complexity=103 --max-line-length=127 --statistics"
+    )
+
+
+@task
+def black(context: Context, check: bool = False):
+    python_bin = _.python_path(str, silent=True)
+    root = _.project_root(Path, silent=True)
+    extra = ""
+    if check:
+        extra = f"{extra} --check"
+        context.run(f"{python_bin} -m black --version")
+    pyproject = root / "pyproject.toml"
+    generate_version = root / "generate_version.py"
+    cli = f"{python_bin} -m black"
+    context.run(f"{cli} {extra} {root!s}")
+    if check:
+        perror(
+            f"Checking the results of {generate_version!s} "
+            "by writing to a tempfile and running black on it..."
+        )
+        version_cli = f"{cli} --config {pyproject!s}"
+        with tempfile.NamedTemporaryFile(mode="w+") as fh:
+            context.run(f"{python_bin} {generate_version!s} {fh.name}")
+            if not context.run(f"{version_cli} --check {fh.name}", warn=True):
+                perror("generate_version returns black issues!")
+                with tempfile.NamedTemporaryFile(mode="w+") as new:
+                    new.write(fh.read())
+                    context.run(f"{version_cli} {new.name}")
+                    context.run(f"diff -Naur {fh.name} {new.name}")
+                raise SystemExit(1)
+    perror("success!")
 
 
 @task
 def test(context: Context):
-    python_bin = _.python_path(str)
+    python_bin = _.python_path(str, silent=True)
     context.run(f"{python_bin} -m pytest")
 
 
@@ -275,6 +402,9 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
     """
     python_bin = _.python_path(str, silent=True)
     dist = _.project_root(Path, silent=True) / "dist"
+    if not dist.exists():
+        perror(f"Creating {dist!s}")
+        dist.mkdir()
     public_version = None
     files = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -534,3 +664,218 @@ def setup(
     if requirements:
         context.run(f"{venv!s}/bin/python -m pip install {requirements}")
     return venv
+
+
+@task
+def dirty_repo(context) -> bool:
+    root = _.project_root(Path, silent=True)
+    if not (root / ".git").exists():
+        perror(f"{root!s} is not a git repo, assuming not dirty!")
+        return False
+    result = context.run("git diff-index --quiet HEAD --", warn=True)
+    assert result is not None
+    if not result:
+        if result.return_code == 1 and not result.stderr:
+            return True
+        perror("git threw an error!")
+        raise SystemExit(result.return_code)
+    return False
+
+
+@task
+def remote_tag_exists(context: Context, tag: str) -> bool:
+    root = _.project_root(Path, silent=True)
+    result = context.run(f"git -C {root!s} ls-remote origin refs/tags/{tag!s}")
+    assert result is not None
+    if result.stdout.strip():
+        return True
+    return False
+
+
+@task
+def local_tag_exists(tag: str) -> bool:
+    root = _.project_root(Path, silent=True)
+    tag_ref = root / ".git" / "refs" / "tags" / tag
+    if tag_ref.exists():
+        if not tag_ref.is_file():
+            raise ValueError(f"{tag!r} is not a valid tag")
+        return True
+    return False
+
+
+@task
+def create_release(context: Context, next_version: Union[str, Version]) -> Version:
+    assert has_packaging
+    branch = _.branch_name(context)
+    assert branch == "master"
+    root = _.project_root(Path, silent=True)
+    if _.dirty_repo(context, silent=True):
+        perror(
+            f"Repository {root!s} is dirty! "
+            "Please commit any and all changes *before* creating a release!"
+        )
+        raise SystemExit(22)
+    next_version = _.bump_version(context, next_version, dry_run=True, silent=True)
+    perror(f"Next version will be {next_version!s}")
+    assert isinstance(next_version, Version)
+    version = _.show_version(context, silent=True)
+    assert next_version > version, f"{next_version!s} must be greater than {version!s}!"
+    perror(f"Checking if tag v{version!s} exists on remote!")
+    if _.remote_tag_exists(context, f"v{version!s}"):
+        perror(f"tag v{version!s} already exists on remote!")
+        raise SystemExit(2)
+    perror("Checking if tag exists locally (i.e. partial release)")
+    if _.local_tag_exists(f"v{version!s}"):
+        print("found local tag, Removing")
+        context.run(f"git tag -d v{version!s}")
+    assert not _.dirty_repo(context, silent=True), "repo dirty~?"
+    perror(f"Creating a lightweight tag v{version!s} for changelog updating...")
+    context.run(f"git tag v{version!s}")
+    _.update_changelog(context, version=str(version))
+    perror(f"deleting lightweight tag v{version!s}")
+    context.run(f"git tag -d v{version!s}")
+    if _.dirty_repo(context, silent=True):
+        perror("changelog did change, committing it.")
+        context.run(f"git -C {root!s} add {root / 'CHANGES.rst'}")
+        context.run(f'git -C {root!s} commit -m "doc: update CHANGES.rst"')
+        if _.dirty_repo(context, silent=True):
+            perror("Repository is still dirty despite committing CHANGES.rst!")
+            raise SystemExit(123)
+    perror(f"Creating annotated tag v{version!s}")
+    with io.StringIO() as fh:
+        fh.write(_.last_logged_changes(context))
+        fh.seek(0)
+        context.run(f"git -C {root!s} tag -a v{version!s} -F -", in_stream=fh)
+    assert not _.dirty_repo(context, silent=True)
+    return _.bump_version(context, to_version=next_version, silent=True)
+
+
+@task
+def show_version(context: Context) -> Version:
+    assert has_packaging
+    root = _.project_root(Path, silent=True)
+    with open(root / "CURRENT_VERSION.txt") as fh:
+        for line in (x.strip() for x in fh):
+            if line.startswith("#"):
+                continue
+            if "#" in line:
+                line, ignore = line.split("#", 1)
+            version = parse_version(line)
+    return version
+
+
+def _is_bump_type(
+    s: str,
+) -> TypeGuard[Literal["a", "b", "dev", "rc", "major", "minor", "patch", "post"]]:
+    return s in ("a", "b", "dev", "rc", "major", "minor", "patch", "post")
+
+
+PRE_RELEASE_TYPES = ("a", "b", "rc")
+
+
+@task
+def bump_version(
+    context: Context, to_version: Union[str, Version] = "", dry_run: bool = False
+) -> Version:
+    assert has_packaging
+    root = _.project_root(Path, silent=True)
+    branch = _.branch_name(context, silent=True)
+    assert branch == "master"
+    root = _.project_root(Path, silent=True)
+    if not dry_run and _.dirty_repo(context, silent=True):
+        perror(
+            f"Repository {root!s} is dirty! "
+            "Please commit any and all changes *before* creating a release!"
+        )
+        raise SystemExit(22)
+
+    bump_type: Literal["a", "b", "dev", "rc", "major", "minor", "patch", "post", ""] = ""
+    if isinstance(to_version, str) and to_version in (
+        "a",
+        "alpha",
+        "beta",
+        "b",
+        "dev",
+        "rc",
+        "patch",
+        "minor",
+        "major",
+        "post",
+    ):
+        if to_version in ("alpha", "beta"):
+            to_version = to_version[:1]
+        assert _is_bump_type(to_version)
+        bump_type = to_version
+        to_version = ""
+
+    if not to_version:
+        current_version = _.show_version(context, silent=True)
+        if not bump_type:
+            if current_version.is_prerelease:
+                bump_type = current_version.pre[0]
+            elif current_version.is_postrelease:
+                bump_type = "post"
+            elif current_version.is_devrelease:
+                bump_type = "dev"
+            else:
+                bump_type = "patch"
+        if bump_type in PRE_RELEASE_TYPES:
+            pre_type, pre_ord = current_version.pre
+            assert PRE_RELEASE_TYPES.index(bump_type) >= PRE_RELEASE_TYPES.index(pre_type)
+            if bump_type != pre_type:
+                pre_ord = -1
+            to_version = f"{current_version.base_version}{bump_type}{pre_ord + 1}"
+        elif bump_type == "post":
+            to_version = f"{current_version.base_version}post{current_version.post + 1}"
+        elif bump_type == "dev":
+            to_version = f"{current_version.base_version}dev{current_version.dev + 1}"
+        elif bump_type == "major":
+            to_version = f"{current_version.major + 1}.0.0"
+        elif bump_type == "minor":
+            to_version = f"{current_version.major}.{current_version.minor + 1}.0"
+        elif bump_type == "patch":
+            patch = current_version.micro + 1
+            if current_version.is_prerelease:
+                patch = current_version.micro
+            to_version = f"{current_version.major}.{current_version.minor}.{patch}"
+        else:
+            assert False, "unreachable"
+
+    if isinstance(to_version, str):
+        next_version = parse_version(to_version)
+    elif isinstance(to_version, Version):
+        next_version = to_version
+    else:
+        assert_never(to_version)
+
+    with open(root / "CURRENT_VERSION.txt", "r+") as fh:
+        index = 0
+        for line in fh:
+            index += len(line)
+            line_s = line.strip()
+            if line_s.startswith("#"):
+                continue
+            if "#" in line_s:
+                line_s, ignore = line_s.split("#", 1)
+            version = parse_version(line_s)
+            break
+        assert next_version > version
+        if not dry_run:
+            if index:
+                fh.seek(index - len(line))
+                fh.truncate(fh.tell())
+                fh.write(f"{next_version!s}\n")
+            else:
+                perror(f"{fh.name!r} is empty?! Readding comment")
+                fh.seek(0)
+                fh.write("# bump the below version on release\n")
+            assert _.dirty_repo(
+                context, silent=True
+            ), "Repo is not dirty despite modifying the version??"
+    if not dry_run:
+        context.run(f"git -C {root!s} add CURRENT_VERSION.txt")
+        with io.StringIO() as fh:
+            fh.write(f"build(release): bump version to {next_version!s}")
+            fh.seek(0)
+            context.run(f"git -C {root!s} commit -F -", in_stream=fh)
+    return next_version

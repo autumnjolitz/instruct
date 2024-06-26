@@ -42,14 +42,19 @@ except ImportError:
 else:
     has_typing_extensions = True
 
-try:
+if sys.version_info[:2] >= (3, 8):
     from typing import Literal
-except ImportError:
+    from typing import get_origin, get_args
+else:
     from typing_extensions import Literal
-try:
-    from typing import get_origin, get_args, get_overloads
-except ImportError:
-    from typing_extensions import get_overloads, get_args, get_origin
+    from typing_extensions import get_origin, get_args
+
+if sys.version_info[:2] >= (3, 11):
+    from typing import Never, assert_never
+    from typing import get_overloads
+else:
+    from typing_extensions import Never, assert_never
+    from typing_extensions import get_overloads
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -267,7 +272,7 @@ def get_types_from(
 
     if is_literal(annotation):
         return
-    if annotation in (Any, Ellipsis):
+    if annotation in (Any, Ellipsis, Never):
         return
     type_name = None
     with suppress(AttributeError):

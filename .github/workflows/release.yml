@@ -1,13 +1,11 @@
 # This workflow will install Python dependencies, run tests and lint with a single version of Python
 # For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
 
-name: Mainline tests/verifications
+name: Release
 
 on:
   push:
-    branches: [ master, main ]
-  pull_request:
-    branches: [ master, main ]
+    tags: 'v*'
 
 jobs:
   verify_style:
@@ -24,7 +22,7 @@ jobs:
       -
         name: Install dependencies
         run: |
-          python -m pip install --upgrade pip invoke typing-extensions
+          python -m pip install --upgrade pip invoke
           invoke setup --devel --tests
       -
         name: Lint with flake8
@@ -49,7 +47,7 @@ jobs:
       -
         name: Install dependencies
         run: |
-          python -m pip install --upgrade pip invoke typing-extensions
+          python -m pip install --upgrade pip invoke
           invoke setup --devel --tests
       -
         name: validate types
@@ -57,7 +55,7 @@ jobs:
           python/bin/python -m mypy instruct
 
   test_matrix:
-    needs: [verify_style, verify_types, check-versions]
+    needs: [verify_style, verify_types]
     strategy:
       fail-fast: false
       matrix:
@@ -98,23 +96,22 @@ jobs:
         name: Install dependencies
         run: |
           python -m pip install --upgrade pip invoke typing-extensions
-          invoke setup --devel --tests --no-project
-          invoke python-path
-          python/bin/python -m pip install -r setup-requirements.txt
-      -
-        name: Prepare build artifacts
-        run: |
-          invoke build --validate
-          python/bin/python -m pip install --no-index dist/instruct*.whl
-
+          invoke setup --tests
       -
         name: Test with pytest
         run: |
-          invoke test
+          python/bin/python -m pytest
 
 
-  check-versions:
+  pypi-publish:
+    needs: [test_matrix, verify_style]
     runs-on: 'ubuntu-latest'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/instruct
+    permissions:
+      id-token: write
+      contents: write
     steps:
       -
         uses: actions/checkout@v4
@@ -139,11 +136,41 @@ jobs:
         run: |
           echo "CURRENT_VERSION=$(grep -vE '^#' CURRENT_VERSION.txt | head -1)" >> "$GITHUB_OUTPUT"
           echo "CHANGELOG_VERSION=$(invoke last-logged-changes | head -1 | cut -f2 -d' ')" >> "$GITHUB_OUTPUT"
+          echo "GIT_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^.//')" >> "$GITHUB_OUTPUT"
 
       -
-        name: Warn if branch version already matches an existing tag
+        name: Assert tag version matches the source version
         run: |
-
-          if [ "x$(invoke local-tag-exists --format json 'v${{ steps.version.outputs.CURRENT_VERSION }}')" = 'xtrue' ]; then
-            echo '::warning file=CURRENT_VERSION.txt,line=2,title=Version already exists in tags::Tag v${{ steps.version.outputs.CURRENT_VERSION }} already exists.'
+          if [ 'x${{ steps.version.outputs.GIT_VERSION }}' != 'x${{ steps.version.outputs.CURRENT_VERSION }}' ]; then
+            echo '::error file=CURRENT_VERSION.txt,line=2,title=Version mismatch::Expected ${{ steps.version.outputs.GIT_VERSION }} but got ${{ steps.version.outputs.CURRENT_VERSION }} instead.
+          Suggest you fix that and delete the tag.'
+            exit 254
           fi
+          if [ 'x${{ steps.version.outputs.CHANGELOG_VERSION }}' != 'x${{ github.ref_name }}' ]; then
+            echo '::error title=Release note version mismatch:: Expected release notes to be for ${{ github.ref_name }} however got ${{ steps.version.outputs.CHANGELOG_VERSION }} instead.'
+            exit 253
+          fi
+
+      -
+        name: Create artifacts
+        id: artifacts
+        run: |
+          invoke build --validate
+          invoke last-logged-changes | tee CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
+
+      -
+        name: Create Release
+        id: upload-release-asset
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
+          name: Release ${{ steps.version.outputs.CURRENT_VERSION }}
+          files:
+            dist/instruct*
+      # ARJ: disable for now
+      # -
+      #   name: Publish package distributions to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') }}
+      #   with:
+      #     skip-existing: false
