@@ -13,6 +13,7 @@ exclude = '''
   | \.mypy_cache
   | \.tox
   | \.venv
+  | python[\d\.]+
   | python
   | _build
   | buck-out
@@ -27,8 +28,8 @@ multi_line_output=3
 
 [tool.git-changelog]
 input = 'CHANGES.rst'
-in_place = true
-output = 'CHANGES.rst'
+# in_place = true
+# output = 'CHANGES.rst'
 convention='conventional'
 marker_line = '.. |Changes|'
 template = 'path:CHANGES.rst.template'
