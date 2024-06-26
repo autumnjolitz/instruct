@@ -27,20 +27,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip invoke
           invoke setup --devel --tests
-
       -
         name: Lint with flake8
         run: |
-          # stop the build if there are Python syntax errors or undefined names
-          python/bin/python -m flake8 instruct/ --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          python/bin/python -m flake8 instruct/ --ignore=E203,W503 --count --exit-zero --max-complexity=103 --max-line-length=127 --statistics
+          invoke lint
       -
         name: Check style with black
         run: |
-          cat instruct/about.py
-          python/bin/python -m black --version
-          python/bin/python -m black --check instruct
+          invoke black --check
 
   verify_types:
     runs-on: 'ubuntu-latest'
@@ -217,13 +211,7 @@ jobs:
         id: artifacts
         run: |
           invoke build --validate
-
-      -
-        name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') }}
-        with:
-          skip-existing: false
+          invoke last_logged_changes | tee CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
 
       -
         name: Create Release
@@ -231,7 +219,14 @@ jobs:
         id: upload-release-asset
         uses: softprops/action-gh-release@v1
         with:
-          body_path: CHANGES.rst
+          body_path: CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
           name: Release ${{ steps.version.outputs.CURRENT_VERSION }}
           files:
             dist/instruct*
+      # ARJ: disable for now
+      # -
+      #   name: Publish package distributions to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') }}
+      #   with:
+      #     skip-existing: false
