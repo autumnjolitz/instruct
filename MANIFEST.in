@@ -1,5 +1,2 @@
 include LICENSE
 graft instruct/templates
-
-include generate_version.py
-include CURRENT_VERSION.txt
