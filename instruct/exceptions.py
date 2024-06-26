@@ -177,7 +177,6 @@ def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, 
         "type": titleize(e),
         "message": message,
         "debugging_info": {
-            "stack": traceback.format_exception(type(e), e, e.__traceback__, limit=10),
             **extra_debugging_info,
         },
     }
