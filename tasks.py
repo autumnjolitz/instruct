@@ -8,6 +8,7 @@ import io
 import sys
 import tempfile
 import tarfile
+import zipfile
 from contextlib import suppress, contextmanager, closing
 from pathlib import Path
 from typing import Type, Union, Dict, Tuple, Iterable, TypeVar, List, Optional
@@ -165,10 +166,29 @@ def test(context: Context):
 
 
 @task
-def setup_metadata() -> Dict[str, Union[str, Tuple[str, ...]]]:
-    with open(_.project_root(Path, silent=True) / "setup.cfg") as fh:
+def setup_metadata(file: Optional[str] = None) -> Dict[str, Union[str, Tuple[str, ...]]]:
+    in_metadata = False
+    sep = "="
+    if file is None:
+        fh = open(_.project_root(Path, silent=True) / "setup.cfg")
+    else:
+        if file.endswith(".whl"):
+            with zipfile.ZipFile(file, "r") as wheel:
+                for metadata in wheel.infolist():
+                    if metadata.filename.endswith(".dist-info/METADATA"):
+                        fh = io.StringIO(wheel.read(metadata).decode())
+                        in_metadata = True
+                        sep = ":"
+                        break
+        elif file.endswith(".tar.gz"):
+            with tarfile.open(file) as sdist:
+                for metadata in sdist:
+                    filename = Path(metadata.name)
+                    if filename.name == "setup.cfg":
+                        fh = io.StringIO(sdist.extractfile(metadata).read().decode())
+                        break
+    with closing(fh):
         in_multiline = False
-        in_metadata = False
         values: Optional[Union[str, List[str]]] = None
         key = None
         mapping: Dict[str, Union[str, Tuple[str, ...]]] = {}
@@ -179,7 +199,7 @@ def setup_metadata() -> Dict[str, Union[str, Tuple[str, ...]]]:
             if line.startswith("[") and in_metadata:
                 in_metadata = False
             if in_metadata:
-                if "=" in line and in_multiline:
+                if sep in line and in_multiline:
                     in_multiline = False
                     assert key is not None
                     assert isinstance(values, list)
@@ -189,12 +209,23 @@ def setup_metadata() -> Dict[str, Union[str, Tuple[str, ...]]]:
                     assert isinstance(values, list)
                     values.append(line.strip())
                     continue
-                key, value = [x.strip() for x in line.split("=", 1)]
-                if not value:
-                    in_multiline = True
-                    values = []
-                    continue
-                mapping[key] = value.strip()
+                if not line.strip():
+                    break
+
+                else:
+                    key, value = [x.strip() for x in line.split(sep, 1)]
+                    key = key.lower()
+                    if not value:
+                        in_multiline = True
+                        values = []
+                        continue
+                    if key in mapping:
+                        if isinstance(mapping[key], str):
+                            mapping[key] = (mapping[key], value.strip())
+                        else:
+                            mapping[key] = (*mapping[key], value.strip())
+                    else:
+                        mapping[key] = value.strip()
     return mapping
 
 
