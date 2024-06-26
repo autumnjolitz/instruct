@@ -737,6 +737,7 @@ def __getattr__(name: str):
                 fh.write(code)
                 fh.seek(0)
                 code = fh.read()
+        task_frame.f_globals["pprint"] = pprint
         exec(compile(code, filename, "exec"), task_frame.f_globals, localns)
         setattr(this._, func.__name__, wrap_func(func))
         public_func = localns[func.__name__]
