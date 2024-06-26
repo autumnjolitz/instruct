@@ -47,7 +47,7 @@ class InstructTransformer:
             lhs = statement.lvalues[0]
             if not isinstance(lhs, NameExpr):
                 continue
-            if lhs.name != '__slots__':
+            if lhs.name != "__slots__":
                 continue
             for name, typeish, node in _collect_args(ctx, statement.rvalue):
                 attributes.append(Attribute(name, typeish, node))
@@ -59,12 +59,13 @@ def _collect_args(ctx, expr: Expression):
     if isinstance(expr, DictExpr):
         for key, value in expr.items:
             if not isinstance(key, StrExpr):
-                ctx.api.fail('Must be a string for the keys', expr)
+                ctx.api.fail("Must be a string for the keys", expr)
                 return
             if not isinstance(value, NameExpr):
-                ctx.api.fail('Must be a typing definition', expr)
+                ctx.api.fail("Must be a typing definition", expr)
                 return
             from mypy.checkmember import type_object_type  # To avoid import cycle.
+
             converter_type = type_object_type(value.node, ctx.api.builtin_type)
             yield key.value, converter_type.items()[0].arg_types, value.node
 
@@ -72,16 +73,14 @@ def _collect_args(ctx, expr: Expression):
 class InstructPlugin(Plugin):
     def wrap_base(self, ctx: ClassDefContext) -> None:
         transformer = InstructTransformer(ctx)
-        print('ass')
+        print("ass")
         try:
             transformer.transform()
         except Exception as e:
             print(e)
 
-
-    def get_base_class_hook(self, fullname: str) -> \
-            Optional[Callable[[ClassDefContext], None]]:
-        if fullname != 'instruct.Base':
+    def get_base_class_hook(self, fullname: str) -> Optional[Callable[[ClassDefContext], None]]:
+        if fullname != "instruct.Base":
             return None
         return self.wrap_base
 
