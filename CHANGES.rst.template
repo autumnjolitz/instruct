@@ -35,8 +35,14 @@
 `{{ version.tag or version.planned_tag }} <{{ version.url }}>`_
 `Compare with {{ version.previous_version.tag|default("first commit") }} <{{ version.compare_url }}>`_
 #}
-{%- macro render_version(version) -%}
-
+{%- macro render_version(version, show_unreleased=False) -%}
+{%- if version.tag or version.planned_tag -%}
+    {{ _render_version(version) }}
+{%- elif show_unreleased -%}
+    {{ _render_version(version) }}
+{%- endif-%}
+{%- endmacro -%}
+{%- macro _render_version(version) -%}
 {%- if version.tag or version.planned_tag -%}
 Version {{ version.tag or version.planned_tag }}
 -------------------
@@ -67,5 +73,5 @@ Release ????-??-?? {% if not (version.tag or version.planned_tag) %}(`latest <{{
 {%- if not in_place -%}
 {% endif %}.. |Changes|
 {% for version in changelog.versions_list -%}
-{{ render_version(version) }}
+{{ render_version(version, jinja_context.emit_unreleased|default(False)) }}
 {%- endfor -%}
