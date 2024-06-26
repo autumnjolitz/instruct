@@ -72,7 +72,10 @@ def flatten_restrict(iterable):
             yield item
 
 
-_Marks: WeakKeyDictionary[Callable, Dict[str, Any]] = WeakKeyDictionary()
+if TYPE_CHECKING:
+    _Marks: WeakKeyDictionary[Callable, Dict[str, Any]]
+
+_Marks = WeakKeyDictionary()
 
 
 def mark(**kwargs: Any):
