@@ -216,7 +216,7 @@ jobs:
         name: Create artifacts
         id: artifacts
         run: |
-          python/bin/python -m build
+          invoke build --validate
 
       -
         name: Publish package distributions to PyPI
