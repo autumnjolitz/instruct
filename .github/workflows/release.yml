@@ -165,6 +165,7 @@ jobs:
         with:
           args: >-
             -s
+            --wrap=none
             -t gfm
             -o RELEASE_NOTES.md
             RELEASE_NOTES.rst
