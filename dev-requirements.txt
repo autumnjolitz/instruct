@@ -4,6 +4,7 @@ black~=23.7.0; python_version >= '3.8'
 invoke
 packaging
 # bump-my-version
-# git-changelog>=2.4.0,<2.4.1; python_version >= '3.11'
-git-changelog@git+https://github.com/autumnjolitz/git-changelog.git@bugfix/main/add-untyped-commits
+# ARJ: until issue is cleared, use
+# git-changelog@git+https://github.com/autumnjolitz/git-changelog.git@bugfix/main/add-untyped-commits
+git-changelog
 mypy>1.3.0; python_version >= '3.8'
