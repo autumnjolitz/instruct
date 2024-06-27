@@ -889,10 +889,10 @@ def checksum(context: Context, with_header: bool = True):
     if not dist.exists():
         return
     if with_header:
-        sys.stdout.write("\nChecksums\n^^^^^^^^^^^\n")
+        sys.stdout.write("\nChecksums\n^^^^^^^^^^^\n::\n\n")
     for file in sorted(dist.iterdir()):
         file_hash = hashlib.sha256()
         file_hash.update(file.read_bytes())
-        sys.stdout.write(f"SHA2-256({file.name})= {file_hash.hexdigest()}\n")
+        sys.stdout.write(f"    SHA2-256({file.name})= {file_hash.hexdigest()}\n")
     sys.stdout.write("\n")
     sys.stdout.flush()
