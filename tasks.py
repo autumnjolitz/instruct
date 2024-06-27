@@ -5,6 +5,7 @@ import types
 import base64
 import builtins
 import io
+import hashlib
 import sys
 import tempfile
 import tarfile
@@ -879,3 +880,19 @@ def bump_version(
             fh.seek(0)
             context.run(f"git -C {root!s} commit -F -", in_stream=fh)
     return next_version
+
+
+@task
+def checksum(context: Context, with_header: bool = True):
+    root = _.project_root(Path, silent=True)
+    dist = root / "dist"
+    if not dist.exists():
+        return
+    if with_header:
+        sys.stdout.write("\nChecksums\n^^^^^^^^^^^\n")
+    for file in sorted(dist.iterdir()):
+        file_hash = hashlib.sha256()
+        file_hash.update(file.read_bytes())
+        sys.stdout.write(f"SHA2-256({file.name})= {file_hash.hexdigest()}\n")
+    sys.stdout.write("\n")
+    sys.stdout.flush()
