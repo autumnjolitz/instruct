@@ -156,21 +156,31 @@ jobs:
         id: artifacts
         run: |
           invoke build --validate
-          invoke last-logged-changes | tee CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
+          invoke last-logged-changes | tee RELEASE_NOTES.rst
+          invoke checksum | tee -a RELEASE_NOTES.rst
+
+      -
+        name: Convert RELEASE_NOTES.rst to markdown
+        uses: docker://pandoc/core:2.9
+        with:
+          args: >-
+            -s
+            -t gfm
+            -o RELEASE_NOTES.md
+            RELEASE_NOTES.rst
 
       -
         name: Create Release
         id: upload-release-asset
         uses: softprops/action-gh-release@v1
         with:
-          body_path: CHANGES.rst.${{ steps.version.outputs.CURRENT_VERSION }}
+          body_path: RELEASE_NOTES.md
           name: Release ${{ steps.version.outputs.CURRENT_VERSION }}
           files:
             dist/instruct*
-      # ARJ: disable for now
-      # -
-      #   name: Publish package distributions to PyPI
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') }}
-      #   with:
-      #     skip-existing: false
+      -
+        name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          skip-existing: false
