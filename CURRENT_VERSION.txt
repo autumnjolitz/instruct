@@ -1,2 +1,2 @@
 # bump the below version on release
-0.8.0a1
+0.8.0
