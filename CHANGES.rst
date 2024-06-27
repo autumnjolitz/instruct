@@ -1,4 +1,30 @@
 .. |Changes|
+Version v0.8.0a1
+-------------------
+
+Release 2024-06-27
+
+Bug Fixes
+
+- exceptions will not list the stack in a json output (`1981a23 <https://github.com/autumnjolitz/instruct/commit/1981a23478b9ec181c39890978562359a62b3d43>`_ by Autumn).
+- utils for 3.7 cannot specialize the ``WeakKeyDictionary``, so guard behind TYPE_CHECKING (`4238fa7 <https://github.com/autumnjolitz/instruct/commit/4238fa79caf12da5631fe6ed8c6b225950b1e61d>`_ by Autumn).
+- satisfy type checker for non-3.12 (`2ce45fd <https://github.com/autumnjolitz/instruct/commit/2ce45fde5d1f3afc0937327224257394e93a00e4>`_ by Autumn).
+- added type hint for exceptions ``__json__`` method (`86c76ff <https://github.com/autumnjolitz/instruct/commit/86c76ff51b97e744cac60e9a91f317a4c8245a6b>`_ by Autumn).
+- ignore mypy error from an attribute test (`9a45b6b <https://github.com/autumnjolitz/instruct/commit/9a45b6b823ccd2c773ee1af89f5191f698f39b17>`_ by Autumn).
+- tests post refactor (`516c6ba <https://github.com/autumnjolitz/instruct/commit/516c6ba2cd3e06d5ff5faf846523722a98c4eb33>`_ by Autumn).
+- add git changelog helper (`3100d65 <https://github.com/autumnjolitz/instruct/commit/3100d653a196dda4748b6dfc068ea8ae3798cf53>`_ by Autumn Jolitz).
+
+Code Refactoring
+
+- add type hints, restructure to be more specific (`5c56e5c <https://github.com/autumnjolitz/instruct/commit/5c56e5c60862658ed9b2b019581cb4510174756b>`_ by Autumn).
+
+Other
+
+- Merge remote-tracking branch 'origin/master' into prerelease/0.8.0a0 (`addca84 <https://github.com/autumnjolitz/instruct/commit/addca849e3856a6be8dfc678822eebd2c7c37066>`_ by Autumn).
+- remove: pytype overlay as it is not used (`d88f86e <https://github.com/autumnjolitz/instruct/commit/d88f86e4b506a38156c99c9081df73c54f953ee6>`_ by Autumn).
+- change: ``instruct/about.py`` will be structured for tuple comparisions like ``>= (0, 8, 0)`` (`f95b321 <https://github.com/autumnjolitz/instruct/commit/f95b3210efb880a47dfeb8a54cb5094d123a745b>`_ by Autumn).
+- [README] try to make more friendly for github (`3d4d145 <https://github.com/autumnjolitz/instruct/commit/3d4d145af6b5c329ca9274eef74875a02b636431>`_ by Autumn Jolitz).
+
 
 Version v0.8.0a0
 -------------------
