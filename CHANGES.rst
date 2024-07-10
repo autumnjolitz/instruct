@@ -1,94 +1,139 @@
 .. |Changes|
-Version v0.8.0a1
+Version v0.8.0
 -------------------
 
-Release 2024-06-27
+Release 2025-07-07
+
+Features
+
+- ``instruct/about.py`` will be structured for tuple comparisions like ``>= (0, 8, 0)`` (`b9714f8 <https://github.com/autumnjolitz/instruct/commit/b9714f859a4639f57cf13fd250567b9f8688ecf7>`_ by Autumn).
+- add ``Undefined`` (`41980a0 <https://github.com/autumnjolitz/instruct/commit/41980a094fbd28245c7ac300ad26c0436e577338>`_ by Autumn).
+- implement generics! (`0e716bf <https://github.com/autumnjolitz/instruct/commit/0e716bf8cd49d9b231e1f38fb7ec1278cce4724b>`_ by Autumn).
+
+Performance Improvements
+
+- use ``inspect.getattr_static`` more aggressively (`c16a0ea <https://github.com/autumnjolitz/instruct/commit/c16a0eab801857caf389d612c2e34153d53ca4e9>`_ by Autumn).
 
 Bug Fixes
 
-- exceptions will not list the stack in a json output (`1981a23 <https://github.com/autumnjolitz/instruct/commit/1981a23478b9ec181c39890978562359a62b3d43>`_ by Autumn).
-- utils for 3.7 cannot specialize the ``WeakKeyDictionary``, so guard behind TYPE_CHECKING (`4238fa7 <https://github.com/autumnjolitz/instruct/commit/4238fa79caf12da5631fe6ed8c6b225950b1e61d>`_ by Autumn).
-- satisfy type checker for non-3.12 (`2ce45fd <https://github.com/autumnjolitz/instruct/commit/2ce45fde5d1f3afc0937327224257394e93a00e4>`_ by Autumn).
-- added type hint for exceptions ``__json__`` method (`86c76ff <https://github.com/autumnjolitz/instruct/commit/86c76ff51b97e744cac60e9a91f317a4c8245a6b>`_ by Autumn).
-- ignore mypy error from an attribute test (`9a45b6b <https://github.com/autumnjolitz/instruct/commit/9a45b6b823ccd2c773ee1af89f5191f698f39b17>`_ by Autumn).
-- tests post refactor (`516c6ba <https://github.com/autumnjolitz/instruct/commit/516c6ba2cd3e06d5ff5faf846523722a98c4eb33>`_ by Autumn).
-- add git changelog helper (`3100d65 <https://github.com/autumnjolitz/instruct/commit/3100d653a196dda4748b6dfc068ea8ae3798cf53>`_ by Autumn Jolitz).
+- do not list the stack in a json output (`2694716 <https://github.com/autumnjolitz/instruct/commit/2694716a525194d1ea888460502a27ac591b02cc>`_ by Autumn).
+- Python 3.7 cannot specialize the ``WeakKeyDictionary``, so guard behind TYPE_CHECKING (`1bc76ff <https://github.com/autumnjolitz/instruct/commit/1bc76ff132e617ca4f5987ffcbe2852533452a33>`_ by Autumn).
+- satisfy type checker for Python 3.11 and below (`c478dd1 <https://github.com/autumnjolitz/instruct/commit/c478dd1e167cfb19b7bbf51261cc97c13f6bbee4>`_ by Autumn).
+- added type hint to ``__json__`` method (`a6da934 <https://github.com/autumnjolitz/instruct/commit/a6da9344f6aa7b5b04e7121c928d75566d436ba5>`_ by Autumn).
+- ignore mypy error from an attribute test (`1230465 <https://github.com/autumnjolitz/instruct/commit/12304654b43b685bf9ca38b4004c6bcac950706b>`_ by Autumn).
+- add git changelog helper (`b79c727 <https://github.com/autumnjolitz/instruct/commit/b79c727291e2535296dc4c1b8c5d9fa56dc3ac79>`_ by Autumn Jolitz).
+- satisfy mypy for ``NoDefault`` type (`297f268 <https://github.com/autumnjolitz/instruct/commit/297f268d2f80212dcc9c3f593d95d8d40979e051>`_ by Autumn).
+- correct Python 3.12 to pass tests (`f9e5296 <https://github.com/autumnjolitz/instruct/commit/f9e529611d4e32300b5932fcc5cc69e2640570c3>`_ by Autumn).
+- check for ``NoDefault`` (`94c5f07 <https://github.com/autumnjolitz/instruct/commit/94c5f078e7dfc2fcb78652b9b17be81a2180fff0>`_ by Autumn).
+- default initialize untyped generics to ``Any`` (`e0e781f <https://github.com/autumnjolitz/instruct/commit/e0e781ff1a3576e5df6804a78a47a6310bc06a08>`_ by Autumn).
+- update backport for Python 3.7 (`fffa961 <https://github.com/autumnjolitz/instruct/commit/fffa961f83d6e03bd77fad3b36728852bf9463b0>`_ by Autumn).
 
 Code Refactoring
 
-- add type hints, restructure to be more specific (`5c56e5c <https://github.com/autumnjolitz/instruct/commit/5c56e5c60862658ed9b2b019581cb4510174756b>`_ by Autumn).
+- split into language, compat, add type hints, restructure to be more specific (`9845934 <https://github.com/autumnjolitz/instruct/commit/98459347c2bd025eab032e2b0eab9d8e04bdd4bc>`_ by Autumn).
+- rename ``IAtomic`` to ``AbstractAtomic``, ``AtomicImpl`` to ``BaseAtomic`` (`7d2fb28 <https://github.com/autumnjolitz/instruct/commit/7d2fb284ee357c4d7a435f1f7706ab847733eed3>`_ by Autumn).
+- rename ``Atomic`` to ``AtomicMeta`` (`644fecb <https://github.com/autumnjolitz/instruct/commit/644fecba437cee23dbe039693a80921108d1016c>`_ by Autumn).
 
-Other
+Docs
 
-- Merge remote-tracking branch 'origin/master' into prerelease/0.8.0a0 (`addca84 <https://github.com/autumnjolitz/instruct/commit/addca849e3856a6be8dfc678822eebd2c7c37066>`_ by Autumn).
-- remove: pytype overlay as it is not used (`d88f86e <https://github.com/autumnjolitz/instruct/commit/d88f86e4b506a38156c99c9081df73c54f953ee6>`_ by Autumn).
-- change: ``instruct/about.py`` will be structured for tuple comparisions like ``>= (0, 8, 0)`` (`f95b321 <https://github.com/autumnjolitz/instruct/commit/f95b3210efb880a47dfeb8a54cb5094d123a745b>`_ by Autumn).
-- [README] try to make more friendly for github (`3d4d145 <https://github.com/autumnjolitz/instruct/commit/3d4d145af6b5c329ca9274eef74875a02b636431>`_ by Autumn Jolitz).
+- update (`fecc29e <https://github.com/autumnjolitz/instruct/commit/fecc29e8bf799ba58bf21fd13a29927f75888958>`_ by Autumn).
+- clean up (`0184422 <https://github.com/autumnjolitz/instruct/commit/01844228dda2e623e0b70376410a1cf04dca48c5>`_ by Autumn).
+- add newline for change list (`345cb2d <https://github.com/autumnjolitz/instruct/commit/345cb2d0646acaac9b2debd793e90d777a150e67>`_ by Autumn).
+- ``git-changelog`` requires a "v" prefix to match v prefixed tags (`8b8b6cf <https://github.com/autumnjolitz/instruct/commit/8b8b6cfe8cc63372d035230bd97c5aea53a9e935>`_ by Autumn).
+- try to make more friendly for github (`a530071 <https://github.com/autumnjolitz/instruct/commit/a530071c76ee269258c3b1597d9d14fc76cb3a14>`_ by Autumn Jolitz).
 
+Dependencies
 
-Version v0.8.0a0
+- pin ``black`` for python 3.8 (`6a500d6 <https://github.com/autumnjolitz/instruct/commit/6a500d691d645ae20f35a82aff646aec5869589a>`_ by Autumn).
+
+Tests
+
+- update (`eeb311f <https://github.com/autumnjolitz/instruct/commit/eeb311f44338ae99c2981a9c5d81430b1c76c6d1>`_ by Autumn). Caused By: `91f05963ea1c25f36d551834f7ae672d05955074 <https://github.com/autumnjolitz/instruct/commit/91f05963ea1c25f36d551834f7ae672d05955074>_`
+
+Style
+
+- run black (`88faff7 <https://github.com/autumnjolitz/instruct/commit/88faff735a5d60c87769780c9a87ebcdbfd3a03f>`_ by Autumn).
+
+Chore
+
+- ignore ``python**`` folders (used in cross version testing) (`de0a37c <https://github.com/autumnjolitz/instruct/commit/de0a37cc12db86da43fed8aad4f5cea833f1a9a7>`_ by Autumn).
+- drop pytype overlay (`6b0a8f8 <https://github.com/autumnjolitz/instruct/commit/6b0a8f844e988420a5f04b69c70a110bb1e06b7f>`_ by Autumn).
+- up version to 0.8.0, remove unused imports, add to README that Generics are supported (`4b0902a <https://github.com/autumnjolitz/instruct/commit/4b0902aa168f8e385232afe89d9fcfa266398e76>`_ by Autumn).
+- silence mypy on ``Genericizable`` with an ignore (`5cfb45f <https://github.com/autumnjolitz/instruct/commit/5cfb45f5bf376475437589c2ebd2c529c6e74c1d>`_ by Autumn).
+- pass mypy type checks (`506a810 <https://github.com/autumnjolitz/instruct/commit/506a8103ba1d8e33f2a1685a480ee00deca611af>`_ by Autumn).
+
+Continuous Integration
+
+- finalize, skip existing obj on pypi (`8df60b3 <https://github.com/autumnjolitz/instruct/commit/8df60b34c52eab79339ae2a1464fc0c380c69326>`_ by Autumn).
+- disable word wrapping in pandoc (`c9479ee <https://github.com/autumnjolitz/instruct/commit/c9479ee5cced77be02aee4db6d39325ba58a6caa>`_ by Autumn).
+- allow pypi publishing, add sha sums to the release notes (`5b49f13 <https://github.com/autumnjolitz/instruct/commit/5b49f1362e4c89c1e9463c56ef950384e08f9812>`_ by Autumn).
+- add release functionality (handles versioning, etc) (`29d376b <https://github.com/autumnjolitz/instruct/commit/29d376b0d6944a648fd64a7f89b8443e75a164a6>`_ by Autumn).
+- simplify, write version specific changes to the release, temporarily disable pypi (`e32a1a9 <https://github.com/autumnjolitz/instruct/commit/e32a1a9619d1fd820665cb7ffaf0309e3116cb3e>`_ by Autumn).
+- use ``invoke build`` (`552203b <https://github.com/autumnjolitz/instruct/commit/552203b3019cf70f7acd7d1fdbd7c4eb1f14ebf9>`_ by Autumn).
+- use the newer python setup step (`4d42fa4 <https://github.com/autumnjolitz/instruct/commit/4d42fa48630582ea364e58d5fbfb5328f5fd1559>`_ by Autumn).
+- get all history for a change log generator (`15e9103 <https://github.com/autumnjolitz/instruct/commit/15e910335b692198f036cdafbbcd46b10a4fd8f6>`_ by Autumn).
+- run the changes test before any tests run (`9b741ce <https://github.com/autumnjolitz/instruct/commit/9b741cedcd557f6b444390b7ae658a09e065d8ed>`_ by Autumn).
+- ensure ``CHANGES.rst`` is always up-to-date (`d9bc2ce <https://github.com/autumnjolitz/instruct/commit/d9bc2ce513e116d05ee6fce237b47d0320e19d53>`_ by Autumn).
+- print out black version (`42ba597 <https://github.com/autumnjolitz/instruct/commit/42ba5972c9e0faf8e0a681ff98a2e0fdf2d33c37>`_ by Autumn).
+- relax restrictions on build (`6157a1c <https://github.com/autumnjolitz/instruct/commit/6157a1cc466a0279f93604e8895b97448236f3f5>`_ by Autumn).
+
+Build
+
+- bump version to 0.8.0 (`f5b0765 <https://github.com/autumnjolitz/instruct/commit/f5b0765770fe1d7c8913778e28b543595bb654c9>`_ by Autumn).
+- assume `pawamoy/git-changelog@89 <https://github.com/pawamoy/git-changelog/pull/89>`_ will be merged in a few days (`7e23986 <https://github.com/autumnjolitz/instruct/commit/7e2398685a907c000c657d3bad0c81fe916bf07b>`_ by Autumn).
+- remove invalid classifier (despite the fact this is used as a framework) (`3174afc <https://github.com/autumnjolitz/instruct/commit/3174afc934c41e0629489b27c5b67c088e53206f>`_ by Autumn).
+- add ``checksum`` command (`83f3973 <https://github.com/autumnjolitz/instruct/commit/83f3973a63d07a2f48afe1d100a01f8e0f59c1fd>`_ by Autumn).
+- overhaul setup.cfg classifiers et al, given that instruct has been production ready for years now (`0639313 <https://github.com/autumnjolitz/instruct/commit/0639313c3199c18a165c2fe73026918d5cda228e>`_ by Autumn).
+- ignore python3.whatever directories, remove some default changelog options for use in tasks.py (`b47a942 <https://github.com/autumnjolitz/instruct/commit/b47a9426fadc5afe0ce2a1f10739735927c7b394>`_ by Autumn).
+- run black (`cb40105 <https://github.com/autumnjolitz/instruct/commit/cb4010513b8b254f7ff4a9ccaec1ded4ba085a3e>`_ by Autumn).
+- changelog can now omit in-flight/unreleased changes (`ac15505 <https://github.com/autumnjolitz/instruct/commit/ac15505ecbb460b7f1e06d06b87d526c5360cf02>`_ by Autumn).
+- bump version to next alpha (`00dd465 <https://github.com/autumnjolitz/instruct/commit/00dd4659a1f65baa448b049b71bab3ef828208f5>`_ by Autumn).
+- pre-commit should use repo's pyproject (`33e1369 <https://github.com/autumnjolitz/instruct/commit/33e13692233cb1b28417a80db76389254e0a73fe>`_ by Autumn).
+- delete unused black config (`f6567ac <https://github.com/autumnjolitz/instruct/commit/f6567ac1b9c5fa11b74fba743141c8cf4a917a4a>`_ by Autumn).
+- add files back for the naive ``python -m build`` case to work (`cf96480 <https://github.com/autumnjolitz/instruct/commit/cf96480b6d4334e3078b7f325898c6250ce682bc>`_ by Autumn).
+- setup-metadata can now dump info from a ``wheel`` or ``sdist`` (`9c19cf4 <https://github.com/autumnjolitz/instruct/commit/9c19cf47d81467c3a5adcbcfaaaba4368da589e0>`_ by Autumn).
+- ensure source distributions do not depend on source control, remove unused functions (`a7f6de0 <https://github.com/autumnjolitz/instruct/commit/a7f6de03e217d876b44f869a91d5b4ef58d9b095>`_ by Autumn). Referenced By: `Source Distributions <https://packaging.python.org/en/latest/guides/distributing-packages-using-setuptools/#source-distributions>`_
+- ensure task_support injects ``pprint`` (`a3abf25 <https://github.com/autumnjolitz/instruct/commit/a3abf2527cbbfc226212410bdb2e1145eaaf4558>`_ by Autumn).
+- remove unused files (`cee5f21 <https://github.com/autumnjolitz/instruct/commit/cee5f214ae131209423538ac3bea1ebbff10ecde>`_ by Autumn).
+- ensure ``about.VersionInfo`` has a compliant pep440 ``.public_...`` and ``__str__()`` functions (`f6bedea <https://github.com/autumnjolitz/instruct/commit/f6bedea81832ae9dc40745392ff00aca8f4ab6ad>`_ by Autumn).
+- fix ``CHANGES.rst``, use fork of ``git-changelog`` until `pawamoy/git-changelog@89 <https://github.com/pawamoy/git-changelog/pull/89>`_ is merged and released, use pep440 versioning (`771790b <https://github.com/autumnjolitz/instruct/commit/771790b575ca43dbb9f5449b21706a87897e1c12>`_ by Autumn).
+- fix type hint complaints, add helpers (`ad00166 <https://github.com/autumnjolitz/instruct/commit/ad00166f09c9151811ee58987c30eb531ea2e158>`_ by Autumn).
+- add defaults for ``git-changelog``, require 2.4.0 as 2.4.1+ will ignore untyped commits (`39025c3 <https://github.com/autumnjolitz/instruct/commit/39025c31542ae459fa24c5f8dfa5c0e91138edda>`_ by Autumn).
+- prerelease v0.8.0a0 (`ef84469 <https://github.com/autumnjolitz/instruct/commit/ef84469be82d7813492f701d9650ca1e414c11fd>`_ by Autumn).
+- bump to v0.8.0 series (`f0ad5ae <https://github.com/autumnjolitz/instruct/commit/f0ad5aed353bfd62d9a40bec65fb306aa96ff618>`_ by Autumn).
+
+Version v0.7.5.post2
 -------------------
 
-Release 2024-06-18
+Release 2025-07-08
 
-Other
+Bug Fixes
 
-- [CURRENT_VERSION] prerelease 0.8.0a0 (`acce414 <https://github.com/autumnjolitz/instruct/commit/acce4143a645329657187f6c3329f84a33bb4f61>`_ by Autumn).
-- [*] up version, remove unused imports, add to README (`cd7191d <https://github.com/autumnjolitz/instruct/commit/cd7191dff5b657ec34e175e0dc5d6cd136fa706c>`_ by Autumn).
-- [*] refactor ``IAtomic`` -> ``AbstractAtomic``, ``AtomicImpl`` -> ``BaseAtomic`` (`6c8bf41 <https://github.com/autumnjolitz/instruct/commit/6c8bf41a9f2ec0536c105b65668bd24984d858ee>`_ by Autumn).
-- [generate_version] fix to pass black (the pre version had a single quote ``'``) (`838fb31 <https://github.com/autumnjolitz/instruct/commit/838fb31d7d342c0ec3f77adc18e73ccf7e36eecb>`_ by Autumn).
-- [workflows.build] express the version (`5e5059f <https://github.com/autumnjolitz/instruct/commit/5e5059f7c9f031d0fbc09c14d537555fd7505756>`_ by Autumn).
-- [CURRENT_VERSION] bump to 0.8.0 series (`066f08f <https://github.com/autumnjolitz/instruct/commit/066f08f3d727601f85c969ec5bc37444fc5ac047>`_ by Autumn).
-- [typing] satisfy mypy for NoDefault (`28c236f <https://github.com/autumnjolitz/instruct/commit/28c236f951f4dfc30e91a79f73c97eace4dd7c14>`_ by Autumn).
-- [*] use ``getattr_static`` more aggressively (`7b095d0 <https://github.com/autumnjolitz/instruct/commit/7b095d0d95f4fea3d0a81eabbf392a33bb7d63c2>`_ by Autumn).
-- [constants] add ``Undefined`` (`7dccf96 <https://github.com/autumnjolitz/instruct/commit/7dccf9670e1e735650b4f379c536c802e7921fcf>`_ by Autumn).
-- [*] pass 3.12 tests (`5962696 <https://github.com/autumnjolitz/instruct/commit/5962696d4fa0a845c2b432940cbb89d6642ee1ee>`_ by Autumn).
-- [typing] check for NoDefault (`2146a2e <https://github.com/autumnjolitz/instruct/commit/2146a2e0c19d532b88cc2157773664d0464434b8>`_ by Autumn).
-- [*] silence mypy with an ignore (`4d5b894 <https://github.com/autumnjolitz/instruct/commit/4d5b8941faf95eed45283bfcf9f7cec02c710acd>`_ by Autumn).
-- [dev-requirements] fix version (`65fd3fe <https://github.com/autumnjolitz/instruct/commit/65fd3fe0d7a837346481b3eebb8b29a1b4cac179>`_ by Autumn).
-- [*] default initialize untyped generics to ``Any`` (`c601ad5 <https://github.com/autumnjolitz/instruct/commit/c601ad5d0aa1ba30e8a231839d9eafb3d28a2c16>`_ by Autumn).
-- [*] pass mypy (`426e1ee <https://github.com/autumnjolitz/instruct/commit/426e1eea2a2af67852bb6c97ada693741b5c5a76>`_ by Autumn).
-- [*] all backport (`5b8385e <https://github.com/autumnjolitz/instruct/commit/5b8385e25030c69053e5838e9ffb1f2438930d24>`_ by Autumn).
-- [*] backport some more (`c7deaa4 <https://github.com/autumnjolitz/instruct/commit/c7deaa40102ee0e84c15a5bdfdfb131de9eda26d>`_ by Autumn).
-- [*] copy from bugfix/master/relax-restrictions (`12842fd <https://github.com/autumnjolitz/instruct/commit/12842fd0e94b597bc31a64d0361cbeaebd794be1>`_ by Autumn).
-- [*] rename ``Atomic`` -> ``AtomicMeta`` (`c46caec <https://github.com/autumnjolitz/instruct/commit/c46caecf27904f16cd004618b2bb882e71cb0922>`_ by Autumn).
-- [*] support generics (`4955f18 <https://github.com/autumnjolitz/instruct/commit/4955f18d04258bbd3c27562022708281cc98e645>`_ by Autumn).
-
-
-
-Version v0.7.5post2
--------------------
-
-Release 2024-02-29
-
-Other
-
-- [typedef] fix typo (`1c33b63 <https://github.com/autumnjolitz/instruct/commit/1c33b637bd58b4d5329013881babf6709b9d9f1c>`_ by Autumn).
-
-
-Version v0.7.5.post1
--------------------
-
-Release 2024-02-29
-
-Other
-
-- [typedef] fix for 3.7 (`46552e0 <https://github.com/autumnjolitz/instruct/commit/46552e0ed57beda354f856c8de174ddca8b1c36a>`_ by Autumn).
-
+- correct for Python 3.7 (`e58c523 <https://github.com/autumnjolitz/instruct/commit/e58c523ce4edbca560267b6a6a0c1fd8919c485c>`_ by Autumn).
 
 Version v0.7.5
 -------------------
 
-Release 2024-02-29
+Release 2025-07-08
 
-Other
+Features
 
-- [CURRENT_VERSION] bump (`1f68ad0 <https://github.com/autumnjolitz/instruct/commit/1f68ad0d73e8acd7f57e1ee8a48ccb4c67462ae5>`_ by Autumn).
-- [typedef] support ``type | type`` in 3.10+ and ``__init_subclass__`` (`78c1a85 <https://github.com/autumnjolitz/instruct/commit/78c1a85bb316bb1cffc87d83cc4d86533682e121>`_ by Autumn).
-- [README] try to make more friendly for github (`f069f7e <https://github.com/autumnjolitz/instruct/commit/f069f7e77ebee4e392983b540ae362cd8b2ba119>`_ by Autumn Jolitz).
-- [CHANGES, README] update (`383b7fe <https://github.com/autumnjolitz/instruct/commit/383b7feee9e70a2f05431bda4faca14ad4ab0b67>`_ by Autumn Jolitz).
-- [CHANGES.rst] template it (`292680e <https://github.com/autumnjolitz/instruct/commit/292680e87d57d067ef9ba1516f9f6514eb237d47>`_ by Autumn Jolitz).
-- [CHANGES] investigate use of git-changelog (`4d3470a <https://github.com/autumnjolitz/instruct/commit/4d3470a3ee7da6acc6942ba17f21fca9a5374a30>`_ by Autumn Jolitz).
+- support ``type | type`` in Python 3.10 and above, implement ``__init_subclass__(cls)`` (`88164e3 <https://github.com/autumnjolitz/instruct/commit/88164e390267b6ee690d88bed6e60e17bd4da98b>`_ by Autumn).
+
+Docs
+
+- try to make more friendly for github (`46df415 <https://github.com/autumnjolitz/instruct/commit/46df4150a4928659b4464ef9282da033c8cabea2>`_ by Autumn Jolitz).
+- update ``CHANGES.rst``, ``README.rst`` (`42bd3d2 <https://github.com/autumnjolitz/instruct/commit/42bd3d23f11362d3584896fb8b31a4aa83103bf2>`_ by Autumn Jolitz).
+- template-ize for release note generation (`5e508b7 <https://github.com/autumnjolitz/instruct/commit/5e508b714bb47cd2d904a75e4534d7ffab912867>`_ by Autumn Jolitz).
+- test of `git-changelog <https://github.com/pawamoy/git-changelog>`_ (`a4aeb37 <https://github.com/autumnjolitz/instruct/commit/a4aeb375e0ee83fdbbb332d8d5573fadf91d8917>`_ by Autumn Jolitz).
+
+Continuous Integration
+
+- add PyPy in testing (`fd12152 <https://github.com/autumnjolitz/instruct/commit/fd12152ab66246e18e4cdcd2876065814f1f8da5>`_ by Autumn Jolitz).
+
+Build
+
+- bump version to v0.7.5 (`9924da8 <https://github.com/autumnjolitz/instruct/commit/9924da815d892a9c4b3127f337c7cd965148d033>`_ by Autumn).
 
 
 Version v0.7.4
@@ -96,13 +141,17 @@ Version v0.7.4
 
 Release 2023-12-10
 
-- [.github] mess with development one (`725005e <https://github.com/autumnjolitz/instruct/commit/725005ec0363e83857d1e308937e95e29cbe4d18>`_ by Autumn Jolitz).
-- [*] refactor build, add invoke interface as my makefile (`fd8e724 <https://github.com/autumnjolitz/instruct/commit/fd8e7245cddb2aa8c6f93f27a515a2c0ca5f0649>`_ by Autumn Jolitz).
-- [README] add badges (`b30a7bc <https://github.com/autumnjolitz/instruct/commit/b30a7bcd7344393a7c7fd94a383f30d5a85b4a6e>`_ by Autumn).
-- [release] test before upload (`4431408 <https://github.com/autumnjolitz/instruct/commit/44314086aeb1be094a2bdd2ef7fff7f645abaede>`_ by Autumn).
-- [0.7.3.post1] bump version for pypi (`ade6cd8 <https://github.com/autumnjolitz/instruct/commit/ade6cd882d2771f4abe9927e78614886f7f01ad6>`_ by Autumn).
-- [*] Port instruct to newer Python versions (#3) (`19c30b2 <https://github.com/autumnjolitz/instruct/commit/19c30b278c23cc63fadbbaeadc30409c15bce098>`_ by Autumn Jolitz).
+Build
 
+- refactor, use `invoke <https://www.pyinvoke.org/>`_
+
+Chore
+
+- add badges to ``README.rst``, adjust github CI workflow names
+
+Continuous Integration
+
+- add test
 
 Version v0.7.3
 -------------------
