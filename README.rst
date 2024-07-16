@@ -310,7 +310,6 @@ Things Pydantic does that Instruct doesn't:
 
 - Discriminated Unions (Current approach in Instruct is to add the common class into the Union and specialize after ``__init__`` or do it in the ``__coerce__`` phase)
 - Type/Callable/Generator attribute assignment
-- Generics (on my todo)
 - validation (instruct is used to provide the building blocks for validation, not doing it by itself. That might change.)
 - actual mypy, vscode, pycharm, etc integration
 - schema export
