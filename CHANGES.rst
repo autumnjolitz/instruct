@@ -1,4 +1,24 @@
 .. |Changes|
+Version v0.8.1
+-------------------
+
+Release 2024-07-16
+
+Bug Fixes
+
+- avoid raising an exception inside testing tuple structure for a custom type (`0a3108c <https://github.com/autumnjolitz/instruct/commit/0a3108c8969e87f5294608d081341bfc2ada0c50>`_ by Autumn).
+
+Docs
+
+- update (`8f9ea11 <https://github.com/autumnjolitz/instruct/commit/8f9ea113905356c6a11dc71b9c1a2770d96a7d3f>`_ by Autumn).
+- remove contradictory statement (`e4ed0b4 <https://github.com/autumnjolitz/instruct/commit/e4ed0b40a82be3e24cc0362a5e76832057344204>`_ by Autumn).
+
+Build
+
+- correct changelog link (`bef4aeb <https://github.com/autumnjolitz/instruct/commit/bef4aebd37678963a511227fcb0c8cdb0a074406>`_ by Autumn).
+- adjust tasks to allow for releasing on a version other than the ``CURRENT_VERSION.txt`` next default (`fc42c02 <https://github.com/autumnjolitz/instruct/commit/fc42c02de0dbba61bb1e89b61babcd2d1f0429e6>`_ by Autumn).
+- bump version to 0.8.1 (`8a4c2ef <https://github.com/autumnjolitz/instruct/commit/8a4c2ef7b4122edab3a92123fd7846bca2571cb8>`_ by Autumn).
+
 Version v0.8.0
 -------------------
 
@@ -36,7 +56,7 @@ Code Refactoring
 
 Docs
 
-- update (`fecc29e <https://github.com/autumnjolitz/instruct/commit/fecc29e8bf799ba58bf21fd13a29927f75888958>`_ by Autumn).
+- update (`1080c7c <https://github.com/autumnjolitz/instruct/commit/1080c7c550a63f9b7404f54f399029a55bfa5ae0>`_ by Autumn).
 - clean up (`0184422 <https://github.com/autumnjolitz/instruct/commit/01844228dda2e623e0b70376410a1cf04dca48c5>`_ by Autumn).
 - add newline for change list (`345cb2d <https://github.com/autumnjolitz/instruct/commit/345cb2d0646acaac9b2debd793e90d777a150e67>`_ by Autumn).
 - ``git-changelog`` requires a "v" prefix to match v prefixed tags (`8b8b6cf <https://github.com/autumnjolitz/instruct/commit/8b8b6cfe8cc63372d035230bd97c5aea53a9e935>`_ by Autumn).
