@@ -1,4 +1,13 @@
 .. |Changes|
+Version v0.8.1
+-------------------
+
+Release 2024-07-16
+
+Bug Fixes
+
+- avoid raising an exception inside testing tuple structure for a custom type (`bd4ce81 <https://github.com/autumnjolitz/instruct/commit/bd4ce818902970ca3c86b3ce272062227d92ed3d>`_ by Autumn).
+
 Version v0.8.0
 -------------------
 
