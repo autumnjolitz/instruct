@@ -961,10 +961,9 @@ def create_typecheck_for_container(container_cls, value_types=()):
                 if not isinstance(value, container_cls):
                     return False
                 if len(value) != len(test_types):
-                    raise ValueError(f"Expecting a {len(test_types)} value tuple!")
+                    return False
                 for index, (item, item_type) in enumerate(zip(value, test_types)):
                     if not isinstance(item, item_type):
-                        # raise TypeError(f"{item!r} at index {index} should be a {item_type}")
                         return False
                 return True
 
