@@ -705,7 +705,36 @@ def local_tag_exists(tag: str) -> bool:
 
 
 @task
-def create_release(context: Context, next_version: Union[str, Version]) -> Version:
+def prior_release_to(context: Context, version: Union[str, Version] = "") -> Optional[Version]:
+    root = _.project_root(Path, silent=True)
+    if isinstance(version, str):
+        if version:
+            version = parse_version(version)
+        else:
+            version = _.show_version(context, silent=True)
+    elif isinstance(version, Version):
+        pass
+    else:
+        assert_never(to_version)
+    result = context.run(f"git -C {root!s} tag -l", hide=True)
+    assert result is not None
+    prior_release = None
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        release_version = parse_version(line)
+        if release_version < version:
+            if prior_release is None:
+                prior_release = release_version
+            elif release_version > prior_release:
+                prior_release = release_version
+    return prior_release
+
+
+@task
+def create_release(
+    context: Context, *, next_version: Union[str, Version] = "", version: Union[str, Version] = ""
+) -> Version:
     assert has_packaging
     branch = _.branch_name(context)
     assert branch == "master"
@@ -716,10 +745,28 @@ def create_release(context: Context, next_version: Union[str, Version]) -> Versi
             "Please commit any and all changes *before* creating a release!"
         )
         raise SystemExit(22)
-    next_version = _.bump_version(context, next_version, dry_run=True, silent=True)
+    next_version = _.bump_version(
+        context, next_version, from_version=version, dry_run=True, silent=True
+    )
     perror(f"Next version will be {next_version!s}")
     assert isinstance(next_version, Version)
-    version = _.show_version(context, silent=True)
+    repo_version = _.show_version(context, silent=True)
+    if isinstance(version, str) and version == "":
+        version = repo_version
+    else:
+        assert not _.remote_tag_exists(context, f"v{version!s}")
+        assert not _.local_tag_exists(f"v{version!s}")
+        if isinstance(version, str):
+            version = parse_version(version)
+    assert isinstance(version, Version)
+    if version != repo_version:
+        print(
+            f"Discovered that CURRENT_VERSION.txt returned {repo_version}, however we require it to be {version}. Updating"
+        )
+        _.bump_version(context=context, to_version=version)
+        print(f"Set CURRENT_VERSION.txt to {_.show_version(context, silent=True)}")
+
+    print(f"Releasing v{version!s}, prior release was {_.prior_release_to(context, version)}")
     assert next_version > version, f"{next_version!s} must be greater than {version!s}!"
     perror(f"Checking if tag v{version!s} exists on remote!")
     if _.remote_tag_exists(context, f"v{version!s}"):
@@ -776,9 +823,14 @@ PRE_RELEASE_TYPES = ("a", "b", "rc")
 
 @task
 def bump_version(
-    context: Context, to_version: Union[str, Version] = "", dry_run: bool = False
+    context: Context,
+    to_version: Union[str, Version] = "",
+    dry_run: bool = False,
+    *,
+    from_version: Union[str, Version] = "",
 ) -> Version:
     assert has_packaging
+
     root = _.project_root(Path, silent=True)
     branch = _.branch_name(context, silent=True)
     assert branch == "master"
@@ -789,6 +841,16 @@ def bump_version(
             "Please commit any and all changes *before* creating a release!"
         )
         raise SystemExit(22)
+
+    current_version: Version = _.show_version(context, silent=True)
+    if isinstance(from_version, str):
+        if from_version:
+            current_version = parse_version(from_version)
+    elif isinstance(from_version, Version):
+        current_version = from_version
+    else:
+        assert_never(from_version)
+    del from_version
 
     bump_type: Literal["a", "b", "dev", "rc", "major", "minor", "patch", "post", ""] = ""
     if isinstance(to_version, str) and to_version in (
@@ -809,8 +871,9 @@ def bump_version(
         bump_type = to_version
         to_version = ""
 
+    action = "set"
     if not to_version:
-        current_version = _.show_version(context, silent=True)
+        action = "bump"
         if not bump_type:
             if current_version.is_prerelease:
                 bump_type = current_version.pre[0]
@@ -860,7 +923,7 @@ def bump_version(
                 line_s, ignore = line_s.split("#", 1)
             version = parse_version(line_s)
             break
-        assert next_version > version
+            # assert next_version > version
         if not dry_run:
             if index:
                 fh.seek(index - len(line))
@@ -876,7 +939,7 @@ def bump_version(
     if not dry_run:
         context.run(f"git -C {root!s} add CURRENT_VERSION.txt")
         with io.StringIO() as fh:
-            fh.write(f"build(release): bump version to {next_version!s}")
+            fh.write(f"build(release): {action} version to {next_version!s}")
             fh.seek(0)
             context.run(f"git -C {root!s} commit -F -", in_stream=fh)
     return next_version
