@@ -923,35 +923,41 @@ def replace_class_references(
         if is_a_classmethod and classmethod_dest is not classmethod_owner:
             return inspect.getattr_static(classmethod_dest, function.__name__)
         return function
-    args: Tuple[Any, ...] = (
-        code.co_argcount,
-        # co_posonlyargcount (3.8+)
-        code.co_kwonlyargcount,
-        code.co_nlocals,
-        code.co_stacksize,
-        _sanitize_flags(code.co_flags),
-        code.co_code,
-        code.co_consts,
-        tuple(load_from_scope_names),
-        code.co_varnames,
-        code.co_filename,
-        code.co_name,
-        # qualname (3.10+)
-        code.co_firstlineno,
-        code.co_lnotab,
-        # exception table (3.10+)
-        tuple(free_binding_closure_names),
-        code.co_cellvars,
-    )
-    if is_pep570(CodeType):
-        # Python3.8 with PEP570
-        pep570 = cast(PEP570Code, code)
-        args = (*args[:1], pep570.co_posonlyargcount, *args[1:])
-    if ispy311(CodeType):
-        py311 = cast(Py311Code, code)
-        args = (*args[:12], py311.co_qualname, *args[12:])
-        args = (*args[:15], py311.co_exceptiontable, *args[15:])
-    code = CodeType(*args)
+    if hasattr(code, "replace"):
+        code = code.replace(
+            co_names=tuple(load_from_scope_names),
+            co_freevars=tuple(free_binding_closure_names),
+        )
+    else:
+        args: Tuple[Any, ...] = (
+            code.co_argcount,
+            # co_posonlyargcount (3.8+)
+            code.co_kwonlyargcount,
+            code.co_nlocals,
+            code.co_stacksize,
+            _sanitize_flags(code.co_flags),
+            code.co_code,
+            code.co_consts,
+            tuple(load_from_scope_names),
+            code.co_varnames,
+            code.co_filename,
+            code.co_name,
+            # qualname (3.10+)
+            code.co_firstlineno,
+            code.co_lnotab,
+            # exception table (3.10+)
+            tuple(free_binding_closure_names),
+            code.co_cellvars,
+        )
+        if is_pep570(CodeType):
+            # Python3.8 with PEP570
+            pep570 = cast(PEP570Code, code)
+            args = (*args[:1], pep570.co_posonlyargcount, *args[1:])
+        if ispy311(CodeType):
+            py311 = cast(Py311Code, code)
+            args = (*args[:12], py311.co_qualname, *args[12:])
+            args = (*args[:15], py311.co_exceptiontable, *args[15:])
+        code = CodeType(*args)
 
     # Resynthesize the errant __class__ cell with the correct one in the CORRECT position
     # This will allow for overridden functions to be called with super()
@@ -1027,36 +1033,41 @@ def insert_class_closure(
         current_closure[index] = class_cell
 
     # recreate the function using its guts
-    args: Tuple[Any, ...] = (
-        code.co_argcount,
-        # co_posonlyargcount (3.8+)
-        code.co_kwonlyargcount,
-        code.co_nlocals,
-        code.co_stacksize,
-        _sanitize_flags(code.co_flags),
-        code.co_code,
-        code.co_consts,
-        code.co_names,
-        code.co_varnames,
-        code.co_filename,
-        code.co_name,
-        # qualname (3.10+)
-        code.co_firstlineno,
-        code.co_lnotab,
-        # exception table (3.10+)
-        tuple(closure_var_names),
-        code.co_cellvars,
-    )
-    if is_pep570(CodeType):
-        # Python3.8 with PEP570
-        pep570 = cast(PEP570Code, code)
-        args = (*args[:1], pep570.co_posonlyargcount, *args[1:])
-    if ispy311(CodeType):
-        py311 = cast(Py311Code, code)
-        args = (*args[:12], py311.co_qualname, *args[12:])
-        args = (*args[:15], py311.co_exceptiontable, *args[15:])
+    if hasattr(code, "replace"):
+        code = code.replace(
+            co_freevars=tuple(closure_var_names),
+        )
+    else:
+        args: Tuple[Any, ...] = (
+            code.co_argcount,
+            # co_posonlyargcount (3.8+)
+            code.co_kwonlyargcount,
+            code.co_nlocals,
+            code.co_stacksize,
+            _sanitize_flags(code.co_flags),
+            code.co_code,
+            code.co_consts,
+            code.co_names,
+            code.co_varnames,
+            code.co_filename,
+            code.co_name,
+            # qualname (3.10+)
+            code.co_firstlineno,
+            code.co_lnotab,
+            # exception table (3.10+)
+            tuple(closure_var_names),
+            code.co_cellvars,
+        )
+        if is_pep570(CodeType):
+            # Python3.8 with PEP570
+            pep570 = cast(PEP570Code, code)
+            args = (*args[:1], pep570.co_posonlyargcount, *args[1:])
+        if ispy311(CodeType):
+            py311 = cast(Py311Code, code)
+            args = (*args[:12], py311.co_qualname, *args[12:])
+            args = (*args[:15], py311.co_exceptiontable, *args[15:])
 
-    code = CodeType(*args)
+        code = CodeType(*args)
     new_function = FunctionType(
         code, function.__globals__, function.__name__, function.__defaults__, tuple(current_closure)
     )
