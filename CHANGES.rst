@@ -1,4 +1,14 @@
 .. |Changes|
+Version v0.8.2
+-------------------
+
+Release 2024-07-23
+
+Bug Fixes
+
+- handle fixed tuples correctly (`f1ab15f <https://github.com/autumnjolitz/instruct/commit/f1ab15fbf3e2d5819b50c5d8280b50d6f83e4329>`_ by Autumn).
+- use ``types.CodeType.replace(...)`` when available (`0930b36 <https://github.com/autumnjolitz/instruct/commit/0930b36b8df4d7dd358792fc74361ce21d6bc3ac>`_ by Autumn).
+
 Version v0.8.1
 -------------------
 
