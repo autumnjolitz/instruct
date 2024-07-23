@@ -287,3 +287,10 @@ def test_parse_typedef_generics():
     assert isinstance((1, "str"), parse_typedef(SomeGenericSeq[int, str]))
     assert not isinstance((1, 1), parse_typedef(SomeGenericSeq[int, str]))
     assert not isinstance((1, 1), parse_typedef(Tuple[int, str]))
+
+
+def test_strict_heterogenous():
+    t = parse_typedef(Tuple[Union[Literal["a", "b"], str], Union[int, float]])
+    assert isinstance(("", -1), t)
+    assert isinstance(("a", 1.0), t)
+    assert isinstance(("b", 4), t)

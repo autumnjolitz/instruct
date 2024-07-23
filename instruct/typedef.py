@@ -956,13 +956,14 @@ def create_typecheck_for_container(container_cls, value_types=()):
             test_types = flatten(
                 (parse_typedef(some_type) for some_type in value_types), eager=True
             )
+            parsed_value_types = tuple(parse_typedef(x) for x in value_types)
 
             def test_func_heterogenous_tuple(value):
                 if not isinstance(value, container_cls):
                     return False
-                if len(value) != len(test_types):
+                if len(value) != len(parsed_value_types):
                     return False
-                for index, (item, item_type) in enumerate(zip(value, test_types)):
+                for index, (item, item_type) in enumerate(zip(value, parsed_value_types)):
                     if not isinstance(item, item_type):
                         return False
                 return True
@@ -1194,6 +1195,9 @@ def parse_typedef(
             )
         type_args = get_args(typehint)
         if type_args or as_origin_cls is None:
+            assert all(
+                isinstance(x, (type, type(Ellipsis))) or is_typing_definition(x) for x in type_args
+            ), f"{typehint!r} vs {type_args!r}"
             if as_origin_cls is not None:
                 cls = create_custom_type(as_origin_cls, *type_args, check_ranges=check_ranges)
             else:
