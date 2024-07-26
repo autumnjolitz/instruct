@@ -33,6 +33,7 @@ from typing import (
     Set,
     Dict,
     cast as cast_type,
+    TYPE_CHECKING,
 )
 from typing_extensions import (
     get_origin as _get_origin,
@@ -58,6 +59,21 @@ from .types import AbstractAtomic
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+_has_typealiastype: bool = False
+
+if sys.version_info >= (3, 12):
+    from typing import TypeAliasType
+
+    _has_typealiastype = True
+else:
+
+    class TypeAliasType:
+        __slots__ = ("__value__",)
+        __value__: TypeHint
+
+        def __new__(cls):
+            raise NotImplementedError
 
 
 if sys.version_info >= (3, 11):
@@ -1101,6 +1117,17 @@ def assert_never_null(func):
     return wrapped
 
 
+if _has_typealiastype:
+
+    def is_typealiastype(o: Any) -> TypeGuard[TypeAliasType]:
+        return isinstance(o, TypeAliasType)
+
+else:
+
+    def is_typealiastype(o: Any) -> TypeGuard[TypeAliasType]:
+        return False
+
+
 @assert_never_null
 def parse_typedef(
     typedef: Union[Tuple[Type, ...], List[Type]], *, check_ranges: Tuple[Range, ...] = ()
@@ -1213,7 +1240,9 @@ def parse_typedef(
             metaclass.set_type(cls, typehint)
             return cls
         return as_origin_cls
-
+    if _has_typealiastype:
+        if is_typealiastype(typehint):
+            return parse_typedef(typehint.__value__)
     raise NotImplementedError(
         f"The type definition for {typehint!r} ({type(typehint)}) is not supported yet, report as an issue."
     )
