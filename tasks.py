@@ -13,7 +13,7 @@ import typing
 import zipfile
 from contextlib import suppress, contextmanager, closing
 from pathlib import Path
-from typing import Type, Union, Dict, Tuple, Iterable, TypeVar, List, Optional
+from typing import Type, Union, Dict, Tuple, Iterable, TypeVar, List, Optional, NamedTuple
 
 if sys.version_info[:2] >= (3, 8):
     from typing import Literal
@@ -288,9 +288,14 @@ def black(context: Context, check: bool = False):
 
 
 @task
-def test(context: Context):
+def test(context: Context, *, verbose: bool = False, fail_fast: bool = False):
     python_bin = _.python_path(str, silent=True)
-    context.run(f"{python_bin} -m pytest")
+    extra = ""
+    if verbose:
+        extra = f"{extra} -svvv"
+    if fail_fast:
+        extra = f"{extra} -x"
+    context.run(f"{python_bin} -m pytest {extra}")
 
 
 @task
@@ -715,7 +720,7 @@ def prior_release_to(context: Context, version: Union[str, Version] = "") -> Opt
     elif isinstance(version, Version):
         pass
     else:
-        assert_never(to_version)
+        assert_never(version)
     result = context.run(f"git -C {root!s} tag -l", hide=True)
     assert result is not None
     prior_release = None
@@ -959,3 +964,56 @@ def checksum(context: Context, with_header: bool = True):
         sys.stdout.write(f"    SHA2-256({file.name})= {file_hash.hexdigest()}\n")
     sys.stdout.write("\n")
     sys.stdout.flush()
+
+
+class UnitValue(NamedTuple):
+    value: Union[int, float]
+    unit: str
+
+
+@task
+def parse_with_unit(s: str) -> Tuple[Union[int, float], str]:
+    s = s.strip()
+    has_dot = False
+    units = []
+    values = []
+    has_unit = False
+    has_sep = False
+    for char in s:
+        is_sep = not char.strip()
+        if (char.isalpha() or is_sep) and not has_unit:
+            has_unit = True
+        if has_unit:
+            if is_sep:
+                if has_sep:
+                    raise ValueError("Encountered extra seperator after first one!")
+                has_sep = True
+            units.append(char)
+        else:
+            if char == ".":
+                if has_dot:
+                    raise ValueError
+                has_dot = True
+            values.append(char)
+    maybe_values = "".join(values).strip()
+    maybe_units = "".join(units).strip()
+    if not maybe_units:
+        raise ValueError
+    if has_dot:
+        return (float(maybe_values), maybe_units)
+    return (int(maybe_values, 10), maybe_units)
+
+
+@task
+def benchmark(context: Context) -> UnitValue:
+    python_bin = _.python_path(str, silent=True)
+    fh = context.run(f"{python_bin} -m instruct benchmark", hide="stdout")
+    assert fh is not None
+    tests = []
+    for line in fh.stdout.strip().splitlines():
+        with suppress(ValueError):
+            name, val = (x.strip() for x in line.strip().split(":", 1))
+            if val:
+                tests.append(UnitValue(name, _.parse_with_unit(val)))
+
+    return tuple(tests)
