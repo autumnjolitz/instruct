@@ -3,8 +3,10 @@ import json
 import sys
 import os
 import functools
+import io
 import types
 import dataclasses
+import base64
 import shutil
 import pprint
 import typing
@@ -32,7 +34,7 @@ from typing import (
 from invoke import task as _task
 from invoke.context import Context
 from collections import ChainMap
-from contextlib import suppress
+from contextlib import suppress, nullcontext, ExitStack, redirect_stdout
 from collections.abc import MutableSet as AbstractSet
 
 try:
@@ -454,95 +456,109 @@ def indentation_length(s: str) -> int:
     return length
 
 
-INTERNAL_WRAPPER = """
+def check_format(format_):
+    if format_ is not None and ":" in format_:
+        if not all(check_format(x) for x in format_.split(":")):
+            raise TypeError
+        return True
+    if format_ not in (None, "json", "python", "lines", "base64"):
+        raise ValueError(
+            f"Argument {format_} must be either None or one of "
+            "'json', 'python', 'lines', 'base64"
+        )
+    return True
+
+
+def format_value(result, format_, *formats, buf=None, isatty=None):
+    if format_ == "base64" and not formats and buf is None:
+        format_ = f"json:{format_}"
+    if ":" in format_ and not formats and buf is None:
+        format_, *rest = format_.split(":")
+        return format_value(result, format_, *rest, isatty=False)
+    if isatty is None:
+        isatty = sys.stdout.isatty()
+    calling_buf_is_none = buf is None
+    if buf is None and formats:
+        buf = io.StringIO()
+    if format_ == "json":
+        kwargs = {}
+        if isatty:
+            kwargs = {"indent": 4, "sort_keys": True}
+        try:
+            print(json.dumps(result, **kwargs), file=buf)
+        except ValueError:
+            print("Unable to render as json!", file=sys.stderr)
+            format_ = "json"
+    elif format_ == "base64":
+        if isinstance(result, str):
+            b = result.encode()
+        elif isinstance(result, bytes):
+            b = result
+        else:
+            assert_never(result)
+        if b.startswith(b"base64:"):
+            base64.urlsafe_b64decode(b[len("base64:") :])
+            print(b.decode(), file=buf)
+        else:
+            print(f"base64:{base64.urlsafe_b64encode(b).decode()}", file=buf)
+    elif format_ == "python":
+        print(pprint.pformat(result), file=buf)
+    elif format_ == "lines":
+        if isinstance(result, Mapping):
+            for key in result:
+                value = result[key]
+                print(f"{key}:\t{value}", file=buf)
+        elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            for item in result:
+                print(item, file=buf)
+        elif result is not None:
+            print(result, file=buf)
+    if formats:
+        for additional_format in formats:
+            buf.seek(0)
+            data = buf.read()
+            buf.truncate(0)
+            data = format_value(data, additional_format, buf=buf)
+        if calling_buf_is_none:
+            buf.seek(0)
+            sys.stdout.write(buf.read())
+            sys.stdout.flush()
+            buf.close()
+    return result
+
+
+INTERNAL_WRAPPER: str = """
 def %(name)s%(args)s:
-    _priv_format = %(format_kwarg)s
-    if _priv_format not in (None, 'json', 'python', 'lines'):
-        raise ValueError("Argument %(format_kwarg)s must be either None or one of 'json', 'python', 'lines'")
-    # print("Called from %(name)s%(args)s and proxied to %(name)s(%(sig_funccall)s)")
-    # if "%(name)s" == "b64encode":
-    #     print("ARJ!", type(value))
+    check_format(%(format_kwarg)s)
     result = _._original_%(name)s(%(sig_funccall)s)
     if silent:
         return result
+    format_ = %(format_kwarg)s
+    if format_ is None:
+        format_ = "lines"
+    return format_value(result, format_)
 
-    if _priv_format is None:
-        _priv_format = 'lines'
-    if _priv_format == "json":
-        kwargs = {}
-        if sys.stdout.isatty():
-            kwargs = {"indent": 4, "sort_keys": True}
-        try:
-            print(json.dumps(result, **kwargs))
-        except ValueError:
-            print('Unable to render as json!', file=sys.stderr)
-            _priv_format = "json"
-        else:
-            return result
-    if _priv_format == "python":
-        print(pprint.pformat(result))
-        return result
-    if _priv_format == 'lines':
-        if isinstance(result, Mapping):
-            for key in result:
-                value = result[key]
-                print(f"{key}:\t{value}")
-            return result
-        elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
-            for item in result:
-                print(item)
-            return result
-        if result is not None:
-            print(result)
-        return result
-    return result
+"""
 
-        """
-
-PUBLIC_WRAPPER_FOR_INVOKE = """
+PUBLIC_WRAPPER_FOR_INVOKE: str = """
 def %(name)s%(args)s:
-    _priv_format = %(format_kwarg)s
-    if _priv_format not in (None, 'json', 'python', 'lines'):
-        raise ValueError("Argument %(format_kwarg)s must be either None or one of 'json', 'python', 'lines'")
+    check_format(%(format_kwarg)s)
     result = this._._original_%(name)s(%(sig_funccall)s)
     if silent:
         return result
-
-    if _priv_format is None:
+    format_ = %(format_kwarg)s
+    if format_ is None:
         try:
-            _priv_format = this.DEFAULT_FORMAT
+            format_ = this.DEFAULT_FORMAT
         except AttributeError:
-            _priv_format = _tasksupport.DEFAULT_FORMAT
-            print(f'WARNING: {this.__name__}.DEFAULT_FORMAT not defined (see {this.__file__!r}). Defaulting to \"lines\"', file=sys.stderr)
-            this.DEFAULT_FORMAT = _priv_format
-    if _priv_format == "json":
-        kwargs = {}
-        if sys.stdout.isatty():
-            kwargs = {"indent": 4, "sort_keys": True}
-        try:
-            print(json.dumps(result, **kwargs))
-        except ValueError:
-            print('Unable to render as json!', file=sys.stderr)
-            _priv_format = "json"
-        else:
-            return result
-    if _priv_format == "python":
-        print(pprint.pformat(result))
-        return result
-    if _priv_format == 'lines':
-        if isinstance(result, Mapping):
-            for key in result:
-                value = result[key]
-                print(f"{key}:\t{value}")
-            return result
-        elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
-            for item in result:
-                print(item)
-            return result
-        if result is not None:
-            print(result)
-        return result
-    return result
+            format_ = _tasksupport.DEFAULT_FORMAT
+            print(
+                f"WARNING: {this.__name__}.DEFAULT_FORMAT not defined "
+                f"(see {this.__file__!r}). Defaulting to \\\"lines\\\"",
+                file=sys.stderr
+            )
+            this.DEFAULT_FORMAT = format_
+    return format_value(result, format_)
 
 """
 
@@ -573,6 +589,12 @@ def task(callable_=None, **kwargs):
             task_frame.f_globals = this
         task_frame.f_globals[f"_{__name__}"] = find_this(__name__)
         assert this.__name__ == "tasks"
+        task_frame.f_globals.update(
+            {
+                "check_format": check_format,
+                "format_value": format_value,
+            }
+        )
         globalns = {
             "_origin_globals_ref": task_frame.f_globals,
             "__name__": task_frame.f_globals["__name__"],
@@ -743,6 +765,7 @@ def __getattr__(name: str):
                 fh.seek(0)
                 code = fh.read()
         task_frame.f_globals["pprint"] = pprint
+        task_frame.f_globals
         exec(compile(code, filename, "exec"), task_frame.f_globals, localns)
         setattr(this._, func.__name__, wrap_func(func))
         public_func = localns[func.__name__]
