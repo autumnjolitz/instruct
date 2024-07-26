@@ -1,6 +1,8 @@
 from typing import Union
-from instruct import Base
+from instruct import Base, clear
 import timeit
+
+clear
 
 test_statement = """
 t.name_or_id = 1
@@ -51,13 +53,13 @@ class Next(ComplexTest):
 
 def main():
     ttl = timeit.timeit(
-        't = Test(name_or_id="autumn")', setup="from __main__ import Test", number=1000000
+        't = Test(name_or_id="name")', setup="from __main__ import Test", number=1000000
     )
     per_round_ms = (ttl / 1000000) * 1000000
     print("Overhead of allocation, one field, safeties on: {:.2f}us".format(per_round_ms))
 
     ttl = timeit.timeit(
-        't = Test(name_or_id="autumn")',
+        't = Test(name_or_id="name")',
         setup="from __main__ import TestOptimized as Test",
         number=1000000,
     )
@@ -79,16 +81,16 @@ def main():
 
     print("Overhead of clearing/setting")
     ttl = timeit.timeit(
-        "t.clear();t.name_or_id = 1",
-        setup='from __main__ import Test;t = Test(name_or_id="autumn")',
+        "clear(t);t.name_or_id = 1",
+        setup='from __main__ import Test, clear;t = Test(name_or_id="name")',
         number=1000000,
     )
     per_round_ms = (ttl / 1000000) * 1000000
     print("Test with safeties: {:.2f} us".format(per_round_ms))
 
     ttl = timeit.timeit(
-        "t.clear();t.name_or_id = 1",
-        setup='from __main__ import TestOptimized as Test;t = Test(name_or_id="autumn")',
+        "clear(t);t.name_or_id = 1",
+        setup='from __main__ import TestOptimized as Test,clear;t = Test(name_or_id="name")',
         number=1000000,
     )
     per_round_ms = (ttl / 1000000) * 1000000
