@@ -2,11 +2,18 @@
 Instruct
 ==========
 
-|Build| |PyPI|
+.. list-table::
+    :stub-columns: 1
+
+    * - tests
+      - |github-actions|
+    * - package
+      - |version| |wheel| |supported-versions| |supported-implementations| |commits-since|
+
 
 ==============  ==========================================================
-Issues          https://github.com/autumnjolitz/instruct/issues
 Source          https://github.com/autumnjolitz/instruct
+Issues          https://github.com/autumnjolitz/instruct/issues
 ==============  ==========================================================
 
 
@@ -48,16 +55,17 @@ Current Capabilities:
   + interface to controlling code-gen'ed areas via ``cls._annotated_metadata`` (maps field -> what's inside the ``Annotation``)
 - 🚧 Allow Generics i.e. ``class F(instruct.Base, Generic[T]): ...`` -> ``F[str](...)``
 - 🚧 ``TypeAliasType`` support (Python 3.12+)
-  + ``type i = int | str`` is resolved to ``int | str``
+  + ✅ ``type i = int | str`` is resolved to ``int | str``
 
 
 Next Goals:
 
 =======
 
-- ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct.
-- Cython compatibility
-- Recursive ``TypeAliasType`` / ``ForwardRef``
+- ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct ?
+- Cython compatibility ?
+- Recursive ``TypeAliasType`` / ``ForwardRef`` ?
+    + Currrently eager evaluated, causes ``RecursionError``
 
 Design Goal
 -------------
@@ -166,12 +174,13 @@ Example Usage
 
 .. code-block:: pycon
 
-    >>> from instruct import Base
+    >>> type baz_types = dict[str, str] |  int
+    >>> from instruct import SimpleBase
     >>>
-    >>> class MyClass(Base):
+    >>> class MyClass(SimpleBase):
     ...     foo: int
-    ...     bar: Optional[str]
-    ...     baz: Union[Dict[str, str], int]
+    ...     bar: str | None
+    ...     baz: baz_types
     ...     def __eq__(self, other):
     ...         if isinstance(other, tuple) and len(other) == 3:
     ...            # Cast the tuple to this type!
@@ -179,8 +188,7 @@ Example Usage
     ...         return super().__eq__(other)
     ...
     >>> instance = MyClass(1, None, baz={"a": "a"})
-    >>> assert instance.foo == 1
-    >>> assert instance.bar is None
+    >>> assert (instance.foo, instance.bar) == (1, None)
     >>> instance.bar = "A String!"
     >>>
     >>> assert instance == (1, "A String!", {"a": "a"})
@@ -211,7 +219,7 @@ Range
 
 .. code-block:: pycon
 
-    >>> from typing import Tuple, type
+    >>> from typing import type
     >>> from instruct import Range, RangeFlags, RangeError
     >>> lower, upper = 0, 255
     >>> r = Range(lower, upper, flags: RangeFlags = RangeFlags.CLOSED_OPEN)
@@ -228,7 +236,7 @@ Inside is the ``value`` (what was rejected) and a copy of the ranges at ``ranges
 
 .. code-block:: python
 
-        class RangeError(value: Any, ranges: Tuple[Range, ...], message: str="")
+        class RangeError(value: Any, ranges: tuple[Range, ...], message: str="")
             ...
 
 
@@ -237,11 +245,11 @@ Example:
 .. code-block:: pycon
 
     >>> from instruct import SimpleBase, Range
-    >>> from typing_extensions import Annotated
-    >>> from typing import Union
+    >>> from typing import Annotated
+    >>> type Number = int | float
     >>> class Planet(SimpleBase):
-    ...     mass_kg: Annotated[Union[float, int], Range(600 * (10**18), 1.899e27)]
-    ...     radius_km: Annotated[Union[float, int], Range(2439.766, 142_800)]
+    ...     mass_kg: Annotated[Number, Range(600 * (10**18), 1.899e27)]
+    ...     radius_km: Annotated[Number, Range(2439.766, 142_800)]
     ...
     >>>
     >>> mercury = Planet(3.285 * (10**23), 2439.766)
@@ -451,8 +459,28 @@ After additions of those. Safety is expensive.
     Test with safeties: 1.29 us
     Test without safeties: 1.14 us
 
-.. |PyPI| image:: https://img.shields.io/pypi/v/instruct.svg
+.. |wheel| image:: https://img.shields.io/pypi/wheel/instruct.svg
+    :alt: PyPI Wheel
     :target: https://pypi.python.org/pypi/instruct
 
-.. |Build| image:: https://github.com/autumnjolitz/instruct/actions/workflows/build.yml/badge.svg
+.. |version| image:: https://img.shields.io/pypi/v/instruct.svg
+    :target: https://pypi.python.org/pypi/instruct
+
+.. |github-actions| image:: https://github.com/autumnjolitz/instruct/actions/workflows/build.yml/badge.svg
     :target: https://github.com/autumnjolitz/instruct/actions/workflows/build.yml
+
+.. |supported-versions| image:: https://img.shields.io/pypi/pyversions/instruct.svg
+    :alt: Supported versions
+    :target: https://pypi.org/project/instruct
+
+.. |supported-implementations| image:: https://img.shields.io/pypi/implementation/instruct.svg
+    :alt: Supported implementations
+    :target: https://pypi.org/project/instruct
+
+.. |commits-since| image:: https://img.shields.io/github/commits-since/autumnjolitz/instruct/v5.0.0.svg
+    :alt: Commits since latest release
+    :target: https://github.com/autumnjolitz/instruct/compare/v5.0.0...master
+
+.. |commits-since| image:: https://img.shields.io/github/commits-since/autumnjolitz/instruct/latest
+    :alt: Commits since latest release
+    :target: https://github.com/autumnjolitz/instruct/compare/v5.0.0...master

@@ -3,3 +3,5 @@ pytest-mock
 flake8<5.0.4a0; python_version < '3.8'
 flake8>6.0.0; python_version >= '3.8'
 pathspec<0.12.0; python_version < '3.8'
+pytest-cov
+coverage-badge

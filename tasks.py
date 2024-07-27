@@ -295,7 +295,13 @@ def test(context: Context, *, verbose: bool = False, fail_fast: bool = False):
         extra = f"{extra} -svvv"
     if fail_fast:
         extra = f"{extra} -x"
-    context.run(f"{python_bin} -m pytest {extra}")
+    context.run(f"{python_bin} -m coverage run -m pytest {extra}")
+
+
+@task
+def coverage_report(context: Context):
+    python_bin = _.python_path(str, silent=True)
+    context.run(f"{python_bin} -m coverage report -m")
 
 
 @task
@@ -1005,15 +1011,40 @@ def parse_with_unit(s: str) -> Tuple[Union[int, float], str]:
 
 
 @task
-def benchmark(context: Context) -> UnitValue:
+def benchmark(
+    context: Context,
+    type_: Union[Type[UnitValue], Type[str], Literal["UnitValue", "str"]] = "str",
+    *,
+    count: Optional[int] = None,
+) -> Union[UnitValue, Tuple[str, ...]]:
+    if type_ == "UnitValue":
+        type_ = UnitValue
+    elif type_ == "str":
+        type_ = str
+    assert type_ in (str, UnitValue)
     python_bin = _.python_path(str, silent=True)
-    fh = context.run(f"{python_bin} -m instruct benchmark", hide="stdout")
+    fh = context.run(f"{python_bin} -m instruct benchmark {count or ''}", hide="stdout")
     assert fh is not None
     tests = []
+    section = None
     for line in fh.stdout.strip().splitlines():
         with suppress(ValueError):
             name, val = (x.strip() for x in line.strip().split(":", 1))
             if val:
-                tests.append(UnitValue(name, _.parse_with_unit(val)))
+                if type_ is UnitValue:
+                    v = UnitValue(name, _.parse_with_unit(val, silent=True))
+                else:
+                    v = (
+                        f"{name}",
+                        f"{val}",
+                    )
+                if section:
+                    tests.append((section, *v))
+                else:
+                    tests.append(v)
+                continue
+        if line.strip().endswith(":"):
+            line = line.strip()[:-1]
+        section = line
 
     return tuple(tests)

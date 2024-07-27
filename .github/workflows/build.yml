@@ -113,9 +113,16 @@ jobs:
           invoke test
       -
         name: Benchmark
+        id: benchmark
         run: |
-          echo 'benchmark='"$(invoke benchmark -f base64)" >> "$GITHUB_OUTPUT"
-
+          invoke benchmark -f json | tee benchmark.txt
+      -
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.python_version }}_${{ matrix.os }}_${{ matrix.arch }}_${{ matrix.experimental }}
+          path: |
+            benchmark.txt
+            dist/instruct*.whl
 
   check-versions:
     runs-on: 'ubuntu-latest'
@@ -151,3 +158,76 @@ jobs:
           if [ "x$(invoke local-tag-exists --format json 'v${{ steps.version.outputs.CURRENT_VERSION }}')" = 'xtrue' ]; then
             echo '::warning file=CURRENT_VERSION.txt,line=2,title=Version already exists in tags::Tag v${{ steps.version.outputs.CURRENT_VERSION }} already exists.'
           fi
+
+  collect_benchmark:
+    runs-on: 'ubuntu-latest'
+    needs: test_matrix
+    steps:
+      -
+        name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          architecture: 'x64'
+      -
+        uses: actions/download-artifact@v4
+        with:
+          path: benchmarks
+      -
+        run: |
+          ls -R benchmarks
+          (jq -c -r --slurp <<< $(for name in $(echo benchmarks/*); do   cat "$name/benchmark.txt" | jq -c -r '.[] | ["'$(basename $name)'", .] | flatten'; done)) | tee benchmark.json
+          python -m pip install pytablewriter terminaltables
+          python -c '
+          import json
+          import pytablewriter as ptw
+          from terminaltables import GithubFlavoredMarkdownTable
+
+          with open("benchmark.json", "rb") as fh:
+              items = json.load(fh)
+              platforms = tuple(frozenset(p[0] for p in items))
+              keys = [""]
+              rows = [None] * len(platforms)
+              for platform, group, test_name, result in items:
+                  col_name = f"{group}\n{test_name}"
+                  try:
+                      keys.index(col_name)
+                  except ValueError:
+                      keys.append(col_name)
+
+              def _sort(s: str):
+                  version, platform, arch, experimental = s.split("_")
+                  experimental = experimental.lower() == "true"
+                  is_pypy = False
+                  if version.startswith("pypy"):
+                      version = version[len("pypy"):]
+                      is_pypy = True
+                  major, minor = map(int, version.split("."))
+                  return (-1 if is_pypy else 0, (major, minor), platform, arch, experimental)
+
+              platforms = tuple(sorted(platforms, key=_sort, reverse=True))
+              print("platforms", platforms)
+              for platform, group, test_name, result in items:
+                  col_name = f"{group}\n{test_name}"
+                  key_index = keys.index(col_name)
+                  row_index = platforms.index(platform)
+                  if rows[row_index] is None:
+                      rows[row_index] = [None] * len(keys)
+                      rows[row_index][0] = platform
+                  rows[row_index][key_index] = result
+              if True:
+                  table = GithubFlavoredMarkdownTable([keys, *rows])
+                  with open("BENCHMARK.md", "w") as fh:
+                      fh.write("# Benchmark of ${{ github.sha }}\n\n")
+                      fh.write(table.table)
+              else:
+                  writer = ptw.RstGridTableWriter(
+                      table_name="Benchmark of ${{ github.sha }}",
+                      headers=keys[1:],
+                      value_matrix=rows,
+                  )
+                  with open("BENCHMARK.rst", "w") as fh:
+                      writer.dump(fh)
+          '
+          cat BENCHMARK.*
+          echo "$(cat BENCHMARK.md)" >> "$GITHUB_STEP_SUMMARY"
