@@ -51,49 +51,50 @@ class Next(ComplexTest):
     next: int
 
 
-def main():
+def main(count=1_000_000):
     ttl = timeit.timeit(
-        't = Test(name_or_id="name")', setup="from __main__ import Test", number=1000000
+        't = Test(name_or_id="name")', setup="from __main__ import Test", number=count
     )
-    per_round_ms = (ttl / 1000000) * 1000000
-    print("Overhead of allocation, one field, safeties on: {:.2f}us".format(per_round_ms))
+    print("Overhead of allocation")
+    per_round_ms = (ttl / count) * count
+    print("one field, safeties on: {:.2f} us".format(per_round_ms))
 
     ttl = timeit.timeit(
         't = Test(name_or_id="name")',
         setup="from __main__ import TestOptimized as Test",
-        number=1000000,
+        number=count,
     )
-    per_round_ms = (ttl / 1000000) * 1000000
-    print("Overhead of allocation, one field, safeties off: {:.2f}us".format(per_round_ms))
+    per_round_ms = (ttl / count) * count
+    print("one field, safeties off: {:.2f} us".format(per_round_ms))
 
-    print("Overhead of setting a field:")
+    print("Overhead of setting a field")
     ttl = timeit.timeit(test_statement, setup="from __main__ import Test;t = Test()")
-    per_round_ms = (ttl / 1000000) * 1000000
+    per_round_ms = (ttl / count) * count
     print("Test with safeties: {:.2f} us".format(per_round_ms))
 
     ttl = timeit.timeit(
         test_statement,
         setup="from __main__ import TestOptimized as Test;t = Test()",
-        number=1000000,
+        number=count,
     )
-    per_round_ms = (ttl / 1000000) * 1000000
+    per_round_ms = (ttl / count) * count
     print("Test without safeties: {:.2f} us".format(per_round_ms))
 
     print("Overhead of clearing/setting")
     ttl = timeit.timeit(
         "clear(t);t.name_or_id = 1",
         setup='from __main__ import Test, clear;t = Test(name_or_id="name")',
-        number=1000000,
+        number=count,
     )
-    per_round_ms = (ttl / 1000000) * 1000000
+    per_round_ms = (ttl / count) * count
     print("Test with safeties: {:.2f} us".format(per_round_ms))
 
     ttl = timeit.timeit(
         "clear(t);t.name_or_id = 1",
         setup='from __main__ import TestOptimized as Test,clear;t = Test(name_or_id="name")',
-        number=1000000,
+        number=count,
     )
-    per_round_ms = (ttl / 1000000) * 1000000
+    per_round_ms = (ttl / count) * count
     print("Test without safeties: {:.2f} us".format(per_round_ms))
 
 
@@ -112,6 +113,7 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers()
     benchmark = subparsers.add_parser("benchmark")
     benchmark.set_defaults(mode="benchmark")
+    benchmark.add_argument("count", default=1_000_000, type=int, nargs="?")
     if PyCallGraph is not None:
         callgraph = subparsers.add_parser("callgraph")
         callgraph.set_defaults(mode="callgraph")
@@ -121,7 +123,7 @@ if __name__ == "__main__":
     if not args.mode:
         raise SystemExit("Use benchmark or callgraph")
     if args.mode == "benchmark":
-        main()
+        main(args.count)
     if PyCallGraph and args.mode == "callgraph":
         names = [random.choice((("test",) * 10) + (-1, None)) for _ in range(1000)]
         ids = [random.randint(1, 232) for _ in range(1000)]
