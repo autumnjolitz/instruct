@@ -189,7 +189,7 @@ jobs:
               keys = [""]
               rows = [None] * len(platforms)
               for platform, group, test_name, result in items:
-                  col_name = f"{group}\n{test_name}"
+                  col_name = f"{group} [**{test_name}**]"
                   try:
                       keys.index(col_name)
                   except ValueError:
@@ -208,7 +208,7 @@ jobs:
               platforms = tuple(sorted(platforms, key=_sort, reverse=True))
               print("platforms", platforms)
               for platform, group, test_name, result in items:
-                  col_name = f"{group}\n{test_name}"
+                  col_name = f"{group} [**{test_name}**]"
                   key_index = keys.index(col_name)
                   row_index = platforms.index(platform)
                   if rows[row_index] is None:
