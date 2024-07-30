@@ -8,7 +8,7 @@ Instruct
     * - tests
       - |github-actions|
     * - package
-      - |version| |wheel| |supported-versions| |supported-implementations| |commits-since|
+      - |version| |wheel| |supported-versions| |supported-implementations|
 
 
 ==============  ==========================================================
@@ -476,11 +476,3 @@ After additions of those. Safety is expensive.
 .. |supported-implementations| image:: https://img.shields.io/pypi/implementation/instruct.svg
     :alt: Supported implementations
     :target: https://pypi.org/project/instruct
-
-.. |commits-since| image:: https://img.shields.io/github/commits-since/autumnjolitz/instruct/v5.0.0.svg
-    :alt: Commits since latest release
-    :target: https://github.com/autumnjolitz/instruct/compare/v5.0.0...master
-
-.. |commits-since| image:: https://img.shields.io/github/commits-since/autumnjolitz/instruct/latest
-    :alt: Commits since latest release
-    :target: https://github.com/autumnjolitz/instruct/compare/v5.0.0...master
