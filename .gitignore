@@ -13,3 +13,4 @@ build/*
 .pytype/*
 instruct/about.py
 python*/
+.coverage
