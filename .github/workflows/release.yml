@@ -135,7 +135,7 @@ jobs:
         id: version
         run: |
           echo "CURRENT_VERSION=$(grep -vE '^#' CURRENT_VERSION.txt | head -1)" >> "$GITHUB_OUTPUT"
-          echo "CHANGELOG_VERSION=$(invoke last-logged-changes | head -1 | cut -f2 -d' ')" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG_VERSION=$(invoke last-logged-changes | head -1 | cut -f2 -d' ' | tr -d '`')" >> "$GITHUB_OUTPUT"
           echo "GIT_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^.//')" >> "$GITHUB_OUTPUT"
 
       -
@@ -156,7 +156,8 @@ jobs:
         id: artifacts
         run: |
           invoke build --validate
-          invoke last-logged-changes | tee RELEASE_NOTES.rst
+          printf '%s\n=======================\n\n' '${{ steps.version.outputs.CURRENT_VERSION }}' | tee RELEASE_NOTES.rst
+          invoke last-logged-changes | tee -a RELEASE_NOTES.rst
           invoke checksum | tee -a RELEASE_NOTES.rst
 
       -
