@@ -1,4 +1,5 @@
 from contextlib import suppress
+import sys
 from collections.abc import Collection as AbstractCollection
 from typing import (
     Collection,
@@ -13,6 +14,8 @@ from typing import (
     Optional,
     List,
 )
+
+from typing_extensions import get_origin as _get_origin
 
 from .compat import *
 from .types import BaseAtomic
@@ -210,3 +213,39 @@ class ExceptionHasMetadata(Protocol):
 
 def exception_is_jsonable(e: Exception) -> TypeGuard[Union[HasJSONMagicMethod, HasToJSON]]:
     return callable(getattr(e, "__json__", None)) or callable(getattr(e, "to_json", None))
+
+
+class ICopyWithable(Protocol[T_co]):
+    def copy_with(self: T_co, args) -> T_co:
+        ...
+
+
+def is_copywithable(t: Union[Type[Any], TypeHint]) -> TypeGuard[ICopyWithable[TypeHint]]:
+    return callable(getattr(t, "copy_with", None))
+
+
+if sys.version_info[:2] >= (3, 10):
+    from types import UnionType
+
+    UnionTypes = (Union, UnionType)
+
+    # patch get_origin to always return a Union over a 'a | b'
+    def get_origin(cls):  # type:ignore[no-redef]
+        t = _get_origin(cls)
+        if isinstance(t, type) and issubclass(t, UnionType):
+            return Union
+        return t
+
+    def copy_with(hint: TypeHint, args) -> TypeHint:
+        if isinstance(hint, UnionType):
+            return Union[args]
+        if is_copywithable(hint):
+            return hint.copy_with(args)
+        raise NotImplementedError(f"Unable to copy with new type args on {hint!r} ({type(hint)!r})")
+
+else:
+    UnionTypes = (Union,)
+    get_origin = _get_origin
+
+    def copy_with(hint, args):
+        return hint.copy_with(args)
