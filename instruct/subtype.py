@@ -7,7 +7,7 @@ import inspect
 import itertools
 from copy import copy
 from typing import Type, Any, Callable, TypeVar, Iterable, Mapping, Union, cast, overload
-from typing_extensions import get_origin, get_args
+from typing_extensions import get_args
 
 from .typedef import is_typing_definition, parse_typedef, ismetasubclass
 
@@ -16,6 +16,7 @@ from .typing import (
     TypeHint,
     Atomic,
     isabstractcollectiontype,
+    get_origin,
 )
 
 T = TypeVar("T")

@@ -36,7 +36,6 @@ from typing import (
     TYPE_CHECKING,
 )
 from typing_extensions import (
-    get_origin as _get_origin,
     get_original_bases,
     is_protocol,
     get_protocol_members,
@@ -52,6 +51,8 @@ from .typing import (
     TypeHint,
     CustomTypeCheck,
     Never,
+    get_origin,
+    copy_with,
 )
 from .utils import flatten_restrict as flatten
 from .exceptions import RangeError, TypeError as InstructTypeError
@@ -62,7 +63,7 @@ U = TypeVar("U")
 
 _has_typealiastype: bool = False
 
-if sys.version_info >= (3, 12):
+if sys.version_info[:2] >= (3, 12):
     from typing import TypeAliasType
 
     _has_typealiastype = True
@@ -76,30 +77,10 @@ else:
             raise NotImplementedError
 
 
-if sys.version_info >= (3, 11):
+if sys.version_info[:2] >= (3, 11):
     from typing import TypeVarTuple, Unpack
 else:
     from typing_extensions import TypeVarTuple, Unpack
-
-if sys.version_info >= (3, 10):
-    from typing import ParamSpec
-    from types import UnionType
-
-    UnionTypes = (Union, UnionType)
-
-    # patch get_origin to always return a Union over a 'a | b'
-    def get_origin(cls):
-        t = _get_origin(cls)
-        if isinstance(t, type) and issubclass(t, UnionType):
-            return Union
-        return t
-
-else:
-    from typing_extensions import ParamSpec
-
-    UnionTypes = (Union,)
-    get_origin = _get_origin
-
 
 if typing.TYPE_CHECKING:
     from weakref import WeakKeyDictionary as _WeakKeyDictionary
@@ -110,10 +91,7 @@ if typing.TYPE_CHECKING:
 else:
     from weakref import WeakKeyDictionary
 
-
-def is_union_typedef(t) -> bool:
-    return _get_origin(t) in UnionTypes
-
+Unpack
 
 _abstract_custom_types: WeakKeyDictionary[
     CustomTypeCheck, Tuple[Callable, Callable]
@@ -471,7 +449,7 @@ def find_class_in_definition(
         test_func = lambda child: isinstance(child, TypeVar)
 
     if is_typing_definition(type_hints):
-        type_cls: Type = cast(Type, type_hints)
+        type_cls: TypeHint = type_hints
         origin_cls = get_origin(type_cls)
         args = get_args(type_cls)
         if origin_cls is Annotated:
@@ -492,7 +470,7 @@ def find_class_in_definition(
                     args = (*args[:index], replacement, *args[index + 1 :])
                     # args = args[:index] + (replacement,) + args[index + 1 :]
             if args != get_args(type_cls):
-                type_cls = type_cls.copy_with(args)
+                type_cls = copy_with(type_cls, args)
                 type_cls_copied = True
 
         elif isinstance(origin_cls, type) and (
@@ -510,7 +488,7 @@ def find_class_in_definition(
                 if replacement is not None:
                     args = (key_type, replacement)
                 if args != get_args(type_cls):
-                    type_cls = type_cls.copy_with(args)
+                    type_cls = copy_with(type_cls, args)
                     type_cls_copied = True
             else:
                 for index, child in enumerate(args):
@@ -524,7 +502,7 @@ def find_class_in_definition(
                         args = (*args[:index], replacement, *args[index + 1 :])
                         # args = args[:index] + (replacement,) + args[index + 1 :]
                 if args != get_args(type_cls):
-                    type_cls = type_cls.copy_with(args)
+                    type_cls = copy_with(type_cls, args)
                     type_cls_copied = True
         elif test_func(type_cls):
             replacement = yield type_cls
