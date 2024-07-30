@@ -1015,6 +1015,7 @@ def benchmark(
     context: Context,
     type_: Union[Type[UnitValue], Type[str], Literal["UnitValue", "str"]] = "str",
     *,
+    mode: Literal["us", "ns"] = "us",
     count: Optional[int] = None,
 ) -> Union[UnitValue, Tuple[str, ...]]:
     if type_ == "UnitValue":
@@ -1023,7 +1024,7 @@ def benchmark(
         type_ = str
     assert type_ in (str, UnitValue)
     python_bin = _.python_path(str, silent=True)
-    fh = context.run(f"{python_bin} -m instruct benchmark {count or ''}", hide="stdout")
+    fh = context.run(f"{python_bin} -m instruct benchmark {mode} {count or ''}", hide="stdout")
     assert fh is not None
     tests = []
     section = None
