@@ -241,6 +241,10 @@ if sys.version_info[:2] >= (3, 10):
             return Union[args]
         if is_copywithable(hint):
             return hint.copy_with(args)
+        type_cls = get_origin(hint)
+        with suppress(AttributeError):
+            if type_cls is not None:
+                return type_cls[args]
         raise NotImplementedError(f"Unable to copy with new type args on {hint!r} ({type(hint)!r})")
 
 else:

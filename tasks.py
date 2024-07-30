@@ -288,13 +288,24 @@ def black(context: Context, check: bool = False):
 
 
 @task
-def test(context: Context, *, verbose: bool = False, fail_fast: bool = False):
+def test(
+    context: Context,
+    *,
+    test_files: Optional[Union[str, List[str], Tuple[str, ...]]] = None,
+    verbose: bool = False,
+    fail_fast: bool = False,
+):
     python_bin = _.python_path(str, silent=True)
     extra = ""
     if verbose:
         extra = f"{extra} -svvv"
     if fail_fast:
         extra = f"{extra} -x"
+    if test_files:
+        if isinstance(test_files, str):
+            test_files = tuple(x.strip() for x in test_files.split(","))
+        f = " ".join(test_files)
+        extra = f"{extra} {f}"
     context.run(f"{python_bin} -m coverage run -m pytest {extra}")
 
 
