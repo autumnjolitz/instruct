@@ -15,7 +15,7 @@ from typing import (
     List,
 )
 
-from typing_extensions import get_origin as _get_origin
+from typing_extensions import get_origin as _get_origin, Self
 
 from .compat import *
 from .types import BaseAtomic
@@ -46,7 +46,7 @@ class CustomTypeCheck(Generic[T]):
 P = ParamSpec("P")
 
 
-class InstanceMethod(Protocol[T]):
+class InstanceMethod(Protocol[T, P]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs):
         ...
 
@@ -55,46 +55,44 @@ class InstanceMethod(Protocol[T]):
     __qualname__: str
 
 
-class ClassMethod(Protocol[T_cta]):
-    __self__: ClassVar[Type]
+class ClassMethod(Protocol[T]):
+    __self__: Type[Self]
     __name__: str
     __qualname__: str
+    __func__: Callable[[Type[T]], T]
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+    def __call__(self: Self, *args, **kwargs) -> T:
         ...
 
-    def __func__(self, cls: Type[T_cta], *args: P.args, **kwargs: P.kwargs):
-        ...
 
-
-class CastType(Protocol[T_co]):
-    def __call__(self, value: Any, *args: P.args, **kwargs: P.kwargs) -> T_co:
+class CastType(Protocol[T_co, U_co]):
+    def __call__(self: T_co, value: Any, *args, **kwargs) -> U_co:
         ...
 
 
 # ARJ: Used to signal "I have done nothing to this function"
-class ParentCastType(CastType[T_co]):
+class ParentCastType(CastType[T_co, U_co]):
     __only_parent_cast__: Literal[True]
 
 
 # ARJ: Used to signal "I have mutated this cast type"
-class MutatedCastType(CastType[T_co], Protocol[T_co, U]):
-    __union_subtypes__: Tuple[Union[Type[U], Tuple[Type[U], ...]], Callable[[Any], U]]
+class MutatedCastType(CastType[T_co, U_co]):
+    __union_subtypes__: Tuple[Union[Type[U_co], Tuple[Type[U_co], ...]], Callable[[Any], U_co]]
 
 
-def is_cast_type(item: Callable[[Any], T]) -> TypeGuard[Type[CastType[T]]]:
+def is_cast_type(item: Callable[[Any], T]) -> TypeGuard[Type[CastType[T, T]]]:
     return callable(item)
 
 
-def is_parent_cast_type(item: CastType[T]) -> TypeGuard[Type[ParentCastType[T]]]:
+def is_parent_cast_type(item: CastType[T, T]) -> TypeGuard[Type[ParentCastType[T, T]]]:
     return getattr(item, "__only_parent_cast__", False)
 
 
-def is_mutated_cast_type(item: CastType[T]) -> TypeGuard[Type[MutatedCastType[T, U]]]:
+def is_mutated_cast_type(item: CastType[T, U]) -> TypeGuard[Type[MutatedCastType[T, U]]]:
     return getattr(item, "__union_subtypes__", False)
 
 
-def isclassmethod(function: Callable[[Any], Any]) -> TypeGuard[ClassMethod]:
+def isclassmethod(function: Callable[[Any], T]) -> TypeGuard[ClassMethod[T]]:
     return (
         callable(function)
         and hasattr(function, "__func__")

@@ -820,7 +820,7 @@ def _sanitize_flags(flags):
 
 
 def replace_class_references(
-    func: Union[Callable[[Any], Any], ClassMethod[T]],
+    func: Union[Callable[[Any], T], ClassMethod[T]],
     *references: Tuple[Type, Type],
     return_classmethod: bool = False,
 ):
@@ -1361,7 +1361,7 @@ def create_union_coerce_function(
     Tuple[TypingDefinition, Callable[[Any, T, U], Union[T, U]]], Tuple[TypeHint, Callable[[Any], T]]
 ]:
     if custom_cast_types is None:
-        prior_type_cast = cast(ParentCastType[T], complex_type_cast)
+        prior_type_cast = cast(ParentCastType[T, T], complex_type_cast)
         prior_type_cast.__only_parent_cast__ = True
         return prior_complex_type_path, prior_type_cast
     assert custom_cast_types is not None
