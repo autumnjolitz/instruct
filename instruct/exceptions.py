@@ -239,7 +239,7 @@ class ValidationError(
         while stack:
             item = stack.pop(0)
             if hasattr(item, "errors"):
-                stack.extend(item.__json__())
+                stack.extend(item.errors)
                 continue
             item = asjson(item)
             item["parent_message"] = self.message
