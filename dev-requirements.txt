@@ -1,10 +1,7 @@
 twine
 build
-black~=23.7.0; python_version >= '3.8'
 invoke
 packaging
 # bump-my-version
-# ARJ: until issue is cleared, use
-# git-changelog@git+https://github.com/autumnjolitz/git-changelog.git@bugfix/main/add-untyped-commits
-git-changelog
-mypy>1.3.0; python_version >= '3.8'
+git-changelog~=2.5.3
+mypy>1.15.0; python_version >= '3.8'
