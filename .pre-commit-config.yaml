@@ -54,9 +54,35 @@ repos:
                 tests\/test_(.*)_([\d]+)\.py
             )$
       - id: ruff-format
+        args: [  --target-version, py310 ]
+        files: |
+            (?x)^(
+                tests\/test_(.*)_310\.py
+            )$
+      - id: ruff-format
+        args: [  --target-version, py312 ]
+        files: |
+            (?x)^(
+                tests\/test_(.*)_312\.py
+            )$
+      - id: ruff-format
         alias: ruff-format-check
         args: [  --target-version, py37, --check ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
+            )$
+      - id: ruff-format
+        alias: ruff-format-check
+        args: [  --target-version, py310, --check ]
+        files: |
+            (?x)^(
+                tests\/test_(.*)_310\.py
+            )$
+      - id: ruff-format
+        alias: ruff-format-check
+        args: [  --target-version, py312, --check ]
+        files: |
+            (?x)^(
+                tests\/test_(.*)_312\.py
             )$
