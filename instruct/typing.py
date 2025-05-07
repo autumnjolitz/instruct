@@ -14,6 +14,7 @@ from typing import (
     Optional,
     List,
 )
+from typing_extensions import Final
 
 from .compat import (
     TypeVar,
@@ -28,6 +29,8 @@ from .compat import (
     Self,
     get_args,
     get_origin as _get_origin,
+    Annotated,
+    typevar_has_no_default,
 )
 from .types import BaseAtomic
 
@@ -111,12 +114,12 @@ def isclassmethod(function: Callable[[Any], T]) -> TypeGuard[ClassMethod[T]]:
     )
 
 
-TYPING_MODULE_NAME = "typing"
-TYPING_EXTENSIONS_MODULE_NAME = "typing_extensions"
+TYPING_MODULE_NAME: Final = "typing"
+TYPING_EXTENSIONS_MODULE_NAME: Final = "typing_extensions"
 
 
 class TypingDefinition(Protocol):
-    __module__: Literal[TYPING_MODULE_NAME, TYPING_EXTENSIONS_MODULE_NAME]
+    __module__: Literal["typing", "typing_extensions"]
     __name__: ClassVar[str]
     __qualname__: ClassVar[str]
 
@@ -200,6 +203,10 @@ JSON: TypeAlias = Union[
     List[Union["JSON", JSONValue]],
     JSONValue,
 ]
+
+Annotated  # noqa
+
+typevar_has_no_default  # noqa
 
 
 class HasJSONMagicMethod(Protocol):
