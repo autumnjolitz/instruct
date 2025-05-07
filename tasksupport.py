@@ -2,7 +2,6 @@ import inspect
 import json
 import sys
 import os
-import functools
 import io
 import types
 import dataclasses
@@ -26,7 +25,6 @@ from typing import (
     Generic,
     Mapping,
     Union,
-    Type,
     overload,
     List,
     NamedTuple,
@@ -34,7 +32,7 @@ from typing import (
 from invoke import task as _task
 from invoke.context import Context
 from collections import ChainMap
-from contextlib import suppress, nullcontext, ExitStack, redirect_stdout
+from contextlib import suppress
 from collections.abc import MutableSet as AbstractSet
 
 try:
@@ -195,7 +193,8 @@ class InvertedMapping(Generic[T, U], AbstractSet):
 
 
 def is_context_param(
-    param: inspect.Parameter, context_param_names: Tuple[str, ...] = ("c", "ctx", "context")
+    param: inspect.Parameter,
+    context_param_names: Tuple[str, ...] = ("c", "ctx", "context"),
 ) -> Optional[Literal["name", "type", "name_and_type"]]:
     value = None
     if param.name in context_param_names:
@@ -706,9 +705,9 @@ def __getattr__(name: str):
         if "silent" in new_signature.parameters:
             kwargs.setdefault("help", {})
             silent_default = new_signature.parameters["silent"].default
-            kwargs["help"][
-                "silent"
-            ] = f"Set to reduce console output (defaults to {silent_default!r})"
+            kwargs["help"]["silent"] = (
+                f"Set to reduce console output (defaults to {silent_default!r})"
+            )
             del silent_default
 
         # Merge into the proxy module any missing deps
@@ -782,23 +781,20 @@ def __getattr__(name: str):
             name = callable_.__name__
             wrapper.__name__ = f"wrapper_for_{name}"
         return wrapper(callable_)
-    wrapper.__name__ = f"wrapper_for_unnamed_caller"
+    wrapper.__name__ = "wrapper_for_unnamed_caller"
     return wrapper
 
 
 @overload
-def trim(s: str, *, left: Union[str, Tuple[str, ...]]) -> str:
-    ...
+def trim(s: str, *, left: Union[str, Tuple[str, ...]]) -> str: ...
 
 
 @overload
-def trim(s: str, *, right: Union[str, Tuple[str, ...]]) -> str:
-    ...
+def trim(s: str, *, right: Union[str, Tuple[str, ...]]) -> str: ...
 
 
 @overload
-def trim(s: str, both: Union[str, Tuple[str, ...]]) -> str:
-    ...
+def trim(s: str, both: Union[str, Tuple[str, ...]]) -> str: ...
 
 
 def trim(s: str, *args, left=None, right=None) -> str:
@@ -818,7 +814,7 @@ def trim(s: str, *args, left=None, right=None) -> str:
 
 def ltrim(s: str, left: Union[str, Tuple[str, ...]]) -> str:
     if not isinstance(left, (str, tuple)):
-        raise TypeError(f"left must be a str or Tuple[str, ...]")
+        raise TypeError("left must be a str or Tuple[str, ...]")
     if isinstance(left, str):
         left = tuple(left)
     if s.startswith(left):
@@ -834,7 +830,7 @@ def ltrim(s: str, left: Union[str, Tuple[str, ...]]) -> str:
 
 def rtrim(s: str, right: Union[str, Tuple[str, ...]]) -> str:
     if not isinstance(right, (str, tuple)):
-        raise TypeError(f"right must be a str or Tuple[str, ...]")
+        raise TypeError("right must be a str or Tuple[str, ...]")
     if isinstance(right, str):
         right = tuple(right)
     if s.endswith(right):
@@ -851,7 +847,7 @@ def rtrim(s: str, right: Union[str, Tuple[str, ...]]) -> str:
 
 def trim_both(s: str, both: Union[str, Tuple[str, ...]]) -> str:
     if not isinstance(both, (str, tuple)):
-        raise TypeError(f"both must be a str or Tuple[str, ...]")
+        raise TypeError("both must be a str or Tuple[str, ...]")
     if isinstance(both, str):
         both = tuple(both)
     return rtrim(ltrim(s, both), both)
