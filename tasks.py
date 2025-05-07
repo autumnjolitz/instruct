@@ -11,7 +11,6 @@ import tempfile
 import tarfile
 import typing
 import zipfile
-import invoke.exceptions
 from contextlib import suppress, contextmanager, closing
 from pathlib import Path
 from typing import (
@@ -272,19 +271,29 @@ def _walk_path(p: Path, *args, **kwargs):
 def lint(context: Context):
     root = _.project_root(Path, silent=True)
     python_bin = _.python_path(str, silent=True)
+    print("Flake8 Issues:")
     context.run(
         f"{python_bin} -m flake8 {root / 'instruct'!s} "
-        "--count --select=E9,F63,F7,F82 --show-source --statistics"
+        "--select=E9,F63,F7,F82 --show-source --statistics"
     )
+    print("Flake8 Warnings:")
     context.run(
         f"{python_bin} -m flake8 {root / 'instruct'!s} "
-        "--ignore=E203,W503 --count --exit-zero "
+        "--ignore=E203,W503,E704 --count --exit-zero "
         "--max-complexity=103 --max-line-length=127 --statistics"
     )
 
 
-@task
-def pre_commit(context: Context, check: bool = False, staged: bool = False, changed: bool = False):
+@task(iterable=("override_hook",))
+def pre_commit(
+    context: Context,
+    override_hook: list[str],
+    staged: bool = False,
+    changed: bool = False,
+):
+    if isinstance(override_hook, list):
+        override_hook = " ".join(override_hook)
+
     python_bin = _.python_path(str, silent=True)
     root = _.project_root(Path, silent=True)
     generate_version = root / "generate_version.py"
@@ -309,18 +318,11 @@ def pre_commit(context: Context, check: bool = False, staged: bool = False, chan
     if changed:
         extra = f"--files {' '.join(str(row[0].relative_to(str(root))) for row in files)}"
 
-    override_hook = ""
     context.run(f"{python_bin} -m pre_commit --version")
-    if not check:
-        override_hook = "ruff-format"
 
     with context.cd(f"{root!s}"):
         cli = f"{python_bin} -m pre_commit run {extra} {override_hook} "
-        try:
-            context.run(cli)
-        except invoke.exceptions.UnexpectedExit:
-            if check:
-                raise
+        context.run(cli)
     with tempfile.NamedTemporaryFile(mode="w+") as fh:
         context.run(f"{python_bin} {generate_version!s} {fh.name}")
         with tempfile.NamedTemporaryFile(mode="w+") as new:
@@ -1039,9 +1041,9 @@ def bump_version(
                 perror(f"{fh.name!r} is empty?! Readding comment")
                 fh.seek(0)
                 fh.write("# bump the below version on release\n")
-            assert _.dirty_repo(
-                context, silent=True
-            ), "Repo is not dirty despite modifying the version??"
+            assert _.dirty_repo(context, silent=True), (
+                "Repo is not dirty despite modifying the version??"
+            )
     if not dry_run:
         context.run(f"git -C {root!s} add CURRENT_VERSION.txt")
         with io.StringIO() as fh:
@@ -1144,3 +1146,19 @@ def benchmark(
         section = line
 
     return tuple(tests)
+
+
+@task
+def verify_types(
+    context: Context,
+):
+    python_bin = _.python_path(str, silent=True)
+    context.run(f"{python_bin!s} -m mypy {_.project_name(context, silent=True)}")
+    _.pre_commit(context, "ruff-check")
+
+
+@task
+def verify_style(
+    context: Context,
+):
+    _.pre_commit(context, "ruff-format-check")

@@ -28,9 +28,9 @@ if (here / ".git").exists():
 
     with suppress(FileNotFoundError):
         via_git_rev_parse = subprocess.check_output(("git", "rev-parse", "HEAD")).strip().decode()
-        assert (
-            via_git_rev_parse == current_sha
-        ), f"rev parse: {via_git_rev_parse!r} != {current_sha!r}"
+        assert via_git_rev_parse == current_sha, (
+            f"rev parse: {via_git_rev_parse!r} != {current_sha!r}"
+        )
 
 
 def quote(s: Any) -> str:

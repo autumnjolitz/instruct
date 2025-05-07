@@ -176,9 +176,9 @@ def test_literal():
     assert f.binary_mode == "wb"
     with pytest.raises(TypeError) as exc:
         f.binary_mode = "blah blah"
-    assert str(exc.value).endswith(
-        'binary_mode expects either an "rb", "wb", "r+b" or a "w+b"'
-    ), str(exc.value)
+    assert str(exc.value).endswith('binary_mode expects either an "rb", "wb", "r+b" or a "w+b"'), (
+        str(exc.value)
+    )
 
 
 def test_generic():
