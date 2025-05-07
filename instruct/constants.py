@@ -1,6 +1,7 @@
 """
 Constants for Annotated signaling to Instruct.
 """
+
 from __future__ import annotations
 from enum import IntEnum
 

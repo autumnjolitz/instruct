@@ -22,7 +22,7 @@ assert value.field.b == 2
 from pytest import fixture
 from typing import Tuple, Mapping, Union, List, Any, Dict
 
-from instruct import SimpleBase, keys, transform_typing_to_coerce, AtomicMeta, asdict
+from instruct import SimpleBase, keys, transform_typing_to_coerce, AtomicMeta
 from instruct.subtype import (
     handle_instruct,
     handle_collection,
@@ -164,7 +164,10 @@ def test_mapping_function_composition(Item, SubItem):
         "f": (Item(field="my", value=13111), Item(field="my fourth v", value=0)),
     }
     to_value = {
-        "a": (SubItem(field="my value", value=12345), SubItem(field="my secnd v", value=0)),
+        "a": (
+            SubItem(field="my value", value=12345),
+            SubItem(field="my secnd v", value=0),
+        ),
         1: ("a", "b", "c"),
         "d": ("d",),
         "f": (SubItem(field="my", value=13111), SubItem(field="my fourth v", value=0)),
@@ -242,7 +245,10 @@ def test_less_than_tuple():
         bar: Tuple[Mapping, ...]
 
         __coerce__ = {
-            "bar": (List[Dict[str, Any]], lambda val: tuple(Mapping(**values) for values in val))
+            "bar": (
+                List[Dict[str, Any]],
+                lambda val: tuple(Mapping(**values) for values in val),
+            )
         }
 
     assert Foo(bar=[]).bar == ()

@@ -33,7 +33,6 @@ from typing import (
     Set,
     Dict,
     cast as cast_type,
-    TYPE_CHECKING,
 )
 from typing_extensions import (
     get_original_bases,
@@ -50,7 +49,6 @@ from .typing import (
     Atomic,
     TypeHint,
     CustomTypeCheck,
-    Never,
     get_origin,
     copy_with,
 )
@@ -78,9 +76,9 @@ else:
 
 
 if sys.version_info[:2] >= (3, 11):
-    from typing import TypeVarTuple, Unpack
+    from typing import Unpack
 else:
-    from typing_extensions import TypeVarTuple, Unpack
+    from typing_extensions import Unpack
 
 if typing.TYPE_CHECKING:
     from weakref import WeakKeyDictionary as _WeakKeyDictionary
@@ -93,9 +91,9 @@ else:
 
 Unpack
 
-_abstract_custom_types: WeakKeyDictionary[
-    CustomTypeCheck, Tuple[Callable, Callable]
-] = WeakKeyDictionary()
+_abstract_custom_types: WeakKeyDictionary[CustomTypeCheck, Tuple[Callable, Callable]] = (
+    WeakKeyDictionary()
+)
 
 
 class CustomTypeCheckMetaBase(type, Generic[T]):
@@ -132,8 +130,7 @@ def _make_custom_typecheck(
     type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
     *,
     is_abstract_type: bool = False,
-) -> Type[CustomTypeCheck[T]]:
-    ...
+) -> Type[CustomTypeCheck[T]]: ...
 
 
 @overload
@@ -143,8 +140,7 @@ def _make_custom_typecheck(
     type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
     *,
     is_abstract_type: bool = False,
-) -> Type[CustomTypeCheck[T]]:
-    ...
+) -> Type[CustomTypeCheck[T]]: ...
 
 
 @overload
@@ -154,8 +150,7 @@ def _make_custom_typecheck(
     type_args: Union[Tuple[Any, ...], Tuple[Type, ...]],
     *,
     is_abstract_type: bool = False,
-) -> Type[CustomTypeCheck[T]]:
-    ...
+) -> Type[CustomTypeCheck[T]]: ...
 
 
 def _make_custom_typecheck(
@@ -262,7 +257,9 @@ def _make_custom_typecheck(
                 for index, item in enumerate(values):
                     if not isinstance(item, type_args):
                         raise InstructTypeError(
-                            f"{item!r} at index {index} is not a {typehint_str}", index, item
+                            f"{item!r} at index {index} is not a {typehint_str}",
+                            index,
+                            item,
                         )
                     yield item
 
@@ -442,11 +439,11 @@ def find_class_in_definition(
         or isinstance(type_hints, type)
     ), f"{type_hints} is a {type(type_hints)}"
 
-    test_func = lambda child: isinstance(child, type) and issubormetasubclass(
+    test_func = lambda child: isinstance(child, type) and issubormetasubclass(  # noqa: E731
         child, root_cls, metaclass=metaclass
     )
     if issubclass(root_cls, TypeVar):
-        test_func = lambda child: isinstance(child, TypeVar)
+        test_func = lambda child: isinstance(child, TypeVar)  # noqa: E731
 
     if is_typing_definition(type_hints):
         type_cls: TypeHint = type_hints
@@ -644,7 +641,8 @@ def create_custom_type(container_type: M, *args: Union[Type[Atomic], Any, Type],
                             arg_type = type(arg)
                         if isinstance(arg_type, AbstractAtomic):
                             arg_type = public_class(
-                                cast(Type["Atomic"], arg_type), preserve_subtraction=True
+                                cast(Type["Atomic"], arg_type),
+                                preserve_subtraction=True,
                             )
                         if isinstance(value, arg_type):
                             return True
@@ -888,29 +886,25 @@ V = TypeVar("V")
 @overload
 def create_typecheck_for_container(
     container_cls: Tuple[Type[V], ...], value_types: Tuple[Type[Any], ...] = ()
-) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]:
-    ...
+) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]: ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Tuple[V, EllipsisType]], value_types: Tuple[Type, ...] = ()
-) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]:
-    ...
+) -> Tuple[Callable[[Any], TypeGuard[Tuple[V, ...]]], Tuple[Any, ...]]: ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Mapping[T, U]], value_types: Tuple[Type, ...] = ()
-) -> Tuple[Callable[[Any], TypeGuard[Mapping[T, U]]], Tuple[Any, ...]]:
-    ...
+) -> Tuple[Callable[[Any], TypeGuard[Mapping[T, U]]], Tuple[Any, ...]]: ...
 
 
 @overload
 def create_typecheck_for_container(
     container_cls: Type[Iterable[T]], value_types: Tuple[Type, ...] = ()
-) -> Tuple[Callable[[Any], TypeGuard[Iterable[T]]], Tuple[Any, ...]]:
-    ...
+) -> Tuple[Callable[[Any], TypeGuard[Iterable[T]]], Tuple[Any, ...]]: ...
 
 
 def create_typecheck_for_container(container_cls, value_types=()):
@@ -1012,8 +1006,8 @@ def is_genericizable(item: TypingDefinition):
     """
     Tell us if this definition is an unspecialized generic-capable type like
 
-    >>> T = TypeVar('T')
-    >>> U = TypeVar('U')
+    >>> T = TypeVar("T")
+    >>> U = TypeVar("U")
     >>> is_genericizable(Generic[T])
     False
     >>> is_genericizable(Protocol[T])
@@ -1021,15 +1015,13 @@ def is_genericizable(item: TypingDefinition):
     >>> class PairedNamespace(Generic[T, U]):
     ...     first: T
     ...     second: U
-    ...
     >>> is_genericizable(PairedNamespace)
     True
     >>> class PairedProtocol(Protocol[T, U]):
     ...     first: T
     ...     second: U
-    ...     def bar(self, val: T) -> U:
-    ...         ...
     ...
+    ...     def bar(self, val: T) -> U: ...
     >>> is_genericizable(PairedProtocol)
     True
     >>>
@@ -1064,13 +1056,11 @@ def is_simple_protocol(item: TypeHint):
 
     class Y(Protocol[T]): ...
 
-    >>> T = TypeVar('T')
+    >>> T = TypeVar("T")
     >>> class X(Protocol):
     ...     required_field: int
-    ...
     >>> class Y(Protocol[T]):
     ...     required_field: T
-    ...
     >>> is_simple_protocol(X)
     True
     >>> is_simple_protocol(Y)
@@ -1108,7 +1098,9 @@ else:
 
 @assert_never_null
 def parse_typedef(
-    typedef: Union[Tuple[Type, ...], List[Type]], *, check_ranges: Tuple[Range, ...] = ()
+    typedef: Union[Tuple[Type, ...], List[Type]],
+    *,
+    check_ranges: Tuple[Range, ...] = (),
 ) -> Union[Type, Tuple[Type]]:
     """
     Break a type def into types suitable for doing an isinstance(item, ...) check.

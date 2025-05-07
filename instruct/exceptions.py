@@ -1,10 +1,7 @@
 from __future__ import annotations
 import builtins
-import traceback
 import typing
 import weakref
-import abc
-from typing import cast
 from contextlib import suppress
 
 from .lang import titleize, humanize
@@ -12,18 +9,16 @@ from .typing import JSON
 
 if typing.TYPE_CHECKING:
     from typing import Dict, Any, Tuple, Union, Optional, Type, TypeVar, Generic
-    from types import TracebackType
-    from .compat import Self, TypeGuard, Protocol
+    from .compat import Self, TypeGuard
     from .typing import ExceptionHasDebuggingInfo, ExceptionHasMetadata
 
 if typing.TYPE_CHECKING:
     T = TypeVar("T")
 
-    class WeakSet(weakref.WeakSet, Generic[T]):
-        ...
+    class WeakSet(weakref.WeakSet, Generic[T]): ...
 
 else:
-    from weakref import WeakSet
+    pass
 
 
 @titleize.register
@@ -35,7 +30,6 @@ def _(e: Exception) -> str:
     'OS Error'
     >>> class ExceptionJSONSerializationError(Exception):
     ...     pass
-    ...
     >>> titleize(ExceptionJSONSerializationError())
     'Exception JSON Serialization Error'
     """
@@ -90,8 +84,7 @@ class JSONSerializable(metaclass=JSONSerializableMeta):
 
     if typing.TYPE_CHECKING:
 
-        def __json__(self) -> Dict[str, JSON]:
-            ...
+        def __json__(self) -> Dict[str, JSON]: ...
 
     def __init_subclass__(cls, abstract=False, **kwargs):
         if abstract:
@@ -135,24 +128,19 @@ class InstructError(Exception, ExceptionJSONSerializable):
         return self
 
 
-class ClassDefinitionError(InstructError, ValueError):
-    ...
+class ClassDefinitionError(InstructError, ValueError): ...
 
 
-class OrphanedListenersError(ClassDefinitionError):
-    ...
+class OrphanedListenersError(ClassDefinitionError): ...
 
 
-class MissingGetterSetterTemplateError(ClassDefinitionError):
-    ...
+class MissingGetterSetterTemplateError(ClassDefinitionError): ...
 
 
-class InvalidPostCoerceAttributeNames(ClassDefinitionError):
-    ...
+class InvalidPostCoerceAttributeNames(ClassDefinitionError): ...
 
 
-class CoerceMappingValueError(ClassDefinitionError):
-    ...
+class CoerceMappingValueError(ClassDefinitionError): ...
 
 
 def _exception_has_debugging_info(e: Exception) -> TypeGuard[ExceptionHasDebuggingInfo]:
@@ -239,7 +227,7 @@ class ValidationError(
         while stack:
             item = stack.pop(0)
             if hasattr(item, "errors"):
-                stack.extend(item.errors)
+                stack.extend(asjson(item))
                 continue
             item = asjson(item)
             item["parent_message"] = self.message

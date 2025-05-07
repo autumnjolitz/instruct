@@ -4,7 +4,7 @@ def __setstate__(self, state):
         {%- for field in fields %}
         {%if not loop.first%}el{%endif%}if key == '{{field}}':
             self._{{field}}_ = value
-        {%- endfor %}        
+        {%- endfor %}
 
 def __getstate__(self):
     return {

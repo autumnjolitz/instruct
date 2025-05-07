@@ -137,8 +137,7 @@ def is_atomic_type(cls: type) -> TypeGuard[Type[Atomic]]:
 @overload
 def public_class(
     instance_or_type: Union[Type[Atomic], Atomic, AtomicMeta], *, preserve_subtraction: bool = False
-) -> Union[Type[Atomic]]:
-    ...
+) -> Union[Type[Atomic]]: ...
 
 
 @overload
@@ -146,8 +145,7 @@ def public_class(
     instance_or_type: Union[Type[Atomic], Atomic, AtomicMeta],
     *property_path: str,
     preserve_subtraction: bool = False,
-) -> Union[Type[Atomic], Tuple[Type[Atomic], ...]]:
-    ...
+) -> Union[Type[Atomic], Tuple[Type[Atomic], ...]]: ...
 
 
 def public_class(
@@ -246,8 +244,7 @@ ErroredNames = Union[Tuple[str, ...], List[str], FrozenSet[str], Set[str]]
 class ImplInitErrors(Protocol):
     def _handle_init_errors(
         self, errors: Errors, errored_keys: ErroredNames, unrecognized_keys: ErroredNames
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 def implements_init_errors(item) -> TypeGuard[ImplInitErrors]:
@@ -255,8 +252,7 @@ def implements_init_errors(item) -> TypeGuard[ImplInitErrors]:
 
 
 class SupportsPostInit(Protocol):
-    def __post_init__(self) -> None:
-        ...
+    def __post_init__(self) -> None: ...
 
 
 def supports_post_init_protocol(item: Union[Type[Atomic], Atomic]) -> TypeGuard[SupportsPostInit]:
@@ -408,27 +404,23 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
 
 
 @overload
-def keys(instance_or_cls: Type[Atomic]) -> ClassKeysView[Atomic, str]:
-    ...
+def keys(instance_or_cls: Type[Atomic]) -> ClassKeysView[Atomic, str]: ...
 
 
 @overload
-def keys(instance_or_cls: Atomic) -> InstanceKeysView[Atomic, str]:
-    ...
+def keys(instance_or_cls: Atomic) -> InstanceKeysView[Atomic, str]: ...
 
 
 @overload
 def keys(
     instance_or_cls: Atomic, *property_path: str, all: bool = False
-) -> Union[InstanceKeysView[Atomic, str], ImmutableCollection[str]]:
-    ...
+) -> Union[InstanceKeysView[Atomic, str], ImmutableCollection[str]]: ...
 
 
 @overload
 def keys(
     instance_or_cls: Type[Atomic], *property_path: str, all: bool = False
-) -> ClassKeysView[Atomic, str]:
-    ...
+) -> ClassKeysView[Atomic, str]: ...
 
 
 def keys(instance_or_cls, *property_path: str, all: bool = False):
@@ -537,23 +529,19 @@ def aslist(instance: Atomic) -> List[Any]:
 
 
 @overload
-def asjson(instance: Atomic) -> Dict[str, Any]:
-    ...
+def asjson(instance: Atomic) -> Dict[str, Any]: ...
 
 
 @overload
-def asjson(instance: Union[List[Atomic], Tuple[Atomic]]) -> Tuple[Dict[str, Any]]:
-    ...
+def asjson(instance: Union[List[Atomic], Tuple[Atomic]]) -> Tuple[Dict[str, Any]]: ...
 
 
 @overload
-def asjson(instance: Dict[str, Atomic]) -> Dict[str, Dict[str, Any]]:
-    ...
+def asjson(instance: Dict[str, Atomic]) -> Dict[str, Dict[str, Any]]: ...
 
 
 @overload
-def asjson(instance: Exception) -> Dict[str, str]:
-    ...
+def asjson(instance: Exception) -> Dict[str, str]: ...
 
 
 def asjson(instance):
@@ -1328,8 +1316,7 @@ else:
 def create_union_coerce_function(
     prior_complex_type_path: Union[Type[T], TypingDefinition],
     complex_type_cast: Callable[[Any], T],
-) -> Tuple[TypingDefinition, Callable[[Any], T]]:
-    ...
+) -> Tuple[TypingDefinition, Callable[[Any], T]]: ...
 
 
 @overload
@@ -1338,8 +1325,7 @@ def create_union_coerce_function(
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: None = None,
     custom_cast_function: None = None,
-) -> Tuple[TypingDefinition, Callable[[Any], T]]:
-    ...
+) -> Tuple[TypingDefinition, Callable[[Any], T]]: ...
 
 
 @overload
@@ -1348,8 +1334,7 @@ def create_union_coerce_function(
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: Union[Type[U], Tuple[Type[U], ...]],
     custom_cast_function: Callable[[Any], U],
-) -> Tuple[TypingDefinition, Callable[[Any, T, U], Union[T, U]]]:
-    ...
+) -> Tuple[TypingDefinition, Callable[[Any, T, U], Union[T, U]]]: ...
 
 
 def create_union_coerce_function(
@@ -1534,9 +1519,9 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
     __slots__ = ()
     REGISTRY = ImmutableCollection[Set[Type[BaseAtomic]]](set())
     MIXINS = ImmutableMapping[str, BaseAtomic]({})
-    SKIPPED_FIELDS: Mapping[
-        Tuple[str, FrozenMapping[str, None]], Type[Atomic]
-    ] = WeakValueDictionary()
+    SKIPPED_FIELDS: Mapping[Tuple[str, FrozenMapping[str, None]], Type[Atomic]] = (
+        WeakValueDictionary()
+    )
 
     def __public_class__(self):
         """
@@ -2654,16 +2639,18 @@ def add_event_listener(*fields: str):
     ...     field_one: str
     ...     field_two: int
     ...     field_three: Union[str, int]
-    ...     @add_event_listener('field_one', 'field_two')
-    ...     def _on_field_change(self, name: str, old_value: Union[str, int, None], new_value: Union[int, str]):
-    ...         if name == 'field_one':
-    ...             if not new_value:
-    ...                 self.field_one = 'No empty!'
-    ...         elif name == 'field_two':
-    ...             if new_value < 0:
-    ...                  self.field_two = 0
     ...
-    >>> astuple(Foo('', -1))
+    ...     @add_event_listener("field_one", "field_two")
+    ...     def _on_field_change(
+    ...         self, name: str, old_value: Union[str, int, None], new_value: Union[int, str]
+    ...     ):
+    ...         if name == "field_one":
+    ...             if not new_value:
+    ...                 self.field_one = "No empty!"
+    ...         elif name == "field_two":
+    ...             if new_value < 0:
+    ...                 self.field_two = 0
+    >>> astuple(Foo("", -1))
     ('No empty!', 0, None)
     >>>
     """
@@ -2688,7 +2675,8 @@ def handle_type_error(*fields: str):
     ...     field_one: str
     ...     field_two: int
     ...     field_three: Union[str, int]
-    ...     @handle_type_error('field_two')
+    ...
+    ...     @handle_type_error("field_two")
     ...     def _try_cast_field_two(self, val):
     ...         try:
     ...             self.field_two = int(val, 10)
@@ -2696,8 +2684,7 @@ def handle_type_error(*fields: str):
     ...             pass
     ...         else:
     ...             return True
-    ...
-    >>> f = Foo('My Foo', '255')
+    >>> f = Foo("My Foo", "255")
     >>> astuple(f)
     ('My Foo', 255, None)
     """

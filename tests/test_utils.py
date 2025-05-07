@@ -66,7 +66,10 @@ def test_flatten_fields():
             "Q": FrozenMapping({"x": None, "y": None}),
             "b": FrozenMapping({"c": None}),
             "d": FrozenMapping(
-                {"e": FrozenMapping({"f": None}), "h": FrozenMapping({"foo": None, "bar": None})}
+                {
+                    "e": FrozenMapping({"f": None}),
+                    "h": FrozenMapping({"foo": None, "bar": None}),
+                }
             ),
             "stripme": None,
         }

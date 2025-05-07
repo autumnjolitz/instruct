@@ -15,9 +15,20 @@ from typing import (
     List,
 )
 
-from typing_extensions import get_origin as _get_origin, Self
-
-from .compat import *
+from .compat import (
+    TypeVar,
+    TypeVarTuple,
+    Protocol,
+    ParamSpec,
+    Literal,
+    TypeGuard,
+    TypeAliasType,
+    EllipsisType,
+    TypeAlias,
+    Self,
+    get_args,
+    get_origin as _get_origin,
+)
 from .types import BaseAtomic
 
 NoneType = type(None)
@@ -47,8 +58,7 @@ P = ParamSpec("P")
 
 
 class InstanceMethod(Protocol[T, P]):
-    def __call__(self, *args: P.args, **kwargs: P.kwargs):
-        ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs): ...
 
     __self__: T
     __name__: str
@@ -61,13 +71,11 @@ class ClassMethod(Protocol[T]):
     __qualname__: str
     __func__: Callable[[Type[T]], T]
 
-    def __call__(self: Self, *args, **kwargs) -> T:
-        ...
+    def __call__(self: Self, *args, **kwargs) -> T: ...
 
 
 class CastType(Protocol[T_co, U_co]):
-    def __call__(self: T_co, value: Any, *args, **kwargs) -> U_co:
-        ...
+    def __call__(self: T_co, value: Any, *args, **kwargs) -> U_co: ...
 
 
 # ARJ: Used to signal "I have done nothing to this function"
@@ -88,7 +96,9 @@ def is_parent_cast_type(item: CastType[T, T]) -> TypeGuard[Type[ParentCastType[T
     return getattr(item, "__only_parent_cast__", False)
 
 
-def is_mutated_cast_type(item: CastType[T, U]) -> TypeGuard[Type[MutatedCastType[T, U]]]:
+def is_mutated_cast_type(
+    item: CastType[T, U],
+) -> TypeGuard[Type[MutatedCastType[T, U]]]:
     return getattr(item, "__union_subtypes__", False)
 
 
@@ -101,8 +111,12 @@ def isclassmethod(function: Callable[[Any], T]) -> TypeGuard[ClassMethod[T]]:
     )
 
 
+TYPING_MODULE_NAME = "typing"
+TYPING_EXTENSIONS_MODULE_NAME = "typing_extensions"
+
+
 class TypingDefinition(Protocol):
-    __module__: Literal["typing", "typing_extensions"]
+    __module__: Literal[TYPING_MODULE_NAME, TYPING_EXTENSIONS_MODULE_NAME]
     __name__: ClassVar[str]
     __qualname__: ClassVar[str]
 
@@ -114,15 +128,17 @@ def is_typing_definition(item: Any) -> TypeGuard[TypingDefinition]:
 
     with suppress(AttributeError):
         cls_module = type(item).__module__
-        if cls_module in ("typing", "typing_extensions") or cls_module.startswith(
-            ("typing.", "typing_extensions.")
-        ):
+        if cls_module in (
+            TYPING_MODULE_NAME,
+            TYPING_EXTENSIONS_MODULE_NAME,
+        ) or cls_module.startswith((f"{TYPING_MODULE_NAME}.", f"{TYPING_EXTENSIONS_MODULE_NAME}.")):
             return True
     with suppress(AttributeError):
         module = item.__module__
-        if module in ("typing", "typing_extensions") or module.startswith(
-            ("typing.", "typing_extensions.")
-        ):
+        if module in (
+            TYPING_MODULE_NAME,
+            TYPING_EXTENSIONS_MODULE_NAME,
+        ) or module.startswith((f"{TYPING_MODULE_NAME}.", f"{TYPING_EXTENSIONS_MODULE_NAME}.")):
             return True
     if isinstance(item, (TypeVar, TypeVarTuple, ParamSpec)):
         return True
@@ -156,7 +172,7 @@ def is_anonymous_pair(t: Union[Any, Tuple[T, U]]) -> TypeGuard[Tuple[T, U]]:
 
 
 def isabstractcollectiontype(
-    o: Union[TypingDefinition, Type[Any], Type[T]]
+    o: Union[TypingDefinition, Type[Any], Type[T]],
 ) -> TypeGuard[Type[Collection[T]]]:
     cls: Union[Type[Any], Type[T]]
     if is_typing_definition(o):
@@ -187,18 +203,15 @@ JSON: TypeAlias = Union[
 
 
 class HasJSONMagicMethod(Protocol):
-    def __json__(self) -> Dict[str, JSON]:
-        ...
+    def __json__(self) -> Dict[str, JSON]: ...
 
 
 class HasToJSON(Protocol):
-    def to_json(self) -> Dict[str, JSON]:
-        ...
+    def to_json(self) -> Dict[str, JSON]: ...
 
 
 class ExceptionJSONSerializable(Protocol):
-    def __json__(self) -> Dict[str, JSON]:
-        ...
+    def __json__(self) -> Dict[str, JSON]: ...
 
 
 class ExceptionHasDebuggingInfo(Protocol):
@@ -209,16 +222,19 @@ class ExceptionHasMetadata(Protocol):
     metadata: Dict[str, JSON]
 
 
-def exception_is_jsonable(e: Exception) -> TypeGuard[Union[HasJSONMagicMethod, HasToJSON]]:
+def exception_is_jsonable(
+    e: Exception,
+) -> TypeGuard[Union[HasJSONMagicMethod, HasToJSON]]:
     return callable(getattr(e, "__json__", None)) or callable(getattr(e, "to_json", None))
 
 
 class ICopyWithable(Protocol[T_co]):
-    def copy_with(self: T_co, args) -> T_co:
-        ...
+    def copy_with(self: T_co, args) -> T_co: ...
 
 
-def is_copywithable(t: Union[Type[Any], TypeHint]) -> TypeGuard[ICopyWithable[TypeHint]]:
+def is_copywithable(
+    t: Union[Type[Any], TypeHint],
+) -> TypeGuard[ICopyWithable[TypeHint]]:
     return callable(getattr(t, "copy_with", None))
 
 
