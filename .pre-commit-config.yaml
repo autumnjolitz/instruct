@@ -30,7 +30,7 @@ repos:
   -
     repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.5.4
+    rev: v0.11.8
     hooks:
       # Run the linter.
       - id: ruff
@@ -39,9 +39,23 @@ repos:
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
             )$
+      - id: ruff
+        alias: ruff-check
+        args: [  --target-version, py37 ]
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
       # Run the formatter.
       - id: ruff-format
         args: [  --target-version, py37 ]
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
+      - id: ruff-format
+        alias: ruff-format-check
+        args: [  --target-version, py37, --check ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py

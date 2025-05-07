@@ -1698,9 +1698,9 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 else:
                     attrs["__hash__"] = object.__hash__
             concrete = super().__new__(klass, class_name, bases, attrs)  # type:ignore[misc]
-            assert (
-                concrete.__hash__ is not None
-            ), f"Unable to create {class_name!r} due to missing __hash__ ({parent_has_hash})"
+            assert concrete.__hash__ is not None, (
+                f"Unable to create {class_name!r} due to missing __hash__ ({parent_has_hash})"
+            )
             return cast(Type[Atomic], concrete)
 
         # ARJ: Used to create an "anchor"-base type that just marks
@@ -1709,12 +1709,12 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         if BaseAtomic not in bases:
             bases = (*bases, BaseAtomic)
 
-        assert isinstance(
-            skip_fields, FrozenMapping
-        ), f"Expect skip_fields to be a FrozenMapping, not a {type(skip_fields).__name__}"
-        assert isinstance(
-            include_fields, FrozenMapping
-        ), f"Expect include_fields to be a FrozenMapping, not a {type(include_fields).__name__}"
+        assert isinstance(skip_fields, FrozenMapping), (
+            f"Expect skip_fields to be a FrozenMapping, not a {type(skip_fields).__name__}"
+        )
+        assert isinstance(include_fields, FrozenMapping), (
+            f"Expect include_fields to be a FrozenMapping, not a {type(include_fields).__name__}"
+        )
         if include_fields and skip_fields:
             raise TypeError("Cannot specify both include_fields and skip_fields!")
         data_class_attrs = {}
@@ -2751,9 +2751,9 @@ class SimpleBase(metaclass=AtomicMeta):
         result = super().__new__(cls)
         result._flags = Flags.UNCONSTRUCTED
         result._set_defaults()
-        assert "__dict__" not in dir(
-            result
-        ), "Violation - there should never be __dict__ on a slotted class"
+        assert "__dict__" not in dir(result), (
+            "Violation - there should never be __dict__ on a slotted class"
+        )
         return result
 
     def __len__(self):
@@ -2824,12 +2824,12 @@ class SimpleBase(metaclass=AtomicMeta):
             if len(errors) == 1:
                 raise ClassCreationFailed(
                     f"Unable to construct {typename}, encountered {len(errors)} "
-                    f'error{"s" if len(errors) > 1 else ""}',
+                    f"error{'s' if len(errors) > 1 else ''}",
                     *errors,
                 ) from errors[0]
             raise ClassCreationFailed(
                 f"Unable to construct {typename}, encountered {len(errors)} "
-                f'error{"s" if len(errors) > 1 else ""}',
+                f"error{'s' if len(errors) > 1 else ''}",
                 *errors,
             )
 

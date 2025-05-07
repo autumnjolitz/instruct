@@ -312,9 +312,9 @@ def get_types_from(
     if annotation is None:
         yield FoundType("None" in in_namespace, ["None"], [None])
         return
-    assert isinstance(
-        annotation, type
-    ), f"not a type - {annotation!r} {type(annotation)} {annotation.__module__}"
+    assert isinstance(annotation, type), (
+        f"not a type - {annotation!r} {type(annotation)} {annotation.__module__}"
+    )
     if type_name.split(".")[0] in vars(builtins):
         return
     if f"{annotation.__module__}.{annotation.__name__}" != annotation.__qualname__:
@@ -462,8 +462,7 @@ def check_format(format_):
         return True
     if format_ not in (None, "json", "python", "lines", "base64"):
         raise ValueError(
-            f"Argument {format_} must be either None or one of "
-            "'json', 'python', 'lines', 'base64"
+            f"Argument {format_} must be either None or one of 'json', 'python', 'lines', 'base64"
         )
     return True
 

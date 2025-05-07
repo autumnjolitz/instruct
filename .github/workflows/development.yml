@@ -89,7 +89,7 @@ jobs:
       -
         name: Check style with black
         run: |
-          invoke black --check
+          invoke verify-style
 
   verify_types:
     runs-on: 'ubuntu-latest'
@@ -110,4 +110,4 @@ jobs:
       -
         name: validate types
         run: |
-          python/bin/python -m mypy instruct
+          invoke verify-types

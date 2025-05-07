@@ -251,7 +251,7 @@ def _make_custom_typecheck(
             if issubclass(type_cls, tuple) and Ellipsis in type_args:
                 typehint_str = f"{Tuple[typehint]}"
             else:
-                typehint_str = f'{type_cls.__name__}[{", ".join(x.__name__ for x in type_args)}]'
+                typehint_str = f"{type_cls.__name__}[{', '.join(x.__name__ for x in type_args)}]"
 
             def validate_iterable(values):
                 for index, item in enumerate(values):
@@ -913,9 +913,9 @@ def create_typecheck_for_container(container_cls, value_types=()):
     and values within are within the
     """
     assert isinstance(container_cls, type), f"{container_cls!r} is not a type"
-    assert issubclass(
-        container_cls, (AbstractMapping, AbstractIterable, tuple)
-    ), f"Not a supported container type - {container_cls!r}"
+    assert issubclass(container_cls, (AbstractMapping, AbstractIterable, tuple)), (
+        f"Not a supported container type - {container_cls!r}"
+    )
 
     test_types = []
     test_func: Optional[Callable[[Any], bool]] = None
@@ -956,9 +956,9 @@ def create_typecheck_for_container(container_cls, value_types=()):
                         return False
                 return True
 
-            assert all(
-                isinstance(x, type) for x in test_types
-            ), f"some test types are invalid - {test_types}"
+            assert all(isinstance(x, type) for x in test_types), (
+                f"some test types are invalid - {test_types}"
+            )
             return test_func_heterogenous_tuple, tuple(test_types)
 
     elif issubclass(container_cls, AbstractMapping):
