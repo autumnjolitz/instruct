@@ -2,6 +2,7 @@ twine
 build
 invoke
 packaging
+pre-commit>=4.1.0
 # bump-my-version
 git-changelog~=2.5.3
 mypy>=1.15.0; python_version >= '3.8'

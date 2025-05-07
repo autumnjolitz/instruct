@@ -11,9 +11,20 @@ import tempfile
 import tarfile
 import typing
 import zipfile
+import invoke.exceptions
 from contextlib import suppress, contextmanager, closing
 from pathlib import Path
-from typing import Type, Union, Dict, Tuple, Iterable, TypeVar, List, Optional, NamedTuple
+from typing import (
+    Type,
+    Union,
+    Dict,
+    Tuple,
+    Iterable,
+    TypeVar,
+    List,
+    Optional,
+    NamedTuple,
+)
 
 if sys.version_info[:2] >= (3, 8):
     from typing import Literal
@@ -118,7 +129,8 @@ def branch_name(context: Context) -> Union[Branch, Tag]:
             if branch:
                 return Branch(branch)
             result = context.run(
-                f"git -C {here!s} describe --all --contains --abbrev=4 HEAD", hide="both"
+                f"git -C {here!s} describe --all --contains --abbrev=4 HEAD",
+                hide="both",
             )
             assert result is not None
             if result.stdout.startswith("tags/"):
@@ -185,7 +197,10 @@ def last_logged_changes(context: Context) -> str:
     }
 )
 def update_changelog(
-    context: Context, version: str = "", output: Optional[str] = None, with_unreleased: bool = False
+    context: Context,
+    version: str = "",
+    output: Optional[str] = None,
+    with_unreleased: bool = False,
 ):
     """
     Update the change log (output defaults to CHANGES.rst)
@@ -242,6 +257,17 @@ def update_changelog(
     return
 
 
+def walk_path(p: Path, *args, **kwargs):
+    if callable(getattr(p, "walk", None)):
+        return p.walk(*args, **kwargs)
+    return _walk_path(p)
+
+
+def _walk_path(p: Path, *args, **kwargs):
+    for dirpath, dirnames, filenames in os.walk(f"{p!s}", *args, **kwargs):
+        yield p / dirpath, dirnames, filenames
+
+
 @task
 def lint(context: Context):
     root = _.project_root(Path, silent=True)
@@ -258,33 +284,65 @@ def lint(context: Context):
 
 
 @task
-def black(context: Context, check: bool = False):
+def pre_commit(context: Context, check: bool = False, staged: bool = False, changed: bool = False):
     python_bin = _.python_path(str, silent=True)
     root = _.project_root(Path, silent=True)
-    extra = ""
-    if check:
-        extra = f"{extra} --check"
-        context.run(f"{python_bin} -m black --version")
-    pyproject = root / "pyproject.toml"
     generate_version = root / "generate_version.py"
-    cli = f"{python_bin} -m black"
-    context.run(f"{cli} {extra} {root!s}")
-    if check:
-        perror(
-            f"Checking the results of {generate_version!s} "
-            "by writing to a tempfile and running black on it..."
-        )
-        version_cli = f"{cli} --config {pyproject!s}"
-        with tempfile.NamedTemporaryFile(mode="w+") as fh:
-            context.run(f"{python_bin} {generate_version!s} {fh.name}")
-            if not context.run(f"{version_cli} --check {fh.name}", warn=True):
-                perror("generate_version returns black issues!")
-                with tempfile.NamedTemporaryFile(mode="w+") as new:
-                    new.write(fh.read())
-                    context.run(f"{version_cli} {new.name}")
-                    context.run(f"diff -Naur {fh.name} {new.name}")
-                raise SystemExit(1)
-    perror("success!")
+    if changed:
+        extra = "--name-only"
+        if staged:
+            extra = f"{extra} --staged"
+        iterable = context.run(f"git -C {root!s} diff {extra}", hide=True).stdout.splitlines()
+    else:
+        assert not staged
+        iterable = context.run(f"git -C {root!s} ls-files", hide=True).stdout.splitlines()
+        extra = "--all-files"
+
+    files = []
+    for filename in iterable:
+        file = root / filename
+        with open(file, "rb") as fh:
+            h = hashlib.new("sha256")
+            h.update(fh.read())
+        files.append((file, h.digest()))
+
+    if changed:
+        extra = f"--files {' '.join(str(row[0].relative_to(str(root))) for row in files)}"
+
+    override_hook = ""
+    context.run(f"{python_bin} -m pre_commit --version")
+    if not check:
+        override_hook = "ruff-format"
+
+    with context.cd(f"{root!s}"):
+        cli = f"{python_bin} -m pre_commit run {extra} {override_hook} "
+        try:
+            context.run(cli)
+        except invoke.exceptions.UnexpectedExit:
+            if check:
+                raise
+    with tempfile.NamedTemporaryFile(mode="w+") as fh:
+        context.run(f"{python_bin} {generate_version!s} {fh.name}")
+        with tempfile.NamedTemporaryFile(mode="w+") as new:
+            new.write(fh.read())
+            fh.seek(0)
+        if not context.run(
+            f"{python_bin} -m pre_commit run --files {new.name} {override_hook} ",
+            warn=True,
+        ):
+            perror("generate_version returns pre-commit issues!")
+            context.run(f"diff -Naur {fh.name} {new.name}")
+            raise SystemExit(1)
+    changed = []
+    for file, old_hash in files:
+        with open(file, "rb") as fh:
+            h = hashlib.new("sha256")
+            h.update(fh.read())
+            if old_hash != h.digest():
+                changed.append(str(file.relative_to(root)))
+    if changed:
+        raise ValueError(f"{' '.join(changed)} changed!")
+    print("success")
 
 
 @task
@@ -316,7 +374,9 @@ def coverage_report(context: Context):
 
 
 @task
-def setup_metadata(file: Optional[str] = None) -> Dict[str, Union[str, Tuple[str, ...]]]:
+def setup_metadata(
+    file: Optional[str] = None,
+) -> Dict[str, Union[str, Tuple[str, ...]]]:
     in_metadata = False
     sep = "="
     if file is None:
@@ -453,14 +513,20 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                 ):
                     continue
                 if metadata.isfile():
-                    if (filename.parent.name, filename.name) == ("instruct", "about.py"):
+                    if (filename.parent.name, filename.name) == (
+                        "instruct",
+                        "about.py",
+                    ):
                         gs = {}
                         buf = source.extractfile(metadata)
                         assert buf is not None
                         exec(buf.read(), gs)
                         buf.seek(0)
                         public_version = gs["__version_info__"].public
-                    elif (filename.parent.name, filename.name) == (top_most.name, "setup.cfg"):
+                    elif (filename.parent.name, filename.name) == (
+                        top_most.name,
+                        "setup.cfg",
+                    ):
                         buf = io.BytesIO()
                         fh = source.extractfile(metadata)
                         assert fh is not None
@@ -497,7 +563,7 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
 
 @task
 def project_root(
-    as_type: Union[Type[str], Type[Path], Literal["str", "Path"]] = "str"
+    as_type: Union[Type[str], Type[Path], Literal["str", "Path"]] = "str",
 ) -> Union[str, Path]:
     """
     Get the absolute path of the project root assuming tasks.py is in the repo root.
@@ -612,7 +678,14 @@ def setup(
             context.run(f"{venv!s}/bin/python -m pip install {requirements}")
         os.execve(
             f"{venv!s}/bin/python",
-            ("python", "-m", "invoke", "setup", "--swap-venv-stage", "2-remove-tmp-venv"),
+            (
+                "python",
+                "-m",
+                "invoke",
+                "setup",
+                "--swap-venv-stage",
+                "2-remove-tmp-venv",
+            ),
             os.environ,
         )
         assert False, "unreachable!"
@@ -624,13 +697,20 @@ def setup(
         try:
             original_argv = json.loads(os.environ["_INSTRUCT_INVOKE_TASK_ORIG_ARGS"])
         except ValueError:
-            perror("Unable to decode original _INSTRUCT_INVOKE_TASK_ORIG_ARGS!", file=sys.stderr)
+            perror(
+                "Unable to decode original _INSTRUCT_INVOKE_TASK_ORIG_ARGS!",
+                file=sys.stderr,
+            )
         while original_argv and original_argv[0] == "--":
             del original_argv[0]
         perror("Attempting to restore argv after setup which is", original_argv)
         if not original_argv:
             return
-        os.execve(f"{venv!s}/bin/python", ("python", "-m", "invoke", *original_argv), os.environ)
+        os.execve(
+            f"{venv!s}/bin/python",
+            ("python", "-m", "invoke", *original_argv),
+            os.environ,
+        )
         assert False, "unreachable!"
 
     current_python = Path(sys.executable)
@@ -653,7 +733,7 @@ def setup(
                     break
             else:
                 line = b"invoke"
-            perror(f"installing tmp venv invoke")
+            perror("installing tmp venv invoke")
             context.run(f"{venv!s}_/bin/python -m pip install {line.decode()}", hide="both")
 
         args = []
@@ -755,7 +835,10 @@ def prior_release_to(context: Context, version: Union[str, Version] = "") -> Opt
 
 @task
 def create_release(
-    context: Context, *, next_version: Union[str, Version] = "", version: Union[str, Version] = ""
+    context: Context,
+    *,
+    next_version: Union[str, Version] = "",
+    version: Union[str, Version] = "",
 ) -> Version:
     assert has_packaging
     branch = _.branch_name(context)
@@ -943,7 +1026,8 @@ def bump_version(
                 continue
             if "#" in line_s:
                 line_s, ignore = line_s.split("#", 1)
-            version = parse_version(line_s)
+            parse_version(line_s)
+            # version = parse_version(line_s)
             break
             # assert next_version > version
         if not dry_run:
