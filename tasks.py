@@ -287,7 +287,7 @@ def lint(context: Context):
 @task(iterable=("override_hook",))
 def pre_commit(
     context: Context,
-    override_hook: list[str],
+    override_hook: List[str],
     staged: bool = False,
     changed: bool = False,
 ):
