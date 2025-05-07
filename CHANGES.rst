@@ -1,4 +1,18 @@
 .. |Changes|
+Version `v0.8.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.5>`_
+----------------------------------------------------------------------------------
+
+Released 2025-05-07
+
+`Compare with v0.8.4 <https://github.com/autumnjolitz/instruct/compare/v0.8.4...v0.8.5>`_ (16 commits since)
+
+Bug Fixes
+
+- satisfy both mypy and ruff for ``TypingDefinition`` (`3e9e34a <https://github.com/autumnjolitz/instruct/commit/3e9e34a518829eebbb5a0d6ec63060ad513532a2>`_ by Autumn).
+- apply ``pre-commit`` to all files (`2184824 <https://github.com/autumnjolitz/instruct/commit/21848240dd6d52e0159d5633cc2c27d41267363e>`_ by Autumn).
+- satisfy mypy (`51e7320 <https://github.com/autumnjolitz/instruct/commit/51e73202c4b328187d7db2fafc0b2da8f7ca7437>`_ by Autumn).
+- ValidationError should operate on ``.errors`` as it is ``list[Exception] | tuple[Exception, ...]`` (`6d544df <https://github.com/autumnjolitz/instruct/commit/6d544dfe4765885e0a5a90efc5ec132566d3ed4d>`_ by Autumn).
+
 Version `v0.8.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.4>`_
 ----------------------------------------------------------------------------------
 
