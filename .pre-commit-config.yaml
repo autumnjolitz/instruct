@@ -5,6 +5,10 @@ repos:
     hooks:
       -
         id: check-ast
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
       -
         id: check-case-conflict
       -
@@ -31,6 +35,14 @@ repos:
       # Run the linter.
       - id: ruff
         args: [  --target-version, py37, --fix ]
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
       # Run the formatter.
       - id: ruff-format
         args: [  --target-version, py37 ]
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
