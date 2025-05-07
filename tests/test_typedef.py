@@ -16,7 +16,6 @@ from typing import (
     Any,
     Optional,
     Generic,
-    TypeVar,
     Tuple,
     FrozenSet,
     Set,
@@ -84,8 +83,7 @@ def test_parse_typedef():
 
 def test_parse_typedef_simple_protocol():
     class Appendable(Protocol):
-        def append(self: Self, o: Any) -> None:
-            ...
+        def append(self: Self, o: Any) -> None: ...
 
     cls = parse_typedef(Appendable)
     val = [1, 2, 3]
@@ -99,8 +97,7 @@ def test_parse_typedef_complex_protocol():
     T = TypeVar("T", bound=Collection)
 
     class ImplementsAppend(Protocol[T]):
-        def append(self: Self, o: T) -> None:
-            ...
+        def append(self: Self, o: T) -> None: ...
 
     cls = parse_typedef(ImplementsAppend)
     val = [1, 2, 3]
