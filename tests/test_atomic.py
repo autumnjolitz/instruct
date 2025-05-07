@@ -168,13 +168,13 @@ def test_inheritance():
 
 
 def test_mapping():
-    l1 = LinkedFields(id=2, name='Autumn')
+    l1 = LinkedFields(id=2, name="Autumn")
     assert len(l1) == 2
     assert isinstance(l1, AbstractMapping)
 
 
 def test_pickle():
-    l1 = LinkedFields(id=2, name='Autumn')
+    l1 = LinkedFields(id=2, name="Autumn")
     data = pickle.dumps(l1)
     l2 = pickle.loads(data)
     assert l1 == l2
@@ -258,29 +258,29 @@ def test_mapping_immutability():
 
 
 def test_coercion():
-    l = LinkedFields(id='2', name='Autumn')
+    l = LinkedFields(id='2', name='Autumn') # noqa
     assert l.id == 2
     l.id = "5"
     assert l.id == 5
 
 
 def test_event_listener():
-    l = LinkedFields(id=2, name='Autumn')
+    l = LinkedFields(id=2, name="Autumn")  # noqa
     l.id = -1
     assert l.name == "invalid"
 
 
 def test_derived_klass():
-    assert isinstance(NestedData._columns['nested'], type)
-    item = NestedData(id=1, nested={'field': 'autumn'})
-    assert item.nested.field == 'autumn'
+    assert isinstance(NestedData._columns["nested"], type)
+    item = NestedData(id=1, nested={"field": "autumn"})
+    assert item.nested.field == "autumn"
     with pytest.raises(TypeError):
         item.nested.field = 1
 
 
 def test_derived_equivalence():
-    item = NestedData(id=1, nested={'field': 'autumn'})
-    item_alt = NestedDataAlt(id=1, nested={'field': 'autumn'})
+    item = NestedData(id=1, nested={"field": "autumn"})
+    item_alt = NestedDataAlt(id=1, nested={"field": "autumn"})
     assert item == item_alt
 
 
@@ -298,8 +298,8 @@ def test_invalid_types():
 
 
 def test_history():
-    t = Data(field='autumn')
-    t.field = 'not autumn'
+    t = Data(field="autumn")
+    t.field = "not autumn"
     for change in t.list_changes():
         print(change)
         print(
@@ -329,16 +329,16 @@ def test_history_autoprune():
 
 def test_changed():
     t = Data()
-    t.field = 'Autumn'
-    assert t.is_dirty, 'Item should be dirty - we added a property!'
+    t.field = "Autumn"
+    assert t.is_dirty, "Item should be dirty - we added a property!"
     t.field = 0
     assert not t.is_dirty, "Item is now reset"
 
 
 def test_reset():
-    t = Data(field='Autumn')
+    t = Data(field="Autumn")
     t.reset_changes()
-    assert t.field == 'Autumn'
+    assert t.field == "Autumn"
     assert not t.is_dirty
 
 
@@ -586,7 +586,12 @@ def test_coerce_complex():
     class VectoredItems(Base):
         __slots__ = {"items": List[ComplextItem]}
 
-        __coerce__ = {"items": (List[dict], lambda items: [ComplextItem(**item) for item in items])}
+        __coerce__ = {
+            "items": (
+                List[dict],
+                lambda items: [ComplextItem(**item) for item in items],
+            )
+        }
 
     c = ComplextItem(value=[["a", 1], ["b", 2]], name="ab", type="value")
     assert c.value == [("a", 1), ("b", 2)]
@@ -616,7 +621,12 @@ def test_qulaname():
     class VectoredItems(Base):
         __slots__ = {"items": List[ComplextItem]}
 
-        __coerce__ = {"items": (List[dict], lambda items: [ComplextItem(**item) for item in items])}
+        __coerce__ = {
+            "items": (
+                List[dict],
+                lambda items: [ComplextItem(**item) for item in items],
+            )
+        }
 
     assert VectoredItems.__qualname__ == "test_qulaname.<locals>.VectoredItems"
     assert (
@@ -743,7 +753,10 @@ def test_embedded_collection_tracking():
     class CollectableBarter(Barter):
         __slots__ = {"others": Dict[str, Dict[int, List[Barter]]]}
 
-    assert CollectableBarter._nested_atomic_collection_keys.keys() == {"others", "mapping"}
+    assert CollectableBarter._nested_atomic_collection_keys.keys() == {
+        "others",
+        "mapping",
+    }
 
     class InheritedBarter(CollectableBarter, Bar, Foo):
         __slots__ = {"key": str}
@@ -811,7 +824,10 @@ def test_keyword_only_args_super():
             return a, b, defaults
 
     assert F().test_function_capabilities(1) == (1, 1, 1)
-    assert F().test_function_capabilities.__annotations__ == {"b": int, "return": type_signature}
+    assert F().test_function_capabilities.__annotations__ == {
+        "b": int,
+        "return": type_signature,
+    }
 
     class BaseClass(Base):
         __slots__ = ()
@@ -939,7 +955,10 @@ def test_bytes_base64():
         item: bytes
         foo: bytes
 
-        __coerce__ = {"item": (str, decodebase64uri), "foo": (str, lambda val: val.encode("utf8"))}
+        __coerce__ = {
+            "item": (str, decodebase64uri),
+            "foo": (str, lambda val: val.encode("utf8")),
+        }
 
         @classmethod
         def from_json(cls, item: Union[str, Dict[str, Any]]):
@@ -1560,10 +1579,9 @@ def test_with_init_subclass():
             Registry[cls] = swallow
             super().__init_subclass__()
 
-    f = Foo()
+    f = Foo()  # noqa
 
-    class Bar(Foo, swallow="Barn!"):
-        ...
+    class Bar(Foo, swallow="Barn!"): ...
 
     assert Bar in Registry
     assert Registry[Bar] == "Barn!"
@@ -1575,8 +1593,7 @@ def test_with_init_subclass():
 
     assert len(Registry) == 2
 
-    class BreakChainBar(BarBar):
-        ...
+    class BreakChainBar(BarBar): ...
 
     assert len(Registry) == 2
 

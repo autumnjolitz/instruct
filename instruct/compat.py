@@ -23,8 +23,7 @@ else:
 
     if typing.TYPE_CHECKING:
 
-        class EllipsisType(Protocol):
-            ...
+        class EllipsisType(Protocol): ...
 
     else:
         EllipsisType = type(Ellipsis)

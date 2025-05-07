@@ -55,7 +55,7 @@ else:
 
 if TYPE_CHECKING:
     from typing import Iterator
-    from .typing import Atomic, TypingDefinition, CustomTypeCheck, JSON
+    from .typing import Atomic, TypingDefinition, CustomTypeCheck
 
 
 if sys.version_info[:2] >= (3, 12):
@@ -96,8 +96,7 @@ class AbstractAtomic:
         _data_class: ImmutableValue[Type[BaseAtomic]]
         _parent: ImmutableValue[Type[BaseAtomic]]
 
-        def __iter__(self) -> Iterator[Tuple[str, Any]]:
-            ...
+        def __iter__(self) -> Iterator[Tuple[str, Any]]: ...
 
 
 Ts = TypeVarTuple("Ts")
@@ -107,8 +106,7 @@ Ts = TypeVarTuple("Ts")
 # the AtomicMeta class
 if TYPE_CHECKING:
 
-    class Genericizable(Generic[Unpack[Ts]]):
-        ...
+    class Genericizable(Generic[Unpack[Ts]]): ...
 
 else:
     generic_cache = WeakKeyDictionary()
@@ -483,13 +481,11 @@ T_cta = TypeVar("T_cta", contravariant=True)
 
 
 class InstanceCallable(Protocol[T_cta]):
-    def __call__(self, instance: T_cta, *args, **kwargs) -> Any:
-        ...
+    def __call__(self, instance: T_cta, *args, **kwargs) -> Any: ...
 
 
 class ClassCallable(Protocol[T_cta]):
-    def __call__(self, cls: Type[T_cta], *args, **kwargs) -> Any:
-        ...
+    def __call__(self, cls: Type[T_cta], *args, **kwargs) -> Any: ...
 
 
 class ClassOrInstanceFuncsDescriptor(Generic[T]):

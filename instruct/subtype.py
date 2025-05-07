@@ -1,6 +1,7 @@
 """
 Approaches for automatic subtype specialization through nested type conversion.
 """
+
 import collections.abc
 import functools
 import inspect
@@ -184,15 +185,13 @@ def handle_collection(cls: Type[T], *cast_functions) -> Callable[[Iterable[T]], 
 @overload
 def wrapper_for_type(
     type_hint: EllipsisType, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
-) -> EllipsisType:
-    ...
+) -> EllipsisType: ...
 
 
 @overload
 def wrapper_for_type(
     type_hint: TypeHint, class_mapping: Mapping[Type[Atomic], Type[Atomic]], metaclass
-) -> Callable[[Any], Any]:
-    ...
+) -> Callable[[Any], Any]: ...
 
 
 def wrapper_for_type(
