@@ -173,7 +173,7 @@ def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, 
     return value
 
 
-default_exc_json_handler: Optional[Callable[[Exception, Optional[str]], Dict[str, JSON]]] = None
+default_exc_json_handler: Optional[Callable[[Exception], Dict[str, JSON]]] = None
 
 
 def asjson(item: Exception) -> Dict[str, JSON]:

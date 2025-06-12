@@ -1792,7 +1792,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 coerce_mappings = support_cls_attrs["__coerce__"]
                 if isinstance(coerce_mappings, ImmutableMapping):
                     # Unwrap
-                    coerce_mappings = coerce_mappings.value
+                    coerce_mappings = cast(CoerceMapping, coerce_mappings.value)
         else:
             support_cls_attrs["__coerce__"] = None
 
@@ -1807,7 +1807,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             if not isinstance(support_cls_attrs["__coerce__"], ImmutableMapping):
                 support_cls_attrs["__coerce__"] = ImmutableMapping(coerce_mappings)
 
-            coerce_mappings = cast(CoerceMapping, coerce_mappings)
+            # coerce_mappings = cast(CoerceMapping, coerce_mappings)
 
         # A support column is a __slot__ element that is unmanaged.
         pending_support_columns: List[str] = []
@@ -2568,14 +2568,15 @@ class History(metaclass=AtomicMeta):
 AtomicMeta.register_mixin("history", History)
 
 
-class AutoRepr(metaclass=AtomicMeta):
+class AutoRepr(Generic[Atomic], metaclass=AtomicMeta):
     __slots__ = ()
 
     def __repr__(self) -> str:
-        cls = public_class(self, preserve_subtraction=True)
-        items = tuple(self)
+        inst = cast(Atomic, self)
+        cls = public_class(inst, preserve_subtraction=True)
+        items = tuple(inst)
         first_five = items[:5]
-        last_five = ()
+        last_five: tuple = ()
         if len(items) > 5:
             last_five = items[5:]
         repr_buf = []
