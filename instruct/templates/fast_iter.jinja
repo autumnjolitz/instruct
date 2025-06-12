@@ -1,4 +1,11 @@
 def __iter__(self):
     {%- for field in fields %}
     yield '{{field}}', self.{{field}}
-    {%endfor%}
+    {%- endfor %}
+    {%- if not fields %}
+    """
+    All fields are marked non-iterable
+    """
+    if False:
+        yield
+    {%- endif %}
