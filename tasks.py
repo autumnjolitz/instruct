@@ -897,10 +897,10 @@ def create_release(
             perror("Repository is still dirty despite committing CHANGES.rst!")
             raise SystemExit(123)
     perror(f"Creating annotated tag v{version!s}")
-    with io.StringIO() as fh:
+    with tempfile.NamedTemporaryFile(mode="w+") as fh:
         fh.write(_.last_logged_changes(context))
         fh.seek(0)
-        context.run(f"git -C {root!s} tag -a v{version!s} -F -", in_stream=fh)
+        context.run(f"git -C {root!s} tag -a v{version!s} -F {fh.name}")
     assert not _.dirty_repo(context, silent=True)
     return _.bump_version(context, to_version=next_version, silent=True)
 
