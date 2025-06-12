@@ -1205,7 +1205,7 @@ def parse_typedef(
             if new_name.startswith(("typing.")):
                 new_name = new_name[len("typing.") :]
             assert isinstance(cls, CustomTypeCheckMetaBase)
-            metaclass: CustomTypeCheckMetaBase = type(cls)
+            metaclass: type[CustomTypeCheckMetaBase] = type(cls)
             metaclass.set_name(cls, new_name)
             metaclass.set_type(cls, typehint)
             return cls
