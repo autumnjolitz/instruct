@@ -2568,6 +2568,30 @@ class History(metaclass=AtomicMeta):
 AtomicMeta.register_mixin("history", History)
 
 
+class AutoRepr(metaclass=AtomicMeta):
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        cls = public_class(self, preserve_subtraction=True)
+        items = tuple(self)
+        first_five = items[:5]
+        last_five = ()
+        if len(items) > 5:
+            last_five = items[5:]
+        repr_buf = []
+        for iterable in (first_five, last_five):
+            buf = []
+            for key, value in iterable:
+                buf.append(f"{key}={value!r}")
+            if buf:
+                repr_buf.append(", ".join(buf))
+        repr_s = ", …, ".join(repr_buf)
+        return f"{cls.__name__}({repr_s})"
+
+
+AtomicMeta.register_mixin("autorepr", AutoRepr)
+
+
 def _cls_keys(
     cls: Type[Atomic], instance: Optional[Atomic] = None, *, all: bool = False
 ) -> Union[InstanceKeysView[Atomic, str], ClassKeysView[Atomic, str], ImmutableCollection[str]]:
@@ -2909,7 +2933,7 @@ class SimpleBase(metaclass=AtomicMeta):
             yield
 
 
-class Base(SimpleBase, mapping=True, json=True):
+class Base(SimpleBase, mapping=True, json=True, autorepr=True):
     __slots__ = ()
 
 
