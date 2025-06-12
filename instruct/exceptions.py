@@ -8,7 +8,7 @@ from .lang import titleize, humanize
 from .typing import JSON
 
 if typing.TYPE_CHECKING:
-    from typing import Dict, Any, Tuple, Union, Optional, Type, TypeVar, Generic
+    from typing import Dict, Any, Tuple, Union, Optional, Type, TypeVar, Generic, Callable
     from .compat import Self, TypeGuard
     from .typing import ExceptionHasDebuggingInfo, ExceptionHasMetadata
 
@@ -96,7 +96,7 @@ class JSONSerializable(metaclass=JSONSerializableMeta):
 
             cls.__json__ = __json__
         elif not callable(cls.__json__):
-            raise TypeError("__json__ must be a method!")
+            raise builtins.TypeError("__json__ must be a method!")
         return super().__init_subclass__(**kwargs)
 
 
@@ -173,12 +173,17 @@ def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, 
     return value
 
 
+default_exc_json_handler: Optional[Callable[[Exception, Optional[str]], Dict[str, JSON]]] = None
+
+
 def asjson(item: Exception) -> Dict[str, JSON]:
     if not isinstance(item, Exception):
-        raise TypeError(f"{item!r} ({type(item).__name__}) is not an Exception!")
+        raise builtins.TypeError(f"{item!r} ({type(item).__name__}) is not an Exception!")
     if isinstance(item, JSONSerializable):
         return item.__json__()
-    return _default_exc_json(item)
+    if default_exc_json_handler is not None:
+        return default_exc_json_handler(item)
+    raise builtins.TypeError(item)
 
 
 class TypeError(InstructError, builtins.TypeError, ExceptionJSONSerializable):
@@ -229,7 +234,8 @@ class ValidationError(
             if hasattr(item, "errors"):
                 stack.extend(asjson(item))
                 continue
-            item = asjson(item)
+            if isinstance(item, Exception):
+                item = asjson(item)
             item["parent_message"] = self.message
             item["parent_type"] = titleize(cls.__name__)
             results.append(item)
