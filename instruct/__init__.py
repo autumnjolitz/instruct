@@ -302,13 +302,29 @@ class InstanceKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, T]):
         return self.type
 
     def __contains__(self, key):
+        if key in self.type._slots:
+            hint = self.type._slots[key]
+            as_origin_cls = get_origin(hint)
+            type_args = get_args(hint)
+            if as_origin_cls is Annotated:
+                _, *raw_metadata = type_args
+                if NoIterable in raw_metadata:
+                    return False
         return key in self.value
 
     def __len__(self):
         return len(self.value)
 
     def __iter__(self):
-        return iter(self.type._slots)
+        for attr_name in self.type._slots:
+            hint = self.type._slots[attr_name]
+            as_origin_cls = get_origin(hint)
+            type_args = get_args(hint)
+            if as_origin_cls is Annotated:
+                _, *raw_metadata = type_args
+                if NoIterable in raw_metadata:
+                    continue
+            yield attr_name
 
 
 U = TypeVar("U", bound=str)
@@ -2886,7 +2902,8 @@ class SimpleBase(metaclass=AtomicMeta):
     @mark(base_cls=True)
     def __iter__(self):
         """
-        Dummy iter.
+        Dummy iter for cases where there are no
+        fields
         """
         if False:
             yield

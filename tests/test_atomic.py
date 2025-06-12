@@ -1641,3 +1641,25 @@ def test_simple_generics():
     print(str(public_class(any_instance)))
     assert any_instance.field == "foobar"
     assert isinstance(any_instance, Bar[str])
+
+
+def test_annotated_mapping():
+    class Test(SimpleBase, mapping=True):
+        public: str
+        secret: Annotated[bytes, NoIterable]
+
+    t = Test("foo!", b"my-secret!")
+    assert t.secret == b"my-secret!"
+    assert dict(t) == {"public": "foo!"}
+    assert not any(key == "secret" for key, value in t.items())
+    assert any(key == "public" for key, value in t.items())
+    just_secret = Test & {"secret"}
+
+    t2 = just_secret(b"my-secret-2")
+    assert t2.secret == b"my-secret-2"
+    assert dict(t2) == {}
+    assert "secret" not in t2.keys()
+    assert not any(key == "secret" for key, value in t2.items())
+    assert "secret" in t2
+    assert "secret" in public_class(t2, preserve_subtraction=True)
+    assert "secret" in tuple(public_class(t2, preserve_subtraction=True))
