@@ -1680,3 +1680,10 @@ def test_no_pickle():
     t2 = pickle.loads(buf)
     assert not t2.secret
     assert t2.name == "1"
+
+
+def test_autorepr():
+    class Test(SimpleBase, autorepr=True):
+        name: str
+
+    assert repr(Test("itm")).startswith("Test(name=")
