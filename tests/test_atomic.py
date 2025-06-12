@@ -1663,3 +1663,20 @@ def test_annotated_mapping():
     assert "secret" in t2
     assert "secret" in public_class(t2, preserve_subtraction=True)
     assert "secret" in tuple(public_class(t2, preserve_subtraction=True))
+
+
+class TestNoPickle(SimpleBase, mapping=True):
+    name: str
+    secret: Annotated[bytes, NoPickle]
+
+
+def test_no_pickle():
+    t = TestNoPickle("1", b"my-secret!")
+
+    assert dict(t) == {"name": "1", "secret": b"my-secret!"}
+
+    buf = pickle.dumps(t)
+
+    t2 = pickle.loads(buf)
+    assert not t2.secret
+    assert t2.name == "1"
