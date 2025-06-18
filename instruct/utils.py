@@ -1,5 +1,6 @@
 import functools
 import types
+import weakref
 from collections.abc import Iterable as AbstractIterable
 from enum import EnumMeta
 from typing import Any, TypeVar, Dict, Callable, TYPE_CHECKING
@@ -16,6 +17,36 @@ if TYPE_CHECKING:
 
 else:
     from weakref import WeakKeyDictionary
+
+
+def deduplicate(items):
+    if isinstance(items, AbstractIterable):
+        raise TypeError(f"Cannot iterate on items={items!r} ({type(items)!r})!")
+    by_hash = set()
+    by_eq = []
+    by_weakref = set()
+    for item in items:
+        try:
+            r = weakref.ref(item)
+        except TypeError:
+            pass
+        else:
+            if r in by_weakref:
+                continue
+            yield item
+            by_weakref.add(r)
+        try:
+            hash(item)
+        except TypeError:
+            if item in by_eq:
+                continue
+            by_hash.append(item)
+            yield item
+        else:
+            if item in by_hash:
+                continue
+            yield item
+            by_hash.add(item)
 
 
 def invert_mapping(mapping):

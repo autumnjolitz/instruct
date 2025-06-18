@@ -1,4 +1,7 @@
-def __setstate__(self, state):
+def __setstate__(self: Self, state: dict[str, typing.Any]):
+    """
+    restore {{class_name}} internals used in a pickle.loads
+    """
     for key in state:
         value = state[key]
         {%- for field in fields %}
@@ -6,7 +9,10 @@ def __setstate__(self, state):
             self._{{field}}_ = value
         {%- endfor %}
 
-def __getstate__(self):
+def __getstate__(self: Self) -> dict[str, typing.Any]:
+    """
+    dump {{class_name}} internals used in a pickle.dumps
+    """
     return {
         {%- for field in fields %}
         "{{field}}": self._{{field}}_,
