@@ -27,6 +27,12 @@ class _NoPickle(object):
     def __call__(self, default):
         pass
 
+    def __repr__(self):
+        return type(self).__name__[1:]
+
+    def __str__(self):
+        return str(self.__class__.__name__[1:])
+
 
 class _NoJSON(object):
     def __new__(cls):
@@ -43,6 +49,12 @@ class _NoJSON(object):
 
     def __call__(self, default):
         pass
+
+    def __repr__(self):
+        return type(self).__name__[1:]
+
+    def __str__(self):
+        return str(self.__class__.__name__[1:])
 
 
 class _NoIterable(object):
@@ -61,6 +73,12 @@ class _NoIterable(object):
     def __call__(self, default):
         pass
 
+    def __repr__(self):
+        return type(self).__name__[1:]
+
+    def __str__(self):
+        return str(self.__class__.__name__[1:])
+
 
 class _NoHistory(object):
     def __new__(cls):
@@ -78,6 +96,12 @@ class _NoHistory(object):
     def __call__(self, default):
         pass
 
+    def __repr__(self):
+        return type(self).__name__[1:]
+
+    def __str__(self):
+        return str(self.__class__.__name__[1:])
+
 
 class _Undefined(object):
     def __new__(cls):
@@ -94,6 +118,12 @@ class _Undefined(object):
 
     def __call__(self, default):
         pass
+
+    def __repr__(self):
+        return type(self).__name__[1:]
+
+    def __str__(self):
+        return str(self.__class__.__name__[1:])
 
 
 try:

@@ -1,3 +1,4 @@
+# ruff: noqa
 from __future__ import annotations
 
 import sys
@@ -46,18 +47,25 @@ class TestOptimized(SimpleBase, fast=True):
         super().__init__(**kwargs)
 
 
+class V(SimpleBase):
+    m: dict[str, Test]
+
+
 class ComplexTest(SimpleBase):
     id: int
     name: str
     type: int
     value: float
+    D: {"i": int, "x": {"y": int}}
+    t: V | int
 
-    def __init__(self, **kwargs):
+    def _set_defaults(self):
+        super()._set_defaults()
         self.id = 0
         self.name = ""
         self.type = -1
         self.value = 0.1
-        super().__init__(**kwargs)
+        self.t = 1
 
 
 class Next(ComplexTest):
