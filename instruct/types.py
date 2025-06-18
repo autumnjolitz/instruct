@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+import inspect
 from collections import UserDict
 from collections.abc import (
     Mapping as AbstractMapping,
@@ -54,7 +55,7 @@ else:
 
 
 if TYPE_CHECKING:
-    from typing import Iterator
+    from typing import Iterator, Literal
     from .typing import Atomic, TypingDefinition, CustomTypeCheck
 
 
@@ -124,64 +125,70 @@ else:
                 return super(cls, cls).__new__(cls[cls.__default__])
             return super().__new__(cls)
 
-        def __class_getitem__(self, key):
+        def __class_getitem__(cls, key):
             from . import public_class
 
             if not isinstance(key, tuple):
                 args = (key,)
             else:
                 args = key
-            if self is Genericizable:
+            if cls is Genericizable:
                 return new_class(
                     f"Genericable[{args!s}]",
-                    (self,),
-                    exec_body=lambda ns: ns.update({"__slots__": (), "__parameters__": args}),
+                    (cls,),
+                    exec_body=lambda ns: ns.update(
+                        {
+                            "__slots__": (),
+                            "__parameters__": args,
+                        }
+                    ),
                 )
 
-            self = public_class(self)
-            if self.__parameters__ and len(args) == len(self.__parameters__):
-                params = self.__parameters__
-                param_mapping = {p: n for p, n in zip(self.__parameters__, args)}
+            cls = public_class(cls)
+            if cls.__parameters__ and len(args) == len(cls.__parameters__):
+                params = cls.__parameters__
+                param_mapping = {p: n for p, n in zip(cls.__parameters__, args)}
                 new_params = tuple(
                     t if not isinstance(param_mapping[t], TypeVar) else param_mapping[t]
                     for t in params
                 )
                 try:
-                    cached_generics = generic_cache[self]
+                    cached_generics = generic_cache[cls]
                     return cached_generics[args]
                 except KeyError:
-                    cached_generics = generic_cache[self] = WeakValueDictionary()
+                    cached_generics = generic_cache[cls] = WeakValueDictionary()
 
                 new_annotations = {}
                 complex_fields = []
-                typehints = get_type_hints(self, include_extras=True)
-                for field_name in self.__parameters_by_field__:
-                    typevar_params = self.__parameters_by_field__[field_name]
+                typehints = get_type_hints(cls, include_extras=True)
+                for field_name in cls.__parameters_by_field__:
+                    typevar_params = cls.__parameters_by_field__[field_name]
                     typehint = typehints[field_name]
                     if isinstance(typehint, TypeVar):
                         new_annotations[field_name] = param_mapping[typehint]
                     else:
                         complex_fields.append(field_name)
 
-                for attr_name in self.__parameters_by_field__.keys() & frozenset(complex_fields):
-                    typevar_params = self.__parameters_by_field__[attr_name]
+                for attr_name in cls.__parameters_by_field__.keys() & frozenset(complex_fields):
+                    typevar_params = cls.__parameters_by_field__[attr_name]
                     attr_type_args = []
                     for new_type, typevar in zip(args, typevar_params):
                         attr_type_args.append(new_type)
-                    type_genericable = self._columns[attr_name]
+                    type_genericable = cls._columns[attr_name]
                     new_annotations[attr_name] = type_genericable[tuple(attr_type_args)]
                 new_cls = cached_generics[args] = type(
-                    self.__name__,
-                    (self - frozenset(new_annotations.keys()),),
+                    cls.__name__,
+                    (cls - frozenset(new_annotations.keys()),),
                     {
                         "__annotations__": new_annotations,
                         "__args__": args,
                         "__parameters__": new_params,
+                        "__module__": cls.__module__,
                     },
                 )
 
                 return new_cls
-            raise TypeError(f"{self} is not a generic class")
+            raise TypeError(f"{cls} is not a generic class")
 
 
 class BaseAtomic(AbstractAtomic):
@@ -488,39 +495,210 @@ class ClassCallable(Protocol[T_cta]):
     def __call__(self, cls: Type[T_cta], *args, **kwargs) -> Any: ...
 
 
-class ClassOrInstanceFuncsDescriptor(Generic[T]):
-    __slots__ = "_class_function", "_instance_function", "_classes"
-    _class_function: Union[ClassCallable[T], None]
-    _instance_function: Optional[InstanceCallable[T]]
+class BoundClassOrInstanceAttribute(Generic[T]):
+    """
+    simple __get__ descriptor to branch between calling
+    an instance method (from inside the instance) and a classmethod when
+    accessed from outside the instance.
+    """
+
+    __slots__ = "_class_attribute", "_instance_attribute", "_classes", "_attr_names"
+    _class_attribute: Union[ClassCallable[T], None, Any]
+    _instance_attribute: Optional[InstanceCallable[T], Any]
+    _classes: WeakKeyDictionary[Type[Self], MethodType]
+    _attr_names: WeakKeyDictionary[Type[Self], str]
+    _call_immediately: bool
+
+    def __set_name__(self: Self, owner: Type[Self], name: str):
+        self._attr_names[owner] = name
+
+    def __init__(
+        self,
+        class_attr: Union[ClassCallable[T], None] = None,
+        instance_attr: Optional[InstanceCallable[T]] = None,
+    ) -> None:
+        self._classes = WeakKeyDictionary()
+        self._attr_names = WeakKeyDictionary()
+        self._class_attribute = class_attr
+        self._instance_attribute = instance_attr
+
+    def getter(self, func, *, to: Literal["self", "class", ""] = ""):
+        if not callable(func):
+            raise TypeError(func)
+        sig = inspect.signature(func)
+        is_instance_func = "self" == to
+        is_class_func = "class" == to
+        if not any((is_instance_func, is_class_func)):
+            for param_name in sig.parameters:
+                if param_name == "self":
+                    is_instance_func = True
+                    break
+                elif param_name == "cls":
+                    is_class_func = True
+                    break
+        if is_class_func:
+            return self.class_attr(func)
+        elif is_instance_func:
+            return self.instance_attr(func)
+        raise ValueError(f"Unable to locate self or cls param in {func.__name__}{sig!s}")
+
+    def instance_attr(self, instance_attr) -> Self:
+        self._instance_attribute = instance_attr
+        return self
+
+    def class_attr(self, class_attr) -> Self:
+        self._class_attribute = class_attr
+        return self
+
+    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
+        if isinstance(instance, BaseAtomic):
+            owner = owner.__public_class__()
+        try:
+            attr_name = self._attr_names[owner]
+        except KeyError:
+            attr_name = "??? (__set_name__ not called!)"
+
+        if instance is None:
+            assert owner is not None
+            if self._class_attribute is None:
+                raise AttributeError(
+                    f"property '{attr_name}' of '{owner.__name__}' object has no class_attr set!"
+                )
+            try:
+                return self._classes[owner]
+            except KeyError:
+                class_attr = self._class_attribute
+                if callable(class_attr):
+                    class_attr = MethodType(class_attr, owner)
+                value = self._classes[owner] = class_attr
+                return value
+        if self._instance_attribute is None:
+            raise AttributeError(
+                f"property '{attr_name}' of '{owner.__name__}' object has no instance_attr set!"
+            )
+        if callable(self._instance_attribute):
+            return MethodType(self._instance_attribute, instance)
+        return self._instance_attribute
+
+
+class ClassOrInstanceFuncsDescriptor(BoundClassOrInstanceAttribute[T]):
+    __slots__ = ()
+
+    def instance_function(
+        self, instance_attr: InstanceCallable
+    ) -> BoundClassOrInstanceAttribute[T]:
+        self._instance_attribute = instance_attr
+        return self
+
+    def class_function(self, class_attr: ClassCallable) -> BoundClassOrInstanceAttribute[T]:
+        self._class_attribute = class_attr
+        return self
+
+    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
+        thunk = super().__get__(instance, owner)
+        return thunk()
+
+
+class ClassOrInstanceFuncsDataDescriptor(ClassOrInstanceFuncsDescriptor):
+    __slots__ = (
+        "_instance_setter_function",
+        "_instance_deleter_function",
+        "_class_setter_function",
+        "_class_deleter_function",
+    )
 
     def __init__(
         self,
         class_function: Union[ClassCallable[T], None] = None,
         instance_function: Optional[InstanceCallable[T]] = None,
+        *,
+        instance_setter: Optional[InstanceCallable[T]] = None,
+        instance_deleter: Optional[InstanceCallable[T]] = None,
+        class_setter: Union[ClassCallable[T], None] = None,
+        class_deleter: Union[ClassCallable[T], None] = None,
     ) -> None:
-        self._classes: MutableMapping[Type[T], MethodType] = WeakKeyDictionary()
-        self._class_function = class_function
-        self._instance_function = instance_function
+        super().__init__(class_function, instance_function)
+        self._instance_setter_function = instance_setter
+        self._instance_deleter_function = instance_deleter
+        self._class_setter_function = class_setter
+        self._class_deleter_function = class_deleter
 
-    def instance_function(
-        self, instance_function: InstanceCallable
-    ) -> ClassOrInstanceFuncsDescriptor[T]:
-        return type(self)(self._class_function, instance_function)
+    def setter(self, func, *, to: Literal["self", "class", ""] = ""):
+        if not callable(func):
+            raise TypeError(func)
+        sig = inspect.signature(func)
+        is_instance_func = "self" == to
+        is_class_func = "class" == to
+        if not any((is_instance_func, is_class_func)):
+            for param_name in sig.parameters:
+                if param_name == "self":
+                    is_instance_func = True
+                    break
+                elif param_name == "cls":
+                    is_class_func = True
+                    break
+        if is_class_func:
+            self._class_setter_function = func
+            return
+        if is_instance_func:
+            self._instance_setter_function = func
+            return
+        raise ValueError(f"Unable to locate self or cls param in {func.__name__}{sig!s}")
 
-    def class_function(self, class_function: ClassCallable) -> ClassOrInstanceFuncsDescriptor[T]:
-        return type(self)(class_function, self._instance_function)
+    def deleter(self, func, *, to: Literal["self", "class", ""] = ""):
+        if not callable(func):
+            raise TypeError(func)
+        sig = inspect.signature(func)
+        is_instance_func = "self" == to
+        is_class_func = "class" == to
+        if not any((is_instance_func, is_class_func)):
+            for param_name in sig.parameters:
+                if param_name == "self":
+                    is_instance_func = True
+                    break
+                elif param_name == "cls":
+                    is_class_func = True
+                    break
+        if is_class_func:
+            self._class_deleter_function = func
+            return
+        if is_instance_func:
+            self._instance_deleter_function = func
+            return
+        raise ValueError(f"Unable to locate self or cls param in {func.__name__}{sig!s}")
 
-    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
-        if instance is None:
-            assert owner is not None
-            assert self._class_function is not None
-            try:
-                return self._classes[owner]
-            except KeyError:
-                value = self._classes[owner] = MethodType(self._class_function, owner)
-                return value
-        assert self._instance_function is not None
-        return MethodType(self._instance_function, instance)
+    def __set__(self, instance, value):
+        cls = type(instance)
+        if isinstance(instance, BaseAtomic):
+            cls = cls.__public_class__()
+        try:
+            attr_name = self._attr_names[cls]
+        except KeyError:
+            attr_name = "??? (__set_name__ not called!)"
+
+        if self._instance_setter_function is None:
+            raise AttributeError(
+                f"property '{attr_name}' of '{cls.__name__}' "
+                "object has no instance_setter_function set!"
+            )
+        bound_thunk = MethodType(self._instance_setter_function, instance)
+        return bound_thunk(value)
+
+    def __delete__(self, instance) -> MethodType:
+        cls = type(instance)
+        if isinstance(instance, BaseAtomic):
+            cls = cls.__public_class__()
+        try:
+            attr_name = self._attr_names[cls]
+        except KeyError:
+            attr_name = "??? (__set_name__ not called!)"
+
+        if self._instance_setter_function is None:
+            raise AttributeError(
+                f"property '{attr_name}' of '{cls.__name__}' "
+                "object has no instance_setter_function set!"
+            )
+        return MethodType(self._instance_deleter_function, instance)
 
 
 @as_collectable(FrozenMapping)

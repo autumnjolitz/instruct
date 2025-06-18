@@ -1,10 +1,14 @@
-def __iter__(self):
+def __iter__(self: Self):
+    {%- if fields %}
+    """
+    Returns iterable of (key, value) in order of {% for field in fields %}{{field}}{% if not loop.last %}, {%endif%}{%endfor%}
+    """
     {%- for field in fields %}
     yield '{{field}}', self.{{field}}
     {%- endfor %}
-    {%- if not fields %}
+    {%- else %}
     """
-    All fields are marked non-iterable
+    All fields on {{ class_name }} are marked non-iterable
     """
     if False:
         yield
