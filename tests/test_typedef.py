@@ -228,6 +228,8 @@ def test_find_atomic_classes():
     class Item(Base):
         foo: str
 
+    assert Item.__name__ == "Item"
+
     class Bar(Base):
         field: Item
 

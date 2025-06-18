@@ -1,12 +1,16 @@
 import json
 import pprint
 import sys
-from typing import Union, List, Tuple, Optional, Dict, Any, Type, Generic
+from typing import Union, List, Tuple, Optional, Dict, Any, Type, Generic, Set
 
 try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 from enum import Enum
 import datetime
@@ -36,6 +40,7 @@ from instruct import (
     clear,
     asdict,
     asjson,
+    schema_for,
 )
 
 if sys.version_info < (3, 9):
@@ -567,6 +572,7 @@ def test_coerce_complex():
 
     class SomeEnum(Enum):
         VALUE = "value"
+        V2 = "v2"
 
     def parse(items):
         return [tuple(item) for item in items]
@@ -576,6 +582,8 @@ def test_coerce_complex():
             "name": str,
             "type": SomeEnum,
             "value": Union[List[Tuple[str, int]], List[int], List[float]],
+            "some_set": Set[str],
+            "fixed": Literal["immatype"],
         }
 
         __coerce__ = {
@@ -597,6 +605,23 @@ def test_coerce_complex():
     assert c.value == [("a", 1), ("b", 2)]
 
     VectoredItems(items=[{"value": [["a", 1], ["b", 2]], "name": "ab", "type": "value"}])
+    assert schema_for(VectoredItems) == {
+        "items": [
+            {
+                "name": str,
+                "some_set": {str},
+                "fixed": "immatype",
+                "type": {"oneof": ["value", "v2"]},
+                "value": {
+                    "oneof": [
+                        [{0: str, 1: int}],
+                        [int],
+                        [float],
+                    ]
+                },
+            }
+        ]
+    }
 
 
 def test_qulaname():
@@ -1575,7 +1600,8 @@ def test_with_init_subclass():
     Registry = {}
 
     class Foo(SimpleBase):
-        def __init_subclass__(cls, swallow: str, **kwargs):
+        def __init_subclass__(cls, *, swallow: str = None, **kwargs):
+            print("ARRH", cls)
             Registry[cls] = swallow
             super().__init_subclass__()
 
