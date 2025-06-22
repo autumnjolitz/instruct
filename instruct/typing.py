@@ -1,6 +1,9 @@
 from contextlib import suppress
 import sys
-from collections.abc import Collection as AbstractCollection
+from collections.abc import Collection as AbstractCollection, Callable as AbstractCallable
+from types import SimpleNamespace as _SimpleNamespace
+import uuid
+import inspect
 from typing import (
     Collection,
     ClassVar,
@@ -13,6 +16,9 @@ from typing import (
     Generic,
     Optional,
     List,
+    get_type_hints,
+    ForwardRef,
+    overload,
 )
 from typing_extensions import Final
 
@@ -37,6 +43,7 @@ from .types import BaseAtomic
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 
+HAS_GET_ANNOTATIONS = callable(getattr(inspect, "get_annotations", None))
 
 T = TypeVar("T")
 Ts = TypeVarTuple("Ts")
@@ -204,6 +211,8 @@ JSON: TypeAlias = Union[
     JSONValue,
 ]
 
+_GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hints).parameters
+
 Annotated  # noqa
 
 typevar_has_no_default  # noqa
@@ -268,9 +277,215 @@ if sys.version_info[:2] >= (3, 10):
                 return type_cls[args]
         raise NotImplementedError(f"Unable to copy with new type args on {hint!r} ({type(hint)!r})")
 
+    def make_union(
+        *args,
+        locals=None,
+        globals=None,
+        frame=None,
+    ):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = {**frame.f_locals}
+                if globals is None:
+                    globals = {**frame.f_globals}
+            finally:
+                del frame
+        parsed_hints = resolve(*args, locals=locals, globals=globals)
+        if len(args) == 1:
+            return parsed_hints
+        ns = {}
+        hint_parts = []
+        for arg in parsed_hints:
+            key = f"id_{id(arg)}"
+            if isinstance(arg, str):
+                raise TypeError(arg)
+            ns[key] = arg
+            hint_parts.append(key)
+        hint = " | ".join(hint_parts)
+        return resolve(hint, locals=ns)
+
+    def make_tuple(*args, locals=None, globals=None, frame=None):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = {**frame.f_locals}
+                if globals is None:
+                    globals = {**frame.f_globals}
+            finally:
+                del frame
+        parsed_hints = resolve(*args, locals=locals, globals=globals)
+        return tuple[*parsed_hints]
+
+
 else:
     UnionTypes = (Union,)
     get_origin = _get_origin
 
     def copy_with(hint, args):
         return hint.copy_with(args)
+
+    def make_union(*args, locals=None, globals=None, frame=None):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = {**frame.f_locals}
+                if globals is None:
+                    globals = {**frame.f_globals}
+            finally:
+                del frame
+
+        args = resolve(*args, locals=locals, globals=globals)
+        if len(args) == 1:
+            return args[0]
+        ns = {}
+        hint_parts = []
+        for arg in args:
+            key = f"id_{id(arg)}"
+            ns[key] = arg
+            hint_parts.append(key)
+        hint = " , ".join(hint_parts)
+        return resolve(f"typing.Union[{hint}]", locals=ns)
+
+    def make_tuple(*args, locals=None, globals=None, frame=None):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = {**frame.f_locals}
+                if globals is None:
+                    globals = {**frame.f_globals}
+            finally:
+                del frame
+        parsed_hints = resolve(*args, locals=locals, globals=globals)
+        return Tuple[*parsed_hints]
+
+
+@overload
+def resolve(hint: TypeHint | str, locals=None, globals=None) -> TypeHint:
+    pass
+
+
+@overload
+def resolve(
+    hint: TypeHint | str, *hints: TypeHint | str, locals=None, globals=None
+) -> Tuple[TypeHint, ...]:
+    pass
+
+
+def resolve(*hints, locals=None, globals=None, frame=None):
+    """
+    Parse a hint into a hint type
+    """
+
+    if locals is None or globals is None:
+        if frame is None:
+            frame = inspect.currentframe()
+            if frame.f_back:
+                frame = frame.f_back
+        try:
+            if locals is None:
+                locals = frame.f_locals.copy()
+            if globals is None:
+                globals = frame.f_globals.copy()
+        finally:
+            del frame
+
+    if len(hints) == 1:
+        if isinstance(hints[0], dict):
+            m = hints[0]
+            m_keys = tuple(m)
+            m_values = resolve((m[key] for key in m_keys), globals=globals, locals=locals)
+            if not isinstance(m_values, tuple):
+                m_values = (m_values,)
+            return {key: value for key, value in zip(m_keys, m_values)}
+        elif inspect.isgenerator(hints[0]):
+            return resolve(*tuple(hints[0]), globals=globals, locals=locals)
+
+    ann = {}
+    parsed_hint_refs = []
+    for hint in hints:
+        hint_ref_name = f"hint_{uuid.uuid4().hex}"
+        if isinstance(hint, str):
+            hint_forward = ForwardRef(hint)
+            ann[hint_ref_name] = hint_forward
+            parsed_hint_refs.append(hint_ref_name)
+        else:
+            locals[hint_ref_name] = hint
+            ann[hint_ref_name] = ForwardRef(hint_ref_name)
+            parsed_hint_refs.append(hint_ref_name)
+
+    o = _SimpleNamespace(__annotations__=ann)
+    if _GET_TYPEHINTS_ALLOWS_EXTRA:
+        m = get_type_hints(o, locals, globals, include_extras=True)
+    else:
+        m = get_type_hints(o, locals, globals)
+    parsed_hints = []
+    for ref in parsed_hint_refs:
+        parsed_hints.append(m[ref])
+    if len(hints) == 1:
+        return parsed_hints[0]
+    return tuple(parsed_hints)
+
+
+if HAS_GET_ANNOTATIONS:
+
+    def get_annotations(item, *, globals=None, locals=None, eval_str=False, frame=None):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = frame.f_locals.copy()
+                if globals is None:
+                    globals = frame.f_globals.copy()
+            finally:
+                del frame
+
+        if isinstance(item, str) or is_typing_definition(item):
+            item = resolve(item, globals=globals, locals=locals)
+        if isinstance(item, (type, AbstractCallable)) or inspect.ismodule(item):
+            return inspect.get_annotations(item, globals=globals, locals=locals, eval_str=eval_str)
+        raise TypeError(item)
+else:
+    _uniq = object()
+
+    def get_annotations(item, *, globals=None, locals=None, eval_str=False, frame=None):
+        if locals is None or globals is None:
+            if frame is None:
+                frame = inspect.currentframe()
+                if frame.f_back:
+                    frame = frame.f_back
+            try:
+                if locals is None:
+                    locals = frame.f_locals.copy()
+                if globals is None:
+                    globals = frame.f_globals.copy()
+            finally:
+                del frame
+
+        if isinstance(item, str) or is_typing_definition(item):
+            item = resolve(item, globals=globals, locals=locals)
+        if isinstance(item, (type, AbstractCallable)) or inspect.ismodule(item):
+            v = inspect.getattr_static(item, "__annotations__", _uniq)
+            if v is _uniq:
+                return {}
+            return v
+        raise TypeError(item)

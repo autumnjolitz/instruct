@@ -85,22 +85,20 @@ def make_setter(type_def, fast, derived, type_restriction, coerce_types=(), coer
             {%- if on_sets or on_sets_1 or on_sets_3 %}
             _old_value = self.{{field_name}}
             {%- endif %}
+            # set the internal variable via the __setter_template__
             {{setter_variable_template|format(key=field_name)|indent(12)}}
-            {%- if on_sets %}
-            {%- for on_func_name in on_sets %}
-            self.{{on_func_name}}(_old_value, val)
+            # run event listeners
+            {%- for listener in chain(on_sets, on_sets_0, on_sets_1, on_sets_3) %}
+                {%- if listener in on_sets_0 %}
+            self.{{listener}}()
+                {%- elif listener in on_sets_1 %}
+            self.{{listener}}(val)
+                {%- elif listener in on_sets %}
+            self.{{listener}}(_old_value, val)
+                {%- elif listener in on_sets_3 %}
+            self.{{listener}}("{{field_name}}", _old_value, val)
+                {%- endif %}
             {%- endfor %}
-            {%- endif %}
-            {%- if on_sets_1 %}
-            {%- for on_func_name in on_sets_1 %}
-            self.{{on_func_name}}(val)
-            {%- endfor %}
-            {%- endif %}
-            {%- if on_sets_3 %}
-            {%- for on_func_name in on_sets_3 %}
-            self.{{on_func_name}}("{{field_name}}", _old_value, val)
-            {%- endfor %}
-            {%- endif %}
 
     return _set_{{field_name}}
 {% endmacro %}

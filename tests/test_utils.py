@@ -2,7 +2,7 @@ from pickle import loads, dumps
 
 import pytest
 from instruct.types import FrozenMapping, FROZEN_MAPPING_SINGLETONS, flatten_fields
-from instruct.utils import flatten
+from instruct.utils import flatten, deduplicate
 
 
 def test_frozen_mapping():
@@ -118,4 +118,19 @@ def test_merge_skip_keys():
     assert skip_parts_of_ab is FrozenMapping({"a": {"b": None}, "c": {"d": None}})
     assert (skip_parts_of_ab | flatten_fields.collect(("a", "b", "c"))) is FrozenMapping(
         {"a": None, "b": None, "c": None}
+    )
+
+
+def test_deduplicate():
+    class F:
+        pass
+
+    f1 = F()
+    f2 = F()
+    assert tuple(deduplicate(("1", "1", f1, f2, (1, 2), (3, 4), (1, 2)))) == (
+        "1",
+        f1,
+        f2,
+        (1, 2),
+        (3, 4),
     )
