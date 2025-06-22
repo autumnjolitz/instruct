@@ -19,34 +19,71 @@ else:
     from weakref import WeakKeyDictionary
 
 
-def deduplicate(items):
-    if isinstance(items, AbstractIterable):
-        raise TypeError(f"Cannot iterate on items={items!r} ({type(items)!r})!")
+def deduplicate(items, *others):
+    if not isinstance(items, AbstractIterable):
+        raise TypeError(f"{items!r} is not iterable!")
+    if others:
+        for index, o in enumerate(others):
+            if not isinstance(o, AbstractIterable):
+                raise TypeError(f"{o!r} at {index} is not iterable!")
+        del index, o
+    iterables = (items, *others)
     by_hash = set()
     by_eq = []
     by_weakref = set()
-    for item in items:
-        try:
-            r = weakref.ref(item)
-        except TypeError:
-            pass
-        else:
-            if r in by_weakref:
+    hashable_types = ()
+    weakref_types = ()
+    eq_only_types = ()
+    for iterable in iterables:
+        for item in iterable:
+            if hashable_types and isinstance(item, hashable_types):
+                if item in by_hash:
+                    continue
+                yield item
+                by_hash.add(item)
                 continue
-            yield item
-            by_weakref.add(r)
-        try:
-            hash(item)
-        except TypeError:
+            if weakref_types and isinstance(item, weakref_types):
+                r = weakref.ref(item)
+                weakref_types = (*weakref_types, type(item))
+                if r in by_weakref:
+                    continue
+                yield item
+                by_weakref.add(r)
+                continue
+            if eq_only_types and isinstance(item, eq_only_types):
+                if item in by_eq:
+                    continue
+                by_eq.append(item)
+                yield item
+                continue
+
+            try:
+                r = weakref.ref(item)
+            except TypeError:
+                pass
+            else:
+                weakref_types = (*weakref_types, type(item))
+                if r in by_weakref:
+                    continue
+                yield item
+                by_weakref.add(r)
+                continue
+            try:
+                hash(item)
+            except TypeError:
+                pass
+            else:
+                hashable_types = (*hashable_types, type(item))
+                if item in by_hash:
+                    continue
+                yield item
+                by_hash.add(item)
+                continue
+            eq_only_types = (*eq_only_types, type(item))
             if item in by_eq:
                 continue
-            by_hash.append(item)
+            by_eq.append(item)
             yield item
-        else:
-            if item in by_hash:
-                continue
-            yield item
-            by_hash.add(item)
 
 
 def invert_mapping(mapping):
