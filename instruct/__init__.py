@@ -121,7 +121,7 @@ from .types import (
     Genericizable,
     flatten_fields,
 )
-from .utils import invert_mapping, mark, getmarks
+from .utils import invert_mapping, mark, getmarks, deduplicate
 
 
 __version__, __version_info__  # Silence unused import warning.
@@ -132,7 +132,7 @@ env.globals["tuple"] = tuple
 env.globals["repr"] = repr
 env.globals["frozenset"] = frozenset
 env.globals["chain"] = chain
-env.filters["deduplicate"] = lambda items: tuple(_dedupe(items))
+env.filters["deduplicate"] = lambda items: tuple(deduplicate(items))
 
 AFFIRMATIVE = frozenset(("1", "true", "yes", "y", "aye"))
 
@@ -2304,7 +2304,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             class_cell_fixups.append((key, new_property))
 
         # Support columns are left as-is for slots
-        support_columns = tuple(_dedupe(pending_support_columns))
+        support_columns = tuple(deduplicate(pending_support_columns))
 
         dataclass_attrs = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
         dataclass_attrs[class_name] = ImmutableValue[Optional[Type[BaseAtomic]]](None)
@@ -2377,7 +2377,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                     # print('ARJ', set_values_hint, flush=True)
                     set_values_hint = f"{set_values_hint.__name__}"
 
-            all_field_names = tuple(_dedupe(chain(combined_columns, properties)))
+            all_field_names = tuple(deduplicate(combined_columns, properties))
             if all_field_names:
                 keys_hint = _make_union(
                     Literal[*all_field_names],
