@@ -28,6 +28,17 @@ repos:
         args:
           - '--markdown-linebreak-ext=rst'
   -
+    repo: https://github.com/asottile/pyupgrade
+    rev: v3.20.0
+    hooks:
+      - id: pyupgrade
+        args: [ --py38-plus ]
+        exclude: |
+            (?x)^(
+                tests\/test_(.*)_([\d]+)\.py
+            )$
+
+  -
     repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.11.8
