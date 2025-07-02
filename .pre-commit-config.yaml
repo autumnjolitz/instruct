@@ -34,21 +34,21 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
-        args: [  --target-version, py37, --fix ]
+        args: [  --target-version, py38, --fix ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
             )$
       - id: ruff
         alias: ruff-check
-        args: [  --target-version, py37 ]
+        args: [  --target-version, py38 ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
             )$
       # Run the formatter.
       - id: ruff-format
-        args: [  --target-version, py37 ]
+        args: [  --target-version, py38 ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
@@ -67,7 +67,7 @@ repos:
             )$
       - id: ruff-format
         alias: ruff-format-check
-        args: [  --target-version, py37, --check ]
+        args: [  --target-version, py38, --check ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
