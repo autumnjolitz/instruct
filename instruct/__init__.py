@@ -1674,7 +1674,7 @@ class AtomicMeta(AbstractAtomic, type):
         However, there are cases where a subclass changes the response of certain functions
         and it is not desirable to return it for other code.
         """
-        return getattr(self, "_parent", self)
+        return self
 
     @classmethod
     def register_mixin(cls: type[AtomicMeta], name, klass):
@@ -1842,6 +1842,8 @@ class AtomicMeta(AbstractAtomic, type):
                         break
                 else:
                     attrs["__hash__"] = object.__hash__
+            # fix the public class ptr to the bases[0]
+            attrs["__public_class__"] = functools.partial(bases.__getitem__, 0)
             new_cls = super().__new__(klass, class_name, bases, attrs)  # type:ignore[misc]
             assert new_cls.__hash__ is not None, (
                 f"Unable to create {class_name!r} due to missing __hash__ ({parent_has_hash})"
@@ -2572,19 +2574,19 @@ class AtomicMeta(AbstractAtomic, type):
 
         support_cls_attrs["_is_data_class"] = ImmutableValue[bool](False)
         dc: ImmutableValue[type[Atomic]]
-        dc_parent: ImmutableValue[type[Atomic]]
+        # dc_parent: ImmutableValue[type[Atomic]]
 
         dc = ImmutableValue(None)
-        dc_parent = ImmutableValue(None)
+        # dc_parent = ImmutableValue(None)
         if init_subclass is not None:
             support_cls_attrs["__init_subclass__"] = classmethod(wrap_init_subclass(init_subclass))
 
         support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = cast(
             ImmutableValue[type[BaseAtomic]], dc
         )
-        support_cls_attrs["_parent"] = parent_cell = cast(
-            ImmutableValue[type[BaseAtomic]], dc_parent
-        )
+        # support_cls_attrs["_parent"] = parent_cell = cast(
+        #     ImmutableValue[type[BaseAtomic]], dc_parent
+        # )
         # assert '<' not in support_cls_attrs["__qualname__"], f'{support_cls_attrs}'
         support_cls = cast(
             type[Atomic],
@@ -2627,7 +2629,7 @@ class AtomicMeta(AbstractAtomic, type):
             if callable(value):
                 setattr(data_class, key, insert_class_closure(data_class, value))
         data_class.__qualname__ = f"{support_cls.__qualname__}.{data_class.__name__}"
-        parent_cell.value = support_cls
+        # parent_cell.value = support_cls
         reg = inspect.getattr_static(klass, "REGISTRY")
         reg.value.add(support_cls)
 
