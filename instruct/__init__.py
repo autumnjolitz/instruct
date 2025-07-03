@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import enum
 import functools
 import inspect
@@ -141,7 +142,7 @@ _GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hin
 _NATIVE_CLOSURE_SUPPORT = "closure" in inspect.signature(exec).parameters
 _SUPPORTED_CELLTYPE = hasattr(types, "CellType")
 
-ctx = ContextVar("in_define_data_class")
+ctx: ContextVar[bool] = ContextVar("in_define_data_class")
 
 
 @contextmanager
@@ -157,7 +158,7 @@ def in_data_class():
     return ctx.get(False)
 
 
-def is_atomic_type(cls: type) -> TypeGuard[type[Atomic]]:
+def is_atomic_type(cls: type | TypeHint) -> TypeGuard[type[Atomic]]:
     return ismetasubclass(cls, AtomicMeta)
 
 
@@ -312,8 +313,9 @@ def clear(instance: Atomic, fields: Iterable[str] | None = None) -> Atomic:
     if fields:
         unrecognized_keys = frozenset(fields) - frozenset(keys(instance))
         if unrecognized_keys:
-            if implements_init_errors(instance):
-                instance._handle_init_errors([], [], unrecognized_keys)
+            obj = instance
+            if implements_init_errors(obj):
+                obj._handle_init_errors([], [], unrecognized_keys)
             else:
                 raise ValueError("Unknown keys: {}".format(", ".join(unrecognized_keys)))
     instance._clear(fields=fields)
@@ -371,7 +373,7 @@ class MixinRepr:
         return f"{type(self).__name__}{items}"
 
 
-class InstanceKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, T]):
+class InstanceKeysView(MixinRepr, AbstractKeysView):
     __slots__ = ("type", "value")
 
     type: type[Atomic]
@@ -413,10 +415,8 @@ class InstanceKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, T]):
 U = TypeVar("U", bound=str)
 
 
-class ClassKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, U]):
+class ClassKeysView(MixinRepr, AbstractKeysView):
     __slots__ = ("type",)
-
-    type: type[Atomic]
 
     def __init__(self, cls: type[Atomic]):
         assert isinstance(cls, type) and isinstance(cls, AtomicMeta)
@@ -436,7 +436,7 @@ class ClassKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, U]):
         return iter(self.type._slots)
 
 
-class InstanceValuesView(MixinRepr, AbstractValuesView, Generic[Atomic, U]):
+class InstanceValuesView(MixinRepr, AbstractValuesView):
     __slots__ = (
         "type",
         "value",
@@ -455,7 +455,7 @@ class InstanceValuesView(MixinRepr, AbstractValuesView, Generic[Atomic, U]):
     def __len__(self):
         return len(self.type)
 
-    def __contains__(self, item: U | Any) -> bool:
+    def __contains__(self, item: Any) -> bool:
         return item in astuple(self.value)
 
     def __iter__(self):
@@ -469,7 +469,7 @@ class InstanceValuesView(MixinRepr, AbstractValuesView, Generic[Atomic, U]):
 V = TypeVar("V")
 
 
-class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
+class InstanceItemsView(MixinRepr, AbstractItemsView):
     __slots__ = (
         "type",
         "value",
@@ -488,7 +488,7 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
     def __len__(self):
         return len(self.type)
 
-    def __contains__(self, item: tuple[U, V] | Any) -> bool:
+    def __contains__(self, item: Any) -> bool:
         for candidate in self.value:
             if item == candidate:
                 return True
@@ -503,23 +503,23 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
 
 
 @overload
-def keys(instance_or_cls: type[Atomic]) -> ClassKeysView[Atomic, str]: ...
+def keys(instance_or_cls: type[Atomic]) -> ClassKeysView: ...
 
 
 @overload
-def keys(instance_or_cls: Atomic) -> InstanceKeysView[Atomic, str]: ...
+def keys(instance_or_cls: Atomic) -> InstanceKeysView: ...
 
 
 @overload
 def keys(
     instance_or_cls: Atomic, *property_path: str, all: bool = False
-) -> InstanceKeysView[Atomic, str] | ImmutableCollection[str]: ...
+) -> InstanceKeysView | ImmutableCollection[str]: ...
 
 
 @overload
 def keys(
     instance_or_cls: type[Atomic], *property_path: str, all: bool = False
-) -> ClassKeysView[Atomic, str]: ...
+) -> ClassKeysView: ...
 
 
 def keys(instance_or_cls, *property_path: str, all: bool = False):
@@ -557,7 +557,7 @@ def keys(instance_or_cls, *property_path: str, all: bool = False):
     return keys(cls._slots[key], *next_property_path)
 
 
-def values(instance: Atomic) -> InstanceValuesView[Atomic, Any]:
+def values(instance: Atomic) -> InstanceValuesView:
     """
     Analogous to dict.values(...)
     """
@@ -569,7 +569,7 @@ def values(instance: Atomic) -> InstanceValuesView[Atomic, Any]:
     raise TypeError(f"values of a {cls} object needs to be called on an instance of {cls}")
 
 
-def items(instance: Atomic) -> InstanceItemsView[Atomic, str, Any]:
+def items(instance: Atomic) -> InstanceItemsView:
     """
     Analogous to dict.items(...)
     """
@@ -682,11 +682,15 @@ def annotated_metadata(instance_or_cls: Atomic | type[Atomic]) -> Mapping[str, t
     return cls._annotated_metadata
 
 
+FieldMappingEntry = dict[str, Union[None, "FieldMappingEntry"]]
+FieldMapping = dict[str, FieldMappingEntry | None]
+
+
 def show_all_fields(
     instance_or_cls: Atomic | type[Atomic],
     *,
     deep_traverse_on: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> FieldMapping:
     """
     Create a tree of all the fields supported in the instruct class and any
     embedded instruct classes.
@@ -700,7 +704,7 @@ def show_all_fields(
         cls = instance_or_cls
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Must be an AtomicMeta-metaclassed type!")
-    all_fields = {}
+    all_fields: FieldMappingEntry = {}
     for key, value in cls._slots.items():
         all_fields[key] = {}
         if deep_traverse_on is None or key in deep_traverse_on:
@@ -709,9 +713,13 @@ def show_all_fields(
                 next_deep_level = deep_traverse_on[key]
             if key in cls._nested_atomic_collection_keys:
                 for item in cls._nested_atomic_collection_keys[key]:
-                    all_fields[key].update(show_all_fields(item, deep_traverse_on=next_deep_level))
-            elif ismetasubclass(value, AtomicMeta):
-                all_fields[key].update(show_all_fields(value, deep_traverse_on=next_deep_level))
+                    target = all_fields[key]
+                    assert target is not None
+                    target.update(show_all_fields(item, deep_traverse_on=next_deep_level))
+            elif is_atomic_type(value):
+                target = all_fields[key]
+                assert target is not None
+                target.update(show_all_fields(value, deep_traverse_on=next_deep_level))
         if not all_fields[key]:
             all_fields[key] = None
     return all_fields
@@ -787,6 +795,15 @@ def make_fast_getset_item(
         set_variable_template=set_variable_template,
         **kwargs,
     )
+    if is_debug_mode("codegen", class_name, ("__getitem__", "__setitem__")):
+        with tempfile.NamedTemporaryFile(
+            delete=False, mode="w", prefix=f"{class_name}", suffix=".py", encoding="utf8"
+        ) as fh:
+            fh.write(code_template)
+            fh.write("\n")
+            filename = fh.name
+            logger.debug(f"{class_name}.__getitem__/__setitem__ at {filename}")
+
     return code_template
 
 
@@ -1258,8 +1275,12 @@ def is_debug_mode(mode=None, class_name=None, field=None) -> bool:
         debug_class_name = mode_debug
         debug_field = "*"
     if class_name == debug_class_name:
-        if field == debug_field or debug_field == "*":
+        if debug_field == "*":
             return True
+        elif isinstance(field, tuple):
+            return debug_field in field
+        else:
+            return field == debug_field
     return False
 
 
@@ -1267,7 +1288,7 @@ def create_proxy_property(
     env: Environment,
     class_name: str,
     key: str,
-    value: type | tuple[type, ...] | dict[str, type],
+    value: type | tuple[type, ...] | dict[str, type] | TypeHint,
     isinstance_compatible_coerce_type: tuple[type, ...] | type | None,
     coerce_func: Callable | None,
     derived_type: type | None,
@@ -1277,7 +1298,7 @@ def create_proxy_property(
     local_setter_var_template: str,
     *,
     fast: bool,
-) -> tuple[property, type | tuple[type, ...]]:
+) -> tuple[property | ClassOrInstanceFuncsDataDescriptor, type | tuple[type, ...]]:
     ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
     setter_template = env.get_template("setter.jinja")
     getter_template = env.get_template("getter.jinja")
@@ -1337,6 +1358,7 @@ def create_proxy_property(
         isinstance_compatible_coerce_type,
         coerce_func,
     )
+    new_property: ClassOrInstanceFuncsDescriptor | property
     if derived_type is not None:
         new_property = ClassOrInstanceFuncsDataDescriptor(
             functools.partial(_derived_type_for, derived_type=derived_type),
@@ -1416,11 +1438,12 @@ def transform_typing_to_coerce(
 
 
 if TYPE_CHECKING:
+    SomeAtomic = TypeVar("SomeAtomic")
 
-    class ModifiedSkipTypes(NamedTuple, Generic[Atomic]):
+    class ModifiedSkipTypes(NamedTuple, Generic[SomeAtomic]):
         replacement_type_definition: TypeHint
         replacement_coerce_definition: tuple[Any, Callable] | None
-        mutant_classes: frozenset[tuple[type[Atomic], type[Atomic]]]
+        mutant_classes: frozenset[tuple[type[SomeAtomic], type[SomeAtomic]]]
 
 else:
 
@@ -1631,12 +1654,12 @@ def is_data_class(instance):
     return type(instance) in _data_classes
 
 
-_data_classes = weakref.WeakSet()
+_data_classes: weakref.WeakSet[type[Atomic]] = weakref.WeakSet()
 
 DERIVED_BAD_CHARS = re.compile(r"[^\w\d]+")
 
 
-class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
+class AtomicMeta(AbstractAtomic, type):
     __slots__ = ()
     REGISTRY = ImmutableCollection[Set[type[BaseAtomic]]](set())
     MIXINS = ImmutableMapping[str, BaseAtomic]({})
@@ -1821,27 +1844,30 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                         break
                 else:
                     attrs["__hash__"] = object.__hash__
-            concrete = super().__new__(klass, class_name, bases, attrs)  # type:ignore[misc]
-            assert concrete.__hash__ is not None, (
+            new_cls = super().__new__(klass, class_name, bases, attrs)  # type:ignore[misc]
+            assert new_cls.__hash__ is not None, (
                 f"Unable to create {class_name!r} due to missing __hash__ ({parent_has_hash})"
             )
+            concrete = cast(type[Atomic], new_cls)
             _data_classes.add(concrete)
-            return cast(type[Atomic], concrete)
+            return concrete
         assert not in_data_class(), f"wtf - {class_name}"
         maybe_calling_frame = None
         calling_frame = None
-        calling_locals = {}
-        calling_globals = {}
+        calling_locals: dict[str, Any] = {}
+        calling_globals: dict[str, Any] = {}
         try:
             calling_frame = inspect.currentframe()
-            maybe_calling_frame = calling_frame.f_back
-            if maybe_calling_frame:
+            if calling_frame is not None:
+                maybe_calling_frame = calling_frame.f_back
+            if maybe_calling_frame is not None:
                 calling_frame = maybe_calling_frame
         except Exception:
             raise
         else:
-            calling_locals = calling_frame.f_locals
-            calling_globals = calling_frame.f_globals
+            if calling_frame is not None:
+                calling_locals = calling_frame.f_locals
+                calling_globals = calling_frame.f_globals
         finally:
             # ARJ: avoid leaking frames
             del calling_frame, maybe_calling_frame
@@ -2105,17 +2131,18 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
 
         # Okay, now parse the current class types and then merge with
         # the overall combined blob!
-        derived_classes = {}
+        derived_classes: dict[str, type[Atomic]] = {}
         current_class_columns = {}
         current_class_slots = {}
         avail_generics: tuple[TypeVar, ...] = ()
         generics_by_field = {}
+        typehint: TypeHint
 
         for key, typehint_or_anonymous_struct_decl in support_cls_attrs["__slots__"].items():
             if isinstance(typehint_or_anonymous_struct_decl, dict):
                 anonymous_struct_decl = typehint_or_anonymous_struct_decl
                 derived_name = inflection.camelize(DERIVED_BAD_CHARS.sub("_", key))
-                derived_cls = type(
+                derived_cls: type[Atomic] = type(
                     derived_name,
                     bases,
                     {
@@ -2127,12 +2154,12 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                     },
                 )
                 derived_classes[key] = derived_cls
-                typehint = derived_cls
+                maybe_typehint = derived_cls
             else:
-                typehint = typehint_or_anonymous_struct_decl
+                maybe_typehint = typehint_or_anonymous_struct_decl
 
             typehint = _resolve_hint(
-                typehint,
+                maybe_typehint,
                 globals=dict(calling_globals),
                 locals=dict(calling_locals),
             )
@@ -2239,12 +2266,15 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         all_coercions = {}
         # the `__class__` field of the generated functions will be incomplete,
         # so track them so we can replace them with a derived type made ``__class__``
-        class_cell_fixups: list[tuple[str, Callable[..., Any]] | tuple[str, property]] = []
+        class_cell_fixups: list[
+            tuple[str, Callable[..., Any]]
+            | tuple[str, property | ClassOrInstanceFuncsDataDescriptor]
+        ] = []
         for key, raw_typedef in tuple(current_class_slots.items()):
             disabled_derived = None
             if raw_typedef in klass.REGISTRY:
                 disabled_derived = False
-                derived_classes[key] = raw_typedef
+                derived_classes[key] = cast(type[Atomic], raw_typedef)
             current_class_fields.append(key)
             coerce_types, coerce_func = None, None
             if coerce_mappings and key in coerce_mappings:
@@ -2297,7 +2327,14 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         # Support columns are left as-is for slots
         support_columns = tuple(deduplicate(pending_support_columns))
 
-        dataclass_attrs = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
+        dataclass_attrs = {
+            "NoneType": NoneType,
+            "Flags": Flags,
+            "typing": typing,
+            "abc": abc,
+            "exceptions": exceptions,
+            "builtins": builtins,
+        }
         dataclass_attrs[class_name] = ImmutableValue[Optional[type[BaseAtomic]]](None)
 
         init_subclass = None
@@ -2435,8 +2472,8 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 dataclass_attrs,
                 dataclass_attrs,
             )
-            dataclass_attrs["__getstate__"].__annotations__["return"] = dict[str, maybe_values_hint]
-            dataclass_attrs["__setstate__"].__annotations__["state"] = dict[str, maybe_values_hint]
+            dataclass_attrs["__getstate__"].__annotations__["return"] = dict[str, maybe_values_hint]  # type:ignore
+            dataclass_attrs["__setstate__"].__annotations__["state"] = dict[str, maybe_values_hint]  # type:ignore
             exec(
                 compile(
                     make_defaults(tuple(combined_columns), defaults_var_template),
@@ -2792,7 +2829,7 @@ class History(metaclass=AtomicMeta):
 AtomicMeta.register_mixin("history", History)
 
 
-class AutoRepr(Generic[Atomic], metaclass=AtomicMeta):
+class AutoRepr(metaclass=AtomicMeta):
     __slots__ = ()
 
     def __repr__(self) -> str:
@@ -2819,16 +2856,16 @@ AtomicMeta.register_mixin("autorepr", AutoRepr)
 
 def _cls_keys(
     cls: type[Atomic], instance: Atomic | None = None, *, all: bool = False
-) -> InstanceKeysView[Atomic, str] | ClassKeysView[Atomic, str] | ImmutableCollection[str]:
+) -> InstanceKeysView | ClassKeysView | ImmutableCollection[str]:
     if instance is not None:
         return keys(instance, all=all)
-    class_keys: ClassKeysView[Atomic, str] = keys(cls, all=all)
+    class_keys: ClassKeysView = keys(cls, all=all)
     return class_keys
 
 
 def _instance_keys(
     self: Atomic, *, all: bool = False
-) -> InstanceKeysView[Atomic, str] | ImmutableCollection[str]:
+) -> InstanceKeysView | ImmutableCollection[str]:
     return keys(self, all=all)
 
 
@@ -2856,7 +2893,7 @@ def _instance_get(self: Atomic, key: str, default=None):
     return get(self, key, default)
 
 
-class IMapping(Generic[Atomic], metaclass=AtomicMeta):
+class IMapping(metaclass=AtomicMeta):
     """
     Allow an instruct class instance to have the `keys()` function which is
     mandatory to support **item unpacking.
@@ -2866,16 +2903,16 @@ class IMapping(Generic[Atomic], metaclass=AtomicMeta):
 
     __slots__ = ()
 
-    keys: ClassOrInstanceFuncsDescriptor[Atomic] = BoundClassOrInstanceAttribute(
+    keys: BoundClassOrInstanceAttribute[Atomic] = BoundClassOrInstanceAttribute(
         _cls_keys, cast(InstanceCallable[Atomic], _instance_keys)
     )
-    values: ClassOrInstanceFuncsDescriptor[Atomic] = BoundClassOrInstanceAttribute(
+    values: BoundClassOrInstanceAttribute[Atomic] = BoundClassOrInstanceAttribute(
         _cls_values, cast(InstanceCallable[Atomic], _instance_values)
     )
-    items: ClassOrInstanceFuncsDescriptor[Atomic] = BoundClassOrInstanceAttribute(
+    items: BoundClassOrInstanceAttribute[Atomic] = BoundClassOrInstanceAttribute(
         _cls_items, cast(InstanceCallable[Atomic], _instance_items)
     )
-    get: ClassOrInstanceFuncsDescriptor[Atomic] = BoundClassOrInstanceAttribute(
+    get: BoundClassOrInstanceAttribute[Atomic] = BoundClassOrInstanceAttribute(
         _cls_get, cast(InstanceCallable[Atomic], _instance_get)
     )
 
@@ -2885,7 +2922,7 @@ del _instance_get
 AtomicMeta.register_mixin("mapping", IMapping)
 
 
-class WeaklyHeld(Generic[Atomic], metaclass=AtomicMeta):
+class WeaklyHeld(metaclass=AtomicMeta):
     """
     Allows instances to be weakly referenced.
     """

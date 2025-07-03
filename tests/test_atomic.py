@@ -33,6 +33,7 @@ from instruct import (
     NoJSON,
     NoIterable,
     NoPickle,
+    Undefined,
     Range,
     RangeError,
     AtomicMeta,
@@ -1713,3 +1714,50 @@ def test_autorepr():
         name: str
 
     assert repr(Test("itm")).startswith("Test(name=")
+
+
+def test_getitem_int_slice():
+    class TestGetItem(SimpleBase):
+        record_id: int | Literal[Undefined]
+        name: str
+        age: int
+        talents: dict[str, str]
+
+        def _set_defaults(self):
+            super()._set_defaults()
+            self.record_id = Undefined
+            self.name = ""
+            self.age = -1
+            self.talents = {}
+            return self
+
+    a = TestGetItem(112, "foobar", 41, {"sitting": "badly"})
+    assert a[-1] == {"sitting": "badly"}
+    assert a[1::-1] == ("foobar", 112)
+    assert a[-3::2] == ("foobar", {"sitting": "badly"})
+    assert a[-4] == 112
+
+
+def test_setitem_int_slice():
+    class TestSetItem(SimpleBase):
+        record_id: int | Literal[Undefined]
+        name: str
+        age: int
+        talents: dict[str, str]
+
+        def _set_defaults(self):
+            super()._set_defaults()
+            self.record_id = Undefined
+            self.name = ""
+            self.age = -1
+            self.talents = {}
+            return self
+
+    a = TestSetItem(112, "foobar", 41, {"sitting": "badly"})
+    a[-1] = {"sitting": "...."}
+    assert a[-1] == {"sitting": "...."}
+    a[1::-1] = ("new name!", 1)
+    assert a[1::-1] == ("new name!", 1) == (a.name, a.record_id)
+    a[-3::1] = ["foobar", 22, {}]
+    assert a[-3::1] == ("foobar", 22, {}) == (a.name, a.age, a.talents)
+    assert a[-4] == 1

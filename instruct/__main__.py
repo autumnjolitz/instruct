@@ -56,7 +56,7 @@ class ComplexTest(SimpleBase):
     name: str
     type: int
     value: float
-    D: {"i": int, "x": {"y": int}}
+    D: {"i": int, "x": {"y": int}}  # type:ignore
     t: V | int
 
     def _set_defaults(self):
