@@ -36,6 +36,7 @@ repos:
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
+                |instruct\/__main__\.py
             )$
 
   -
