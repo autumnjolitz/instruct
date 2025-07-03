@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import sys
 import timeit
-from typing import Union
 
 from instruct import SimpleBase, clear
 
@@ -56,7 +55,7 @@ class ComplexTest(SimpleBase):
     name: str
     type: int
     value: float
-    D: {"i": int, "x": {"y": int}}  # type:ignore
+    D: {"i": int, "x": {"y": int}}  # type:ignore # noqa:F821
     t: V | int
 
     def _set_defaults(self):
