@@ -94,7 +94,7 @@ class AbstractAtomic:
         _all_accessible_fields: ImmutableCollection[KeysView[str]]
         _listener_funcs: ImmutableMapping[str, Iterable[Callable]]
         _data_class: ImmutableValue[type[BaseAtomic]]
-        _parent: ImmutableValue[type[BaseAtomic]]
+        # _parent: ImmutableValue[type[BaseAtomic]]
 
         def __iter__(self) -> Iterator[tuple[str, Any]]: ...
 
