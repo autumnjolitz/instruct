@@ -1827,14 +1827,12 @@ class AtomicMeta(AbstractAtomic, type):
         attrs: dict[str, Any],
         *,
         fast: bool | None = None,
-        concrete_class: bool = False,
         # metadata:
         skip_fields: FrozenMapping = FrozenMapping(),
         include_fields: FrozenMapping = FrozenMapping(),
         **mixins: bool,
     ) -> type[Atomic]:
-        if concrete_class:
-            assert in_data_class()
+        if in_data_class():
             parent_has_hash = None
             if "__hash__" not in attrs:
                 for parent in bases:
@@ -1851,7 +1849,6 @@ class AtomicMeta(AbstractAtomic, type):
             concrete = cast(type[Atomic], new_cls)
             _data_classes.add(concrete)
             return concrete
-        assert not in_data_class(), f"wtf - {class_name}"
         maybe_calling_frame = None
         calling_frame = None
         calling_locals: dict[str, Any] = {}
