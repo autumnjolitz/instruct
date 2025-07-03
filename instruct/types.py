@@ -29,6 +29,7 @@ from typing import (
     Collection,
     cast as cast_type,
     TYPE_CHECKING,
+    overload,
 )
 
 from .utils import mark, as_collectable
@@ -96,6 +97,28 @@ class AbstractAtomic:
         _parent: ImmutableValue[type[BaseAtomic]]
 
         def __iter__(self) -> Iterator[tuple[str, Any]]: ...
+
+        @overload
+        def __getitem__(self: Self, key: str) -> Any: ...
+
+        @overload
+        def __getitem__(self: Self, key: int) -> Any: ...
+
+        @overload
+        def __getitem__(self: Self, key: slice) -> tuple[Any, ...]: ...
+
+        def __getitem__(self, key): ...
+
+        @overload
+        def __setitem__(self: Self, key: str, val: Any) -> None: ...
+
+        @overload
+        def __setitem__(self: Self, key: int, val: Any) -> None: ...
+
+        @overload
+        def __setitem__(self: Self, key: slice, val: Iterable[Any]) -> None: ...
+
+        def __setitem__(self, key, val): ...
 
 
 Ts = TypeVarTuple("Ts")
@@ -199,12 +222,33 @@ class BaseAtomic(AbstractAtomic):
     if TYPE_CHECKING:
         __public_class__: Callable[[], type[Atomic]]
 
+        def _asdict(self: Self) -> dict[str, Any]: ...
+
+        def _astuple(self: Self) -> tuple[Any, ...]: ...
+
+        def _aslist(self: Self) -> list[Any]: ...
+
     @mark(base_cls=True)
     def _set_defaults(self: Self) -> Self:
         # ARJ: Override to set defaults instead of inside the `__init__` function
         # Note: Always call ``super()._set_defaults()`` FIRST as if you
         # call it afterwards, the inheritance tree will zero initialize it first
         return self
+
+
+@overload
+def is_atomic_instance(item: type) -> TypeGuard[type[Atomic]]: ...
+
+
+@overload
+def is_atomic_instance(item: object) -> TypeGuard[Atomic]: ...
+
+
+def is_atomic_instance(item):
+    if isinstance(item, type):
+        return BaseAtomic in item.mro()
+    cls = type(item)
+    return BaseAtomic in cls.mro()
 
 
 class AttrsDict(UserDict, Generic[T]):
@@ -503,11 +547,11 @@ class BoundClassOrInstanceAttribute(Generic[T]):
     __slots__ = "_class_attribute", "_instance_attribute", "_classes", "_attr_names"
     _class_attribute: ClassCallable[T] | None | Any
     _instance_attribute: InstanceCallable[T] | Any | None
-    _classes: WeakKeyDictionary[type[Self], MethodType]
-    _attr_names: WeakKeyDictionary[type[Self], str]
+    _classes: WeakKeyDictionary[type[T], MethodType]
+    _attr_names: WeakKeyDictionary[type[T], str]
     _call_immediately: bool
 
-    def __set_name__(self: Self, owner: type[Self], name: str):
+    def __set_name__(self: Self, owner: type[T], name: str):
         self._attr_names[owner] = name
 
     def __init__(
@@ -548,9 +592,10 @@ class BoundClassOrInstanceAttribute(Generic[T]):
         self._class_attribute = class_attr
         return self
 
-    def __get__(self, instance: T | None, owner: type[T] | None = None) -> MethodType:
-        if isinstance(instance, BaseAtomic):
-            owner = owner.__public_class__()
+    def __get__(self, instance: T | None, owner: type[T]) -> MethodType:
+        if is_atomic_instance(instance):
+            assert is_atomic_instance(owner)
+            owner = cast_type(type[T], owner.__public_class__())
         try:
             attr_name = self._attr_names[owner]
         except KeyError:
@@ -592,8 +637,9 @@ class ClassOrInstanceFuncsDescriptor(BoundClassOrInstanceAttribute[T]):
         self._class_attribute = class_attr
         return self
 
-    def __get__(self, instance: T | None, owner: type[T] | None = None) -> MethodType:
+    def __get__(self, instance: T | None, owner: type[T]) -> MethodType:
         thunk = super().__get__(instance, owner)
+        assert thunk is not None
         return thunk()
 
 
@@ -682,10 +728,12 @@ class ClassOrInstanceFuncsDataDescriptor(ClassOrInstanceFuncsDescriptor):
         bound_thunk = MethodType(self._instance_setter_function, instance)
         return bound_thunk(value)
 
-    def __delete__(self, instance) -> MethodType:
-        cls = type(instance)
+    def __delete__(self, instance: T | Atomic) -> MethodType:
+        cls: type[Atomic] | type[T]
         if isinstance(instance, BaseAtomic):
-            cls = cls.__public_class__()
+            cls = type(instance).__public_class__()
+        else:
+            cls = type(instance)
         try:
             attr_name = self._attr_names[cls]
         except KeyError:
@@ -696,6 +744,7 @@ class ClassOrInstanceFuncsDataDescriptor(ClassOrInstanceFuncsDescriptor):
                 f"property '{attr_name}' of '{cls.__name__}' "
                 "object has no instance_setter_function set!"
             )
+        assert self._instance_deleter_function is not None
         return MethodType(self._instance_deleter_function, instance)
 
 
