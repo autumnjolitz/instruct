@@ -24,7 +24,7 @@ t.name_or_id += 1
 
 
 class TestH(SimpleBase, history=True):
-    name_or_id: Union[int, str]
+    name_or_id: int | str
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -32,7 +32,7 @@ class TestH(SimpleBase, history=True):
 
 
 class Test(SimpleBase):
-    name_or_id: Union[int, str]
+    name_or_id: int | str
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -40,7 +40,7 @@ class Test(SimpleBase):
 
 
 class TestOptimized(SimpleBase, fast=True):
-    name_or_id: Union[int, str]
+    name_or_id: int | str
 
     def __init__(self, **kwargs):
         self.name_or_id = 1
@@ -87,7 +87,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
     ttl = timeit.timeit('t = Test(name_or_id="name")', number=limit, globals={"Test": Test})
     print("Overhead of allocation")
     per_round_us = (ttl * US_IN_S) / limit
-    print("one field, safeties on: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"one field, safeties on: {fmt.format(per_round_us * multiplier)} {unit}")
 
     ttl = timeit.timeit(
         't = TestOptimized(name_or_id="name")',
@@ -95,7 +95,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
         globals={"TestOptimized": TestOptimized},
     )
     per_round_us = (ttl * US_IN_S) / limit
-    print("one field, safeties off: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"one field, safeties off: {fmt.format(per_round_us * multiplier)} {unit}")
 
     unit = "ns"
     multiplier = 1_000
@@ -104,7 +104,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
     print("Overhead of setting a field")
     ttl = timeit.timeit(test_statement, number=limit, globals={"t": Test()})
     per_round_us = (ttl * US_IN_S) / limit
-    print("Test with safeties: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"Test with safeties: {fmt.format(per_round_us * multiplier)} {unit}")
 
     ttl = timeit.timeit(
         test_statement,
@@ -114,7 +114,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
         },
     )
     per_round_us = (ttl * US_IN_S) / limit
-    print("Test without safeties: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"Test without safeties: {fmt.format(per_round_us * multiplier)} {unit}")
 
     print("Overhead of clearing/setting")
     ttl = timeit.timeit(
@@ -126,7 +126,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
         },
     )
     per_round_us = (ttl * US_IN_S) / limit
-    print("Test with safeties: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"Test with safeties: {fmt.format(per_round_us * multiplier)} {unit}")
 
     ttl = timeit.timeit(
         "clear(t);t.name_or_id = 1",
@@ -137,7 +137,7 @@ def main(unit: Literal["ns", "us"] = "us", limit: int = 10_000):
         },
     )
     per_round_us = (ttl * US_IN_S) / limit
-    print("Test without safeties: {} {}".format(fmt.format(per_round_us * multiplier), unit))
+    print(f"Test without safeties: {fmt.format(per_round_us * multiplier)} {unit}")
 
 
 if __name__ == "__main__":

@@ -425,7 +425,7 @@ def setup_metadata(
                     break
 
                 else:
-                    key, value = [x.strip() for x in line.split(sep, 1)]
+                    key, value = (x.strip() for x in line.split(sep, 1))
                     key = key.lower()
                     if not value:
                         in_multiline = True
@@ -631,7 +631,11 @@ def python_path(
     return python
 
 
-@task
+@task(
+    optional={
+        "all",
+    }
+)
 def setup(
     context: Context,
     python_bin: Union[str, None] = None,
@@ -639,6 +643,7 @@ def setup(
     devel: bool = False,
     project: bool = True,
     swap_venv_stage: Optional[str] = None,
+    all: bool = None,
 ) -> Path:
     """
     Create the venv for this project.
@@ -652,6 +657,9 @@ def setup(
     venv = root / "python"
     if python_bin is None:
         python_bin = _.python_path(str)
+    if all:
+        tests = devel = True
+    all = builtins.all
 
     requirements = ""
     if project:

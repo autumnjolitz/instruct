@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import IntEnum
 
 
-class _NoPickle(object):
+class _NoPickle:
     """
     Used to signal via an ``Annotated[type_cls, NoPickle]`` on an
     instruct class to tell it to skip pickling this field
@@ -34,7 +34,7 @@ class _NoPickle(object):
         return str(self.__class__.__name__[1:])
 
 
-class _NoJSON(object):
+class _NoJSON:
     def __new__(cls):
         return NoPickle
 
@@ -57,7 +57,7 @@ class _NoJSON(object):
         return str(self.__class__.__name__[1:])
 
 
-class _NoIterable(object):
+class _NoIterable:
     def __new__(cls):
         return NoIterable
 
@@ -80,7 +80,7 @@ class _NoIterable(object):
         return str(self.__class__.__name__[1:])
 
 
-class _NoHistory(object):
+class _NoHistory:
     def __new__(cls):
         return NoHistory
 
@@ -103,7 +103,7 @@ class _NoHistory(object):
         return str(self.__class__.__name__[1:])
 
 
-class _Undefined(object):
+class _Undefined:
     def __new__(cls):
         return Undefined
 

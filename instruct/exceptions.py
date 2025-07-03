@@ -8,7 +8,7 @@ from .lang import titleize, humanize
 from .typing import JSON
 
 if typing.TYPE_CHECKING:
-    from typing import Dict, Any, Tuple, Union, Optional, Type, TypeVar, Generic, Callable
+    from typing import Any, TypeVar, Generic, Callable
     from .compat import Self, TypeGuard
     from .typing import ExceptionHasDebuggingInfo, ExceptionHasMetadata
 
@@ -84,14 +84,14 @@ class JSONSerializable(metaclass=JSONSerializableMeta):
 
     if typing.TYPE_CHECKING:
 
-        def __json__(self) -> Dict[str, JSON]: ...
+        def __json__(self) -> dict[str, JSON]: ...
 
     def __init_subclass__(cls, abstract=False, **kwargs):
         if abstract:
             return super().__init_subclass__(**kwargs)
         if not hasattr(cls, "__json__"):
 
-            def __json__(self) -> Dict[str, JSON]:
+            def __json__(self) -> dict[str, JSON]:
                 return _default_exc_json(self, message=str(self))
 
             cls.__json__ = __json__
@@ -106,24 +106,24 @@ class ExceptionJSONSerializable(JSONSerializable, abstract=True):
 
 class InstructError(Exception, ExceptionJSONSerializable):
     message: str
-    metadata: Dict[str, JSON]
-    debugging_info: Dict[str, JSON]
+    metadata: dict[str, JSON]
+    debugging_info: dict[str, JSON]
 
     def __str__(self) -> str:
         return self.message
 
-    def __new__(cls: Type[Self], *args, **kwargs) -> Self:
+    def __new__(cls: type[Self], *args, **kwargs) -> Self:
         self = super().__new__(cls, *args, **kwargs)
         self.debugging_info = {}
         self.metadata = {}
         self.message = ""
         return self
 
-    def set_debugging_info(self: Self, val: Dict[str, JSON]) -> Self:
+    def set_debugging_info(self: Self, val: dict[str, JSON]) -> Self:
         self.debugging_info = val
         return self
 
-    def set_metadata(self: Self, val: Dict[str, JSON]) -> Self:
+    def set_metadata(self: Self, val: dict[str, JSON]) -> Self:
         self.metadata = val
         return self
 
@@ -155,7 +155,7 @@ def _exception_has_metadata(e: Exception) -> TypeGuard[ExceptionHasMetadata]:
     return hasattr(e, "metadata") and isinstance(e.metadata, dict)
 
 
-def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, JSON]:
+def _default_exc_json(e: Exception, message: str | None = None) -> dict[str, JSON]:
     if message is None:
         message = str(e)
     extra_debugging_info = {}
@@ -173,10 +173,10 @@ def _default_exc_json(e: Exception, message: Optional[str] = None) -> Dict[str, 
     return value
 
 
-default_exc_json_handler: Optional[Callable[[Exception], Dict[str, JSON]]] = None
+default_exc_json_handler: Callable[[Exception], dict[str, JSON]] | None = None
 
 
-def asjson(item: Exception) -> Dict[str, JSON]:
+def asjson(item: Exception) -> dict[str, JSON]:
     if not isinstance(item, Exception):
         raise builtins.TypeError(f"{item!r} ({type(item).__name__}) is not an Exception!")
     if isinstance(item, JSONSerializable):
@@ -187,9 +187,9 @@ def asjson(item: Exception) -> Dict[str, JSON]:
 
 
 class TypeError(InstructError, builtins.TypeError, ExceptionJSONSerializable):
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
-    def __init__(self, message: str, name: Union[str, int], val: Any, **kwargs):
+    def __init__(self, message: str, name: str | int, val: Any, **kwargs):
         self.message = message
         self.name = name
         self.value = val
@@ -202,7 +202,7 @@ class TypeError(InstructError, builtins.TypeError, ExceptionJSONSerializable):
 
 
 class ValueError(InstructError, builtins.ValueError, ExceptionJSONSerializable):
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     def __init__(self, message: str, *args, **kwargs):
         self.message = message
@@ -213,9 +213,9 @@ class ValueError(InstructError, builtins.ValueError, ExceptionJSONSerializable):
 class ValidationError(
     InstructError, builtins.ValueError, builtins.TypeError, ExceptionJSONSerializable
 ):
-    errors: Tuple[Exception, ...]
+    errors: tuple[Exception, ...]
     message: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     def __init__(self, message: str, *errors: Exception, **kwargs):
         assert len(errors) > 0, "Must have varargs of errors!"

@@ -35,7 +35,6 @@ from typing import (
     Any,
     Callable,
     cast,
-    Dict,
     FrozenSet,
     get_type_hints,
     Iterable,
@@ -158,7 +157,7 @@ def in_data_class():
     return ctx.get(False)
 
 
-def is_atomic_type(cls: type) -> TypeGuard[Type[Atomic]]:
+def is_atomic_type(cls: type) -> TypeGuard[type[Atomic]]:
     return ismetasubclass(cls, AtomicMeta)
 
 
@@ -171,7 +170,7 @@ def get_annotations(instance_or_type, *, locals=None, globals=None, frame=None):
         maybe_cls = _resolve_hint(instance_or_type, locals=locals, globals=globals, frame=frame)
     if not isinstance(maybe_cls, AtomicMeta):
         return _get_annotations(maybe_cls)
-    cls: Type[Atomic] = maybe_cls
+    cls: type[Atomic] = maybe_cls
     return _get_annotations(cls)
 
 
@@ -220,23 +219,23 @@ def schema_for(possible_cls):
 
 @overload
 def public_class(
-    instance_or_type: Union[Type[Atomic], Atomic, AtomicMeta], *, preserve_subtraction: bool = False
-) -> Union[Type[Atomic]]: ...
+    instance_or_type: type[Atomic] | Atomic | AtomicMeta, *, preserve_subtraction: bool = False
+) -> type[Atomic]: ...
 
 
 @overload
 def public_class(
-    instance_or_type: Union[Type[Atomic], Atomic, AtomicMeta],
+    instance_or_type: type[Atomic] | Atomic | AtomicMeta,
     *property_path: str,
     preserve_subtraction: bool = False,
-) -> Union[Type[Atomic], Tuple[Type[Atomic], ...]]: ...
+) -> type[Atomic] | tuple[type[Atomic], ...]: ...
 
 
 def public_class(
-    instance_or_type: Union[Type[Atomic], Atomic, AtomicMeta],
+    instance_or_type: type[Atomic] | Atomic | AtomicMeta,
     *property_path: str,
     preserve_subtraction: bool = False,
-) -> Union[Type[Atomic], Tuple[Type[Atomic], ...]]:
+) -> type[Atomic] | tuple[type[Atomic], ...]:
     """
     Given a data class or instance of, give us the public facing
     class.
@@ -244,24 +243,24 @@ def public_class(
     preserve_subtraction indicates that we want the public facing subtracted class as opposed
     to its root parent.
     """
-    possible_cls: Type
+    possible_cls: type
     if not isinstance(instance_or_type, type):
         possible_cls = type(instance_or_type)
     else:
         possible_cls = instance_or_type
     if not isinstance(possible_cls, AtomicMeta):
         raise TypeError(f"Can only call on AtomicMeta-metaclassed types!, {possible_cls}")
-    cls: Type[Atomic] = cast(Type[Atomic], possible_cls)
+    cls: type[Atomic] = cast(type[Atomic], possible_cls)
     if property_path:
         key, *rest = property_path
         if key not in cls._slots:
             raise ValueError(f"{key!r} is not a field on {cls.__name__}!")
         next_type_hint: TypeHint = cls._slots[key]
-        next_cls: Type[Atomic]
+        next_cls: type[Atomic]
         if get_origin(next_type_hint) is Annotated:
             next_type_hint, *_ = get_args(next_type_hint)
         if key in cls._nested_atomic_collection_keys:
-            atomic_classes: Tuple[Type[Atomic], ...] = cls._nested_atomic_collection_keys[key]
+            atomic_classes: tuple[type[Atomic], ...] = cls._nested_atomic_collection_keys[key]
             if len(atomic_classes) > 1:
                 if rest:
                     if isinstance(rest[0], int):
@@ -272,7 +271,7 @@ def public_class(
                             f"Unknown property {rest[0]} on class collection tuple for {key}"
                         )
                 else:
-                    public_atomic_classes: Tuple[Type[Atomic], ...] = tuple(
+                    public_atomic_classes: tuple[type[Atomic], ...] = tuple(
                         public_class(typecls, preserve_subtraction=preserve_subtraction)
                         for typecls in atomic_classes
                     )
@@ -292,15 +291,15 @@ def public_class(
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
         return cls
     if any((cls._skipped_fields, cls._modified_fields)):
-        bases: Tuple[Type[Atomic], ...] = tuple(x for x in cls.__bases__ if is_atomic_type(x))
+        bases: tuple[type[Atomic], ...] = tuple(x for x in cls.__bases__ if is_atomic_type(x))
         while len(bases) == 1 and any((bases[0]._skipped_fields, bases[0]._modified_fields)):
             bases = tuple(x for x in cls.__bases__ if is_atomic_type(x))
         if len(bases) == 1:
-            return cast(Type[Atomic], bases[0])
+            return cast(type[Atomic], bases[0])
     return cls
 
 
-def clear(instance: Atomic, fields: Optional[Iterable[str]] = None) -> Atomic:
+def clear(instance: Atomic, fields: Iterable[str] | None = None) -> Atomic:
     """
     Clear all fields on an instruct class instance.
     """
@@ -339,7 +338,7 @@ class SupportsPostInit(Protocol):
     def __post_init__(self) -> None: ...
 
 
-def supports_post_init_protocol(item: Union[Type[Atomic], Atomic]) -> TypeGuard[SupportsPostInit]:
+def supports_post_init_protocol(item: type[Atomic] | Atomic) -> TypeGuard[SupportsPostInit]:
     if isinstance(item, BaseAtomic):
         return hasattr(item, "__post_init__")
     if isinstance(item, type) and issubclass(item, BaseAtomic):
@@ -375,7 +374,7 @@ class MixinRepr:
 class InstanceKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, T]):
     __slots__ = ("type", "value")
 
-    type: Type[Atomic]
+    type: type[Atomic]
     value: Atomic
 
     def __init__(self, value: Atomic):
@@ -417,13 +416,13 @@ U = TypeVar("U", bound=str)
 class ClassKeysView(MixinRepr, AbstractKeysView, Generic[Atomic, U]):
     __slots__ = ("type",)
 
-    type: Type[Atomic]
+    type: type[Atomic]
 
-    def __init__(self, cls: Type[Atomic]):
+    def __init__(self, cls: type[Atomic]):
         assert isinstance(cls, type) and isinstance(cls, AtomicMeta)
         self.type = cls
 
-    def __public_class__(self) -> Type[Atomic]:
+    def __public_class__(self) -> type[Atomic]:
         return self.type
 
     def __len__(self):
@@ -443,7 +442,7 @@ class InstanceValuesView(MixinRepr, AbstractValuesView, Generic[Atomic, U]):
         "value",
     )
 
-    type: Type[Atomic]
+    type: type[Atomic]
     value: Atomic
 
     def __init__(self, instance: Atomic):
@@ -456,7 +455,7 @@ class InstanceValuesView(MixinRepr, AbstractValuesView, Generic[Atomic, U]):
     def __len__(self):
         return len(self.type)
 
-    def __contains__(self, item: Union[U, Any]) -> bool:
+    def __contains__(self, item: U | Any) -> bool:
         return item in astuple(self.value)
 
     def __iter__(self):
@@ -476,7 +475,7 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
         "value",
     )
 
-    type: Type[Atomic]
+    type: type[Atomic]
     value: Atomic
 
     def __init__(self, instance: Atomic):
@@ -489,7 +488,7 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
     def __len__(self):
         return len(self.type)
 
-    def __contains__(self, item: Union[Tuple[U, V], Any]) -> bool:
+    def __contains__(self, item: tuple[U, V] | Any) -> bool:
         for candidate in self.value:
             if item == candidate:
                 return True
@@ -504,7 +503,7 @@ class InstanceItemsView(MixinRepr, AbstractItemsView, Generic[Atomic, U, V]):
 
 
 @overload
-def keys(instance_or_cls: Type[Atomic]) -> ClassKeysView[Atomic, str]: ...
+def keys(instance_or_cls: type[Atomic]) -> ClassKeysView[Atomic, str]: ...
 
 
 @overload
@@ -514,12 +513,12 @@ def keys(instance_or_cls: Atomic) -> InstanceKeysView[Atomic, str]: ...
 @overload
 def keys(
     instance_or_cls: Atomic, *property_path: str, all: bool = False
-) -> Union[InstanceKeysView[Atomic, str], ImmutableCollection[str]]: ...
+) -> InstanceKeysView[Atomic, str] | ImmutableCollection[str]: ...
 
 
 @overload
 def keys(
-    instance_or_cls: Type[Atomic], *property_path: str, all: bool = False
+    instance_or_cls: type[Atomic], *property_path: str, all: bool = False
 ) -> ClassKeysView[Atomic, str]: ...
 
 
@@ -562,7 +561,7 @@ def values(instance: Atomic) -> InstanceValuesView[Atomic, Any]:
     """
     Analogous to dict.values(...)
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is not None:
@@ -574,7 +573,7 @@ def items(instance: Atomic) -> InstanceItemsView[Atomic, str, Any]:
     """
     Analogous to dict.items(...)
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is not None:
@@ -582,12 +581,12 @@ def items(instance: Atomic) -> InstanceItemsView[Atomic, str, Any]:
     raise TypeError(f"items of a {cls} object needs to be called on an instance of {cls}")
 
 
-def get(instance: Atomic, key, default=None) -> Optional[Any]:
+def get(instance: Atomic, key, default=None) -> Any | None:
     """
     Access the field at the key given, return the default value if it does not
     exist on the type.
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Can only call on AtomicMeta-metaclassed types!")
     if instance is None:
@@ -598,50 +597,50 @@ def get(instance: Atomic, key, default=None) -> Optional[Any]:
         return default
 
 
-def asdict(instance: Atomic) -> Dict[str, Any]:
+def asdict(instance: Atomic) -> dict[str, Any]:
     """
     Return a dictionary version of the instance
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._asdict()
 
 
-def astuple(instance: Atomic) -> Tuple[Any, ...]:
+def astuple(instance: Atomic) -> tuple[Any, ...]:
     """
     Return a tuple of values from the instance
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._astuple()
 
 
-def aslist(instance: Atomic) -> List[Any]:
+def aslist(instance: Atomic) -> list[Any]:
     """
     Return a list of values from the instance
     """
-    cls: Type[Atomic] = type(instance)
+    cls: type[Atomic] = type(instance)
     if not isinstance(cls, AtomicMeta):
         raise TypeError("Must be an AtomicMeta-metaclassed type!")
     return instance._aslist()
 
 
 @overload
-def asjson(instance: Atomic) -> Dict[str, Any]: ...
+def asjson(instance: Atomic) -> dict[str, Any]: ...
 
 
 @overload
-def asjson(instance: Union[List[Atomic], Tuple[Atomic]]) -> Tuple[Dict[str, Any]]: ...
+def asjson(instance: list[Atomic] | tuple[Atomic]) -> tuple[dict[str, Any]]: ...
 
 
 @overload
-def asjson(instance: Dict[str, Atomic]) -> Dict[str, Dict[str, Any]]: ...
+def asjson(instance: dict[str, Atomic]) -> dict[str, dict[str, Any]]: ...
 
 
 @overload
-def asjson(instance: Exception) -> Dict[str, str]: ...
+def asjson(instance: Exception) -> dict[str, str]: ...
 
 
 def asjson(instance):
@@ -675,19 +674,19 @@ def asjson(instance):
     raise TypeError("Must be an AtomicMeta-metaclassed type!")
 
 
-def annotated_metadata(instance_or_cls: Union[Atomic, Type[Atomic]]) -> Mapping[str, Tuple[Any]]:
+def annotated_metadata(instance_or_cls: Atomic | type[Atomic]) -> Mapping[str, tuple[Any]]:
     """
     returns any values from an Annotated[...] class field.
     """
-    cls: Type[Atomic] = public_class(instance_or_cls)
+    cls: type[Atomic] = public_class(instance_or_cls)
     return cls._annotated_metadata
 
 
 def show_all_fields(
-    instance_or_cls: Union[Atomic, Type[Atomic]],
+    instance_or_cls: Atomic | type[Atomic],
     *,
-    deep_traverse_on: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
+    deep_traverse_on: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Create a tree of all the fields supported in the instruct class and any
     embedded instruct classes.
@@ -722,13 +721,13 @@ SkippedFieldMapping = Mapping[str, Union["SkippedFieldMapping", None]]
 MutableSkippedMapping = MutableMapping[str, Union["MutableSkippedMapping", None]]
 
 
-def skipped_fields(instance_or_cls: Union[Atomic, Type[Atomic]]) -> Optional[SkippedFieldMapping]:
-    cls: Type[Atomic] = public_class(instance_or_cls, preserve_subtraction=True)
-    skipped: Dict[str, Any] = {key: None for key in cls._skipped_fields}
+def skipped_fields(instance_or_cls: Atomic | type[Atomic]) -> SkippedFieldMapping | None:
+    cls: type[Atomic] = public_class(instance_or_cls, preserve_subtraction=True)
+    skipped: dict[str, Any] = {key: None for key in cls._skipped_fields}
     for key in cls._slots:
         typedef = cls._slots[key]
         if key in cls._nested_atomic_collection_keys:
-            skipped_on_typedef_merged: Dict[str, Any] = {}
+            skipped_on_typedef_merged: dict[str, Any] = {}
             for atomic in cls._nested_atomic_collection_keys[key]:
                 skipped_on_typedef = skipped_fields(atomic)
                 if skipped_on_typedef:
@@ -736,7 +735,7 @@ def skipped_fields(instance_or_cls: Union[Atomic, Type[Atomic]]) -> Optional[Ski
             if skipped_on_typedef_merged:
                 skipped[key] = skipped_on_typedef_merged
         elif isinstance(typedef, type) and is_atomic_type(typedef):
-            atomic_cls: Type[Atomic] = typedef
+            atomic_cls: type[Atomic] = typedef
             skipped_on_typedef = skipped_fields(atomic_cls)
             if skipped_on_typedef:
                 skipped[key] = skipped_on_typedef
@@ -774,7 +773,7 @@ def make_fast_dumps(fields, class_name):
 
 def make_fast_getset_item(
     fields: Iterable[str],
-    properties: List[str],
+    properties: list[str],
     class_name: str,
     get_variable_template: str,
     set_variable_template: str,
@@ -833,14 +832,14 @@ _set_defaults = make_defaults()
 """.strip()
 
 
-def make_defaults(fields: Tuple[str, ...], defaults_var_template: str):
+def make_defaults(fields: tuple[str, ...], defaults_var_template: str):
     defaults_var_template = env.from_string(defaults_var_template).render(fields=fields)
     code = env.from_string(DEFAULTS_FRAGMENT).render(item=defaults_var_template)
     return code
 
 
-def _order_by_mro_position(parent_cls: Type) -> Callable[[Type], int]:
-    def key_func(item: Type) -> int:
+def _order_by_mro_position(parent_cls: type) -> Callable[[type], int]:
+    def key_func(item: type) -> int:
         return item.__mro__.index(parent_cls)
 
     return key_func
@@ -877,7 +876,7 @@ KLASS_CLOSURE_BINDING_WRONG = "We should've moved this out of load_from_scope_na
 NOT_SET = object()
 
 
-def find_class_in_cell(classes: Iterable[Type], cell: CellType) -> Optional[Type]:
+def find_class_in_cell(classes: Iterable[type], cell: CellType) -> type | None:
     if not classes:
         return None
     for cls in classes:
@@ -886,7 +885,7 @@ def find_class_in_cell(classes: Iterable[Type], cell: CellType) -> Optional[Type
     return None
 
 
-def find_class_in_value(classes: Iterable[Type], value: Any) -> Optional[Type]:
+def find_class_in_value(classes: Iterable[type], value: Any) -> type | None:
     if not classes:
         return None
     for cls in classes:
@@ -895,7 +894,7 @@ def find_class_in_value(classes: Iterable[Type], value: Any) -> Optional[Type]:
     return None
 
 
-def class_in_cell(cls: Type, cell: CellType) -> bool:
+def class_in_cell(cls: type, cell: CellType) -> bool:
     value: Any = cell.cell_contents
     return cls is value
 
@@ -912,8 +911,8 @@ def _sanitize_flags(flags):
 
 
 def replace_class_references(
-    func: Union[Callable[[Any], T], ClassMethod[T]],
-    *references: Tuple[Type, Type],
+    func: Callable[[Any], T] | ClassMethod[T],
+    *references: tuple[type, type],
     return_classmethod: bool = False,
 ):
     """
@@ -950,17 +949,17 @@ def replace_class_references(
         function = func
 
     code = function.__code__
-    function_globals: Dict[str, Any] = function.__globals__
+    function_globals: dict[str, Any] = function.__globals__
 
     # If our class reference is in here, it will load
     # from the code's namespace. We will need to intercept it
     # and move it to a closure
-    load_from_scope_names: List[str] = list(code.co_names)
+    load_from_scope_names: list[str] = list(code.co_names)
     # If our class refer is in here, it will load from a closure (and reference
     # the value in __closure__ at the index of the co_freevars tuple name)
-    free_binding_closure_names: List[str] = list(code.co_freevars)
+    free_binding_closure_names: list[str] = list(code.co_freevars)
 
-    current_closures: List[CellType]
+    current_closures: list[CellType]
     if function.__closure__ is None:
         current_closures = []
     else:
@@ -972,7 +971,7 @@ def replace_class_references(
 
     for index, cell in enumerate(current_closures):
         closure_name: str = free_binding_closure_names[index]
-        oldklass: Optional[Type] = None
+        oldklass: type | None = None
         if closure_name in old_klass_names:
             oldklass = old_klass_names[closure_name]
         else:
@@ -1021,7 +1020,7 @@ def replace_class_references(
             co_freevars=tuple(free_binding_closure_names),
         )
     else:
-        args: Tuple[Any, ...] = (
+        args: tuple[Any, ...] = (
             code.co_argcount,
             # co_posonlyargcount (3.8+)
             code.co_kwonlyargcount,
@@ -1068,11 +1067,11 @@ def replace_class_references(
     return new_function
 
 
-def ispy311(cls: Type[CodeType]) -> TypeGuard[Py311Code]:
+def ispy311(cls: type[CodeType]) -> TypeGuard[Py311Code]:
     return hasattr(cls, "co_qualname") and hasattr(cls, "co_exceptiontable")
 
 
-def is_pep570(cls: Type[CodeType]) -> TypeGuard[PEP570Code]:
+def is_pep570(cls: type[CodeType]) -> TypeGuard[PEP570Code]:
     return hasattr(cls, "co_posonlyargcount")
 
 
@@ -1086,8 +1085,8 @@ class Py311Code(Protocol):
 
 
 def insert_class_closure(
-    klass: Type[BaseAtomic], function: Optional[Callable[..., Any]]
-) -> Optional[Callable[..., Any]]:
+    klass: type[BaseAtomic], function: Callable[..., Any] | None
+) -> Callable[..., Any] | None:
     """
     an implicit super() works by looking at __class__ to fill in the
     arguments, becoming super(__class__, self)
@@ -1104,9 +1103,9 @@ def insert_class_closure(
     class_cell: CellType = make_class_cell()
     class_cell.cell_contents = klass
 
-    closure_var_names: List[str] = list(code.co_freevars)
+    closure_var_names: list[str] = list(code.co_freevars)
 
-    current_closure: List[CellType]
+    current_closure: list[CellType]
     if function.__closure__ is None:
         current_closure = []
     else:
@@ -1130,7 +1129,7 @@ def insert_class_closure(
             co_freevars=tuple(closure_var_names),
         )
     else:
-        args: Tuple[Any, ...] = (
+        args: tuple[Any, ...] = (
             code.co_argcount,
             # co_posonlyargcount (3.8+)
             code.co_kwonlyargcount,
@@ -1268,17 +1267,17 @@ def create_proxy_property(
     env: Environment,
     class_name: str,
     key: str,
-    value: Union[Type, Tuple[Type, ...], Dict[str, Type]],
-    isinstance_compatible_coerce_type: Union[Tuple[Type, ...], Type, None],
-    coerce_func: Optional[Callable],
-    derived_type: Optional[Type],
-    listener_funcs: Optional[Tuple[Callable, ...]],
-    coerce_failure_funcs: Optional[Tuple[Callable, ...]],
+    value: type | tuple[type, ...] | dict[str, type],
+    isinstance_compatible_coerce_type: tuple[type, ...] | type | None,
+    coerce_func: Callable | None,
+    derived_type: type | None,
+    listener_funcs: tuple[Callable, ...] | None,
+    coerce_failure_funcs: tuple[Callable, ...] | None,
     local_getter_var_template: str,
     local_setter_var_template: str,
     *,
     fast: bool,
-) -> Tuple[property, Union[Type, Tuple[Type, ...]]]:
+) -> tuple[property, type | tuple[type, ...]]:
     ns_globals = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
     setter_template = env.get_template("setter.jinja")
     getter_template = env.get_template("getter.jinja")
@@ -1325,7 +1324,7 @@ def create_proxy_property(
             filename = fh.name
             logger.debug(f"{class_name}.{key} at {filename}")
 
-    code = compile("{}\n{}".format(getter_code, setter_code), filename, mode="exec")
+    code = compile(f"{getter_code}\n{setter_code}", filename, mode="exec")
     exec(code, ns_globals, ns)
 
     isinstance_compatible_types = parse_typedef(value)
@@ -1354,7 +1353,7 @@ def _derived_type_for(cls, *, derived_type):
     return derived_type
 
 
-EMPTY_FROZEN_SET: FrozenSet[Any] = frozenset()
+EMPTY_FROZEN_SET: frozenset[Any] = frozenset()
 EMPTY_MAPPING: FrozenMapping[Any, Any] = FrozenMapping({})
 
 
@@ -1402,8 +1401,8 @@ def unpack_coerce_mappings(mappings):
 
 
 def transform_typing_to_coerce(
-    type_hints: TypeHint, class_mapping: Mapping[Type[Atomic], Type[Atomic]]
-) -> Tuple[TypeHint, Callable[[T], U]]:
+    type_hints: TypeHint, class_mapping: Mapping[type[Atomic], type[Atomic]]
+) -> tuple[TypeHint, Callable[[T], U]]:
     """
     Use for consuming the prior slotted trace and returning a tuple
     suitable for Union[coerce_type, current_coerce_types] with a callable function.
@@ -1420,50 +1419,48 @@ if TYPE_CHECKING:
 
     class ModifiedSkipTypes(NamedTuple, Generic[Atomic]):
         replacement_type_definition: TypeHint
-        replacement_coerce_definition: Optional[Tuple[Any, Callable]]
-        mutant_classes: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
+        replacement_coerce_definition: tuple[Any, Callable] | None
+        mutant_classes: frozenset[tuple[type[Atomic], type[Atomic]]]
 
 else:
 
     class ModifiedSkipTypes(NamedTuple):
         replacement_type_definition: TypeHint
-        replacement_coerce_definition: Optional[Tuple[Any, Callable]]
-        mutant_classes: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
+        replacement_coerce_definition: tuple[Any, Callable] | None
+        mutant_classes: frozenset[tuple[type[Atomic], type[Atomic]]]
 
 
 @overload
 def create_union_coerce_function(
-    prior_complex_type_path: Union[Type[T], TypingDefinition],
+    prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
-) -> Tuple[TypingDefinition, Callable[[Any], T]]: ...
+) -> tuple[TypingDefinition, Callable[[Any], T]]: ...
 
 
 @overload
 def create_union_coerce_function(
-    prior_complex_type_path: Union[Type[T], TypingDefinition],
+    prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: None = None,
     custom_cast_function: None = None,
-) -> Tuple[TypingDefinition, Callable[[Any], T]]: ...
+) -> tuple[TypingDefinition, Callable[[Any], T]]: ...
 
 
 @overload
 def create_union_coerce_function(
-    prior_complex_type_path: Union[Type[T], TypingDefinition],
+    prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
-    custom_cast_types: Union[Type[U], Tuple[Type[U], ...]],
+    custom_cast_types: type[U] | tuple[type[U], ...],
     custom_cast_function: Callable[[Any], U],
-) -> Tuple[TypingDefinition, Callable[[Any, T, U], Union[T, U]]]: ...
+) -> tuple[TypingDefinition, Callable[[Any, T, U], T | U]]: ...
 
 
 def create_union_coerce_function(
-    prior_complex_type_path: Union[Type[T], TypingDefinition],
+    prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
-    custom_cast_types: Optional[Union[Type[U], Tuple[Type[U], ...]]] = None,
-    custom_cast_function: Optional[Callable[[Any], U]] = None,
-) -> Union[
-    Tuple[TypingDefinition, Callable[[Any, T, U], Union[T, U]]], Tuple[TypeHint, Callable[[Any], T]]
-]:
+    custom_cast_types: type[U] | tuple[type[U], ...] | None = None,
+    custom_cast_function: Callable[[Any], U] | None = None,
+) -> tuple[TypingDefinition, Callable[[Any, T, U], T | U]] | tuple[TypeHint, Callable[[Any], T]]:
     if custom_cast_types is None:
         prior_type_cast = cast(ParentCastType[T, T], complex_type_cast)
         prior_type_cast.__only_parent_cast__ = True
@@ -1474,7 +1471,7 @@ def create_union_coerce_function(
 
     cast_type_cls = parse_typedef(prior_complex_type_path)
 
-    def cast_values_to(value: Union[Any, T, U]) -> Union[T, U]:
+    def cast_values_to(value: Any | T | U) -> T | U:
         if isinstance(value, cast_type_cls):
             # The current value is already the parent type, so apply a down coerce
             # The function is probably not ready for encountering the parent type
@@ -1498,12 +1495,10 @@ def create_union_coerce_function(
 
 
 def apply_skip_keys(
-    skip_key_fields: Union[FrozenSet[str], Set[str], Dict[str, Any]],
-    current_definition: Union[Type[Atomic], TypeHint],
-    current_coerce: Optional[Tuple[Type[T], Callable[[T], U]]],
-) -> Union[
-    "ModifiedSkipTypes[Atomic]", Tuple[None, None, FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]]
-]:
+    skip_key_fields: frozenset[str] | set[str] | dict[str, Any],
+    current_definition: type[Atomic] | TypeHint,
+    current_coerce: tuple[type[T], Callable[[T], U]] | None,
+) -> ModifiedSkipTypes[Atomic] | tuple[None, None, frozenset[tuple[type[Atomic], type[Atomic]]]]:
     """
     If the current definition is Atomic, then Atomic - fields should be compatible with Atomic.
 
@@ -1533,7 +1528,7 @@ def apply_skip_keys(
             current_coerce = (current_coerce_types, current_coerce_cast_function)
             del current_coerce_types, current_coerce_cast_function
 
-    original_definition: Union[Type[Atomic], TypeHint] = current_definition
+    original_definition: type[Atomic] | TypeHint = current_definition
     if (
         isinstance(current_definition, type)
         and ismetasubclass(current_definition, AtomicMeta)
@@ -1542,11 +1537,9 @@ def apply_skip_keys(
     ):
         new_coerce_definition = None
 
-        typehint_defintion: Union[Type[Atomic], TypeHint] = current_definition
+        typehint_defintion: type[Atomic] | TypeHint = current_definition
 
-        gen: Generator[
-            Type[Atomic], Optional[Type[Atomic]], Union[Type[Atomic], Tuple[Type[Atomic], ...]]
-        ]
+        gen: Generator[type[Atomic], type[Atomic] | None, type[Atomic] | tuple[type[Atomic], ...]]
         gen = find_class_in_definition(typehint_defintion, AtomicMeta, metaclass=True)
         replace_class_refs = []
         try:
@@ -1555,7 +1548,7 @@ def apply_skip_keys(
                 result = gen.send(result)
                 before = result
                 result_as_atomic = cast(AtomicMeta, result)
-                result = cast(Type[Atomic], result_as_atomic - skip_key_fields)
+                result = cast(type[Atomic], result_as_atomic - skip_key_fields)
                 after = result
                 if before is not after:
                     replace_class_refs.append((before, after))
@@ -1572,7 +1565,7 @@ def apply_skip_keys(
             parent_type_path, parent_type_coerce_function = transform_typing_to_coerce(
                 original_definition, dict(replace_class_refs)
             )
-            args: Tuple[Any, ...] = ()
+            args: tuple[Any, ...] = ()
             if current_coerce is not None:
                 args = current_coerce
             new_coerce_definition = create_union_coerce_function(
@@ -1645,9 +1638,9 @@ DERIVED_BAD_CHARS = re.compile(r"[^\w\d]+")
 
 class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
     __slots__ = ()
-    REGISTRY = ImmutableCollection[Set[Type[BaseAtomic]]](set())
+    REGISTRY = ImmutableCollection[Set[type[BaseAtomic]]](set())
     MIXINS = ImmutableMapping[str, BaseAtomic]({})
-    SKIPPED_FIELDS: Mapping[Tuple[str, FrozenMapping[str, None]], Type[Atomic]] = (
+    SKIPPED_FIELDS: Mapping[tuple[str, FrozenMapping[str, None]], type[Atomic]] = (
         WeakValueDictionary()
     )
 
@@ -1661,7 +1654,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         return getattr(self, "_parent", self)
 
     @classmethod
-    def register_mixin(cls: Type[AtomicMeta], name, klass):
+    def register_mixin(cls: type[AtomicMeta], name, klass):
         mixin_attribute = inspect.getattr_static(cls, "MIXINS")
         mixin_attribute.value[name] = klass
         return cls
@@ -1679,10 +1672,10 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
 
     def __and__(
         self: AbstractAtomic,
-        include: Union[Set[str], List[str], Tuple[str], FrozenSet[str], str, Dict[str, Any]],
-    ) -> Type[Atomic]:
+        include: set[str] | list[str] | tuple[str] | frozenset[str] | str | dict[str, Any],
+    ) -> type[Atomic]:
         assert isinstance(include, (list, frozenset, set, tuple, dict, str, FrozenMapping))
-        cls: Type[Atomic] = cast(Type[Atomic], self)
+        cls: type[Atomic] = cast(type[Atomic], self)
         include_fields: FrozenMapping = flatten_fields.collect(include)
         include_fields -= cls._skipped_fields
         if not include_fields:
@@ -1690,16 +1683,14 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         skip_fields = (
             FrozenMapping(show_all_fields(cls, deep_traverse_on=include_fields)) - include_fields
         )
-        return cast(Type[Atomic], self - skip_fields)
+        return cast(type[Atomic], self - skip_fields)
 
-    def __sub__(
-        self: AbstractAtomic, skip: Union[Mapping[str, Any], Iterable[Any]]
-    ) -> Type[Atomic]:
+    def __sub__(self: AbstractAtomic, skip: Mapping[str, Any] | Iterable[Any]) -> type[Atomic]:
         assert isinstance(skip, (list, frozenset, set, tuple, dict, str, FrozenMapping))
         debug_mode = is_debug_mode("skip")
 
-        root_class: Type[AtomicMeta] = cast(Type[AtomicMeta], type(self))
-        cls: Type[Atomic] = public_class(cast(Atomic, self))
+        root_class: type[AtomicMeta] = cast(type[AtomicMeta], type(self))
+        cls: type[Atomic] = public_class(cast(Atomic, self))
 
         if not skip:
             return cls
@@ -1728,9 +1719,9 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         skip_fields = effective_skipped_fields
 
         skip_entire_keys = set()
-        redefinitions: Dict[str, TypeHint] = {}
-        redefine_coerce: Dict[str, Tuple[TypeHint, Callable]] = {}
-        mutant_classes: Set[Tuple[Type[Atomic], Type[Atomic]]] = set()
+        redefinitions: dict[str, TypeHint] = {}
+        redefine_coerce: dict[str, tuple[TypeHint, Callable]] = {}
+        mutant_classes: set[tuple[type[Atomic], type[Atomic]]] = set()
         for key, key_specific_strip_keys in skip_fields.items():
             if not key_specific_strip_keys:
                 skip_entire_keys.add(key)
@@ -1742,8 +1733,8 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             current_definition = self._slots[key]
             current_coerce = is_defined_coerce(self, key)
 
-            new_mutants: FrozenSet[Tuple[Type[Atomic], Type[Atomic]]]
-            redefined_definition: Optional[TypeHint]
+            new_mutants: frozenset[tuple[type[Atomic], type[Atomic]]]
+            redefined_definition: TypeHint | None
 
             redefined_definition, redefined_coerce_definition, new_mutants = apply_skip_keys(
                 key_specific_strip_keys, current_definition, current_coerce
@@ -1754,14 +1745,14 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 redefinitions[key] = redefined_definition
             if redefined_coerce_definition is not None:
                 redefine_coerce[key] = redefined_coerce_definition
-        mutant_class_parent_names: Dict[str, Tuple[Type[Atomic], Type[Atomic]]]
+        mutant_class_parent_names: dict[str, tuple[type[Atomic], type[Atomic]]]
         mutant_class_parent_names = {
             parent.__name__: (parent, child) for parent, child in mutant_classes
         }
         if debug_mode:
             logger.debug(f"Mutants: {mutant_class_parent_names}")
 
-        attrs: Dict[str, Any] = {"__slots__": ()}
+        attrs: dict[str, Any] = {"__slots__": ()}
 
         for (function_name, function_value), parents_to_replace in find_users_of(
             mutant_class_parent_names.keys(), cls
@@ -1775,7 +1766,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 logger.debug(f"{function_name} has {parents_to_replace}")
             attrs[function_name] = mutated_function_value
 
-        skip_attrs: FrozenMapping[str, Union[None, SkippedFieldMapping]]
+        skip_attrs: FrozenMapping[str, None | SkippedFieldMapping]
         skip_attrs = FrozenMapping(skip_entire_keys)
 
         if redefinitions:
@@ -1799,26 +1790,26 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             "__module__": cls.__module__,
             "__qualname__": ".".join((cls.__qualname__, new_cls_name)),
         }
-        new_cls: Type[Atomic] = type(new_cls_name, (cls,), attrs, skip_fields=skip_attrs)
+        new_cls: type[Atomic] = type(new_cls_name, (cls,), attrs, skip_fields=skip_attrs)
         cache = cast(
-            MutableMapping[Tuple[str, SkippedFieldMapping], Type[Atomic]], root_class.SKIPPED_FIELDS
+            MutableMapping[Tuple[str, SkippedFieldMapping], type[Atomic]], root_class.SKIPPED_FIELDS
         )
         cache[(cls.__qualname__, effective_skipped_fields)] = new_cls
         return new_cls
 
     def __new__(
-        klass: Type[AtomicMeta],
+        klass: type[AtomicMeta],
         class_name: str,
-        bases: Tuple[Union[Type, Type[Atomic]], ...],
-        attrs: Dict[str, Any],
+        bases: tuple[type | type[Atomic], ...],
+        attrs: dict[str, Any],
         *,
-        fast: Optional[bool] = None,
+        fast: bool | None = None,
         concrete_class: bool = False,
         # metadata:
         skip_fields: FrozenMapping = FrozenMapping(),
         include_fields: FrozenMapping = FrozenMapping(),
         **mixins: bool,
-    ) -> Type[Atomic]:
+    ) -> type[Atomic]:
         if concrete_class:
             assert in_data_class()
             parent_has_hash = None
@@ -1835,7 +1826,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 f"Unable to create {class_name!r} due to missing __hash__ ({parent_has_hash})"
             )
             _data_classes.add(concrete)
-            return cast(Type[Atomic], concrete)
+            return cast(type[Atomic], concrete)
         assert not in_data_class(), f"wtf - {class_name}"
         maybe_calling_frame = None
         calling_frame = None
@@ -1923,7 +1914,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             # mixin class.
             support_cls_attrs["__slots__"] = FrozenMapping()
 
-        coerce_mappings: Optional[CoerceMapping] = None
+        coerce_mappings: CoerceMapping | None = None
         if "__coerce__" in support_cls_attrs:
             if support_cls_attrs["__coerce__"] is not None:
                 coerce_mappings = support_cls_attrs["__coerce__"]
@@ -1947,7 +1938,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             # coerce_mappings = cast(CoerceMapping, coerce_mappings)
 
         # A support column is a __slot__ element that is unmanaged.
-        pending_support_columns: List[str] = []
+        pending_support_columns: list[str] = []
         if isinstance(support_cls_attrs["__slots__"], tuple):
             # Classes with tuples in them are assumed to be
             # data class definitions (i.e. supporting things like a change log)
@@ -1964,17 +1955,17 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         if fast is None:
             fast = not __debug__
 
-        combined_slots: Dict[str, TypeHint]
-        nested_atomic_collections: Dict[str, Union[Type[Atomic], Tuple[Type[Atomic], ...]]]
-        combined_columns: Dict[str, Type] = {}
+        combined_slots: dict[str, TypeHint]
+        nested_atomic_collections: dict[str, type[Atomic] | tuple[type[Atomic], ...]]
+        combined_columns: dict[str, type] = {}
 
         combined_slots = {}
         nested_atomic_collections = {}
         # Mapping of public name -> custom type vector for `isinstance(...)` checks!
-        column_types: Dict[str, Union[Type, Tuple[Type, ...]]] = {}
+        column_types: dict[str, type | tuple[type, ...]] = {}
         base_class_has_subclass_init = False
 
-        cls: Union[type, Type[Atomic]]
+        cls: type | type[Atomic]
 
         for index, cls in enumerate(bases):
             if get_origin(cls) is Generic:
@@ -2034,12 +2025,12 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         if "__extra_slots__" in support_cls_attrs:
             pending_extra_slots.extend(support_cls_attrs["__extra_slots__"])
         # Base class inherited items:
-        inherited_listeners: Dict[str, List[Callable]]
+        inherited_listeners: dict[str, list[Callable]]
 
         annotated_metadata = {}
         inherited_listeners = {}
         for cls in bases:
-            skipped_properties: Tuple[str, ...]
+            skipped_properties: tuple[str, ...]
             skipped_properties = ()
             if (
                 hasattr(cls, "__slots__")
@@ -2067,7 +2058,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
                 pending_support_columns.extend(list(cls.__extra_slots__))
 
             if ismetasubclass(cls, AtomicMeta):
-                parent_atomic: Type[BaseAtomic] = cast(Type[BaseAtomic], cls)
+                parent_atomic: type[BaseAtomic] = cast(type[BaseAtomic], cls)
                 # Only AtomicMeta Descendants will merge in the helpers of
                 # _columns: Dict[str, Type]
                 if parent_atomic._annotated_metadata:
@@ -2117,7 +2108,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         derived_classes = {}
         current_class_columns = {}
         current_class_slots = {}
-        avail_generics: Tuple[TypeVar, ...] = ()
+        avail_generics: tuple[TypeVar, ...] = ()
         generics_by_field = {}
 
         for key, typehint_or_anonymous_struct_decl in support_cls_attrs["__slots__"].items():
@@ -2248,7 +2239,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         all_coercions = {}
         # the `__class__` field of the generated functions will be incomplete,
         # so track them so we can replace them with a derived type made ``__class__``
-        class_cell_fixups: List[Union[Tuple[str, Callable[..., Any]], Tuple[str, property]]] = []
+        class_cell_fixups: list[tuple[str, Callable[..., Any]] | tuple[str, property]] = []
         for key, raw_typedef in tuple(current_class_slots.items()):
             disabled_derived = None
             if raw_typedef in klass.REGISTRY:
@@ -2307,7 +2298,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         support_columns = tuple(deduplicate(pending_support_columns))
 
         dataclass_attrs = {"NoneType": NoneType, "Flags": Flags, "typing": typing}
-        dataclass_attrs[class_name] = ImmutableValue[Optional[Type[BaseAtomic]]](None)
+        dataclass_attrs[class_name] = ImmutableValue[Optional[type[BaseAtomic]]](None)
 
         init_subclass = None
 
@@ -2510,12 +2501,12 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             annotated_metadata
         )
         support_cls_attrs["_nested_atomic_collection_keys"] = ImmutableMapping[
-            str, Tuple[Type[BaseAtomic], ...]
+            str, Tuple[type[BaseAtomic], ...]
         ](nested_atomic_collections)
         support_cls_attrs["_skipped_fields"] = skip_fields
         if "_modified_fields" not in support_cls_attrs:
             support_cls_attrs["_modified_fields"] = ()
-        conf = AttrsDict[Type[BaseAtomic]](**mixins)
+        conf = AttrsDict[type[BaseAtomic]](**mixins)
         conf["fast"] = fast
         extra_slots = tuple(_dedupe(pending_extra_slots))
         support_cls_attrs["__extra_slots__"] = ImmutableCollection[str](extra_slots)
@@ -2524,7 +2515,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         support_cls_attrs["_all_accessible_fields"] = ImmutableCollection[str](
             tuple(field for field in chain(combined_columns, properties))
         )
-        support_cls_attrs["_configuration"] = ImmutableMapping[str, Type[BaseAtomic]](conf)
+        support_cls_attrs["_configuration"] = ImmutableMapping[str, type[BaseAtomic]](conf)
 
         support_cls_attrs["_listener_funcs"] = ImmutableMapping[str, Iterable[Callable]](listeners)
         # Ensure public class has zero slots!
@@ -2546,8 +2537,8 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             )
 
         support_cls_attrs["_is_data_class"] = ImmutableValue[bool](False)
-        dc: ImmutableValue[Type[Atomic]]
-        dc_parent: ImmutableValue[Type[Atomic]]
+        dc: ImmutableValue[type[Atomic]]
+        dc_parent: ImmutableValue[type[Atomic]]
 
         dc = ImmutableValue(None)
         dc_parent = ImmutableValue(None)
@@ -2555,14 +2546,14 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
             support_cls_attrs["__init_subclass__"] = classmethod(wrap_init_subclass(init_subclass))
 
         support_cls_attrs["_data_class"] = support_cls_attrs[f"_{class_name}"] = cast(
-            ImmutableValue[Type[BaseAtomic]], dc
+            ImmutableValue[type[BaseAtomic]], dc
         )
         support_cls_attrs["_parent"] = parent_cell = cast(
-            ImmutableValue[Type[BaseAtomic]], dc_parent
+            ImmutableValue[type[BaseAtomic]], dc_parent
         )
         # assert '<' not in support_cls_attrs["__qualname__"], f'{support_cls_attrs}'
         support_cls = cast(
-            Type[Atomic],
+            type[Atomic],
             super().__new__(klass, class_name, bases, support_cls_attrs, **init_subclass_kwargs),
         )  # type:ignore[misc]
         # assert '<' not in support_cls.__qualname__, f'poop {c}'
@@ -2581,7 +2572,7 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
 
         dataclass_attrs["klass"] = support_cls
         dataclass_slots = (
-            tuple("_{}_".format(key) for key in combined_columns) + support_columns + extra_slots
+            tuple(f"_{key}_" for key in combined_columns) + support_columns + extra_slots
         )
         dataclass_template = env.get_template("data_class.jinja").render(
             class_name=class_name,
@@ -2594,9 +2585,9 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         dataclass_attrs["in_data_class"] = in_data_class
         exec(compile(dataclass_template, "<dcs>", mode="exec"), dataclass_attrs, dataclass_attrs)
 
-        data_class: Type[Atomic]
+        data_class: type[Atomic]
 
-        dc.value = data_class = cast(Type[Atomic], dataclass_attrs[f"_{class_name}"])
+        dc.value = data_class = cast(type[Atomic], dataclass_attrs[f"_{class_name}"])
         data_class.__module__ = support_cls.__module__
         for key, value in data_class_attrs.items():
             if callable(value):
@@ -2610,10 +2601,10 @@ class AtomicMeta(AbstractAtomic, type, Generic[Atomic]):
         #     support_cls.__init_subclass__ = classmethod(wrap_init_subclass(init_subclass))
         return support_cls
 
-    def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_json(cls: type[T], data: dict[str, Any]) -> T:
         return cls(**data)
 
-    def from_many_json(cls: Type[T], iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
+    def from_many_json(cls: type[T], iterable: Iterable[dict[str, Any]]) -> tuple[T, ...]:
         return tuple(cls(**item) for item in iterable)
 
     def __str__(self):
@@ -2719,7 +2710,7 @@ class History(metaclass=AtomicMeta):
     setter_wrapper = "history-setter-wrapper.jinja"
 
     if TYPE_CHECKING:
-        _columns: FrozenSet[str]
+        _columns: frozenset[str]
 
     def __init__(self, *args, **kwargs):
         t_s = time.time()
@@ -2827,8 +2818,8 @@ AtomicMeta.register_mixin("autorepr", AutoRepr)
 
 
 def _cls_keys(
-    cls: Type[Atomic], instance: Optional[Atomic] = None, *, all: bool = False
-) -> Union[InstanceKeysView[Atomic, str], ClassKeysView[Atomic, str], ImmutableCollection[str]]:
+    cls: type[Atomic], instance: Atomic | None = None, *, all: bool = False
+) -> InstanceKeysView[Atomic, str] | ClassKeysView[Atomic, str] | ImmutableCollection[str]:
     if instance is not None:
         return keys(instance, all=all)
     class_keys: ClassKeysView[Atomic, str] = keys(cls, all=all)
@@ -2837,11 +2828,11 @@ def _cls_keys(
 
 def _instance_keys(
     self: Atomic, *, all: bool = False
-) -> Union[InstanceKeysView[Atomic, str], ImmutableCollection[str]]:
+) -> InstanceKeysView[Atomic, str] | ImmutableCollection[str]:
     return keys(self, all=all)
 
 
-def _cls_values(cls: Type[Atomic], item: Atomic):
+def _cls_values(cls: type[Atomic], item: Atomic):
     return values(item)
 
 
@@ -2849,7 +2840,7 @@ def _instance_values(self):
     return values(self)
 
 
-def _cls_items(cls: Type[Atomic], item: Atomic):
+def _cls_items(cls: type[Atomic], item: Atomic):
     return items(item)
 
 
@@ -2857,7 +2848,7 @@ def _instance_items(self: Atomic):
     return items(self)
 
 
-def _cls_get(cls: Type[Atomic], instance: Atomic, key: str, default=None):
+def _cls_get(cls: type[Atomic], instance: Atomic, key: str, default=None):
     return get(instance, key, default)
 
 
@@ -3017,7 +3008,7 @@ def handle_type_error(*fields: str):
     return wrapper
 
 
-def load_cls(cls, args, kwargs, skip_fields: Optional[FrozenMapping] = None):
+def load_cls(cls, args, kwargs, skip_fields: FrozenMapping | None = None):
     """
     :internal: interface for ``__reduce__`` to call.
     """
@@ -3029,19 +3020,19 @@ def load_cls(cls, args, kwargs, skip_fields: Optional[FrozenMapping] = None):
 class JSONSerializable(metaclass=AtomicMeta):
     __slots__ = ()
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return self.__json__()
 
-    def __json__(self) -> Dict[str, Any]:
+    def __json__(self) -> dict[str, Any]:
         assert ismetasubclass(type(self), AtomicMeta)
         return AtomicMeta.to_json(cast(AtomicMeta, self))[0]
 
     @classmethod
-    def from_json(cls: AtomicMeta, data: Dict[str, Any]) -> Type[Atomic]:
+    def from_json(cls: AtomicMeta, data: dict[str, Any]) -> type[Atomic]:
         return cls(**data)
 
     @classmethod
-    def from_many_json(cls: AtomicMeta, iterable: Iterable[Dict[str, Any]]) -> Tuple[T, ...]:
+    def from_many_json(cls: AtomicMeta, iterable: Iterable[dict[str, Any]]) -> tuple[T, ...]:
         return tuple(cls.from_json(item) for item in iterable)
 
 
@@ -3191,15 +3182,15 @@ class SimpleBase(metaclass=AtomicMeta):
         pass
 
     @mark(base_cls=True)
-    def _asdict(self) -> Dict[str, Any]:
+    def _asdict(self) -> dict[str, Any]:
         return {}
 
     @mark(base_cls=True)
-    def _astuple(self) -> Tuple[Any, ...]:
+    def _astuple(self) -> tuple[Any, ...]:
         return ()
 
     @mark(base_cls=True)
-    def _aslist(self) -> List[Any]:
+    def _aslist(self) -> list[Any]:
         return []
 
     @mark(base_cls=True)
