@@ -25,6 +25,16 @@ if (here / ".git").exists():
                 current_sha = fh.read().strip()
         else:
             current_sha = head_reference
+    if not current_sha:
+        with suppress(FileNotFoundError), open(here / ".git" / "packed-refs") as packed:
+            for line in packed:
+                try:
+                    sha, ref_name = line.split()
+                except ValueError:
+                    pass
+                else:
+                    if ref_name == ref_val:
+                        current_sha = sha
 
     with suppress(FileNotFoundError):
         via_git_rev_parse = subprocess.check_output(("git", "rev-parse", "HEAD")).strip().decode()
