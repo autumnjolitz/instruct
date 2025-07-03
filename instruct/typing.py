@@ -20,7 +20,7 @@ from typing import (
     ForwardRef,
     overload,
 )
-from typing_extensions import Final
+from typing import Final
 
 from .compat import (
     TypeVar,

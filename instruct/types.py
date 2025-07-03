@@ -13,8 +13,6 @@ from types import MethodType, new_class
 from weakref import WeakValueDictionary, WeakKeyDictionary
 from typing import (
     Any,
-    Dict,
-    Optional,
     Type,
     Generic,
     Callable,
@@ -74,30 +72,30 @@ class AbstractAtomic:
     __slots__ = ()
 
     if TYPE_CHECKING:
-        REGISTRY: ImmutableCollection[Set[Type[BaseAtomic]]]
+        REGISTRY: ImmutableCollection[set[type[BaseAtomic]]]
         MIXINS: ImmutableMapping[str, BaseAtomic]
-        BINARY_JSON_ENCODERS: Dict[str, Callable[[Union[bytearray, bytes]], Any]]
+        BINARY_JSON_ENCODERS: dict[str, Callable[[bytearray | bytes], Any]]
 
         _set_defaults: Callable[[], None]
         _slots: Mapping[str, TypingDefinition]
         _columns: ImmutableMapping[str, CustomTypeCheck]
-        _no_op_properties: Tuple[str, ...]
+        _no_op_properties: tuple[str, ...]
         _column_types: ImmutableMapping[str, CustomTypeCheck]
-        _all_coercions: ImmutableMapping[str, Tuple[Union[TypingDefinition, Type], Callable]]
-        _support_columns: Tuple[str, ...]
-        _annotated_metadata: ImmutableMapping[str, Tuple[Any, ...]]
-        _nested_atomic_collection_keys: ImmutableMapping[str, Tuple[Type[BaseAtomic], ...]]
+        _all_coercions: ImmutableMapping[str, tuple[TypingDefinition | type, Callable]]
+        _support_columns: tuple[str, ...]
+        _annotated_metadata: ImmutableMapping[str, tuple[Any, ...]]
+        _nested_atomic_collection_keys: ImmutableMapping[str, tuple[type[BaseAtomic], ...]]
         _skipped_fields: FrozenMapping[str, None]
-        _modified_fields: FrozenSet[str]
+        _modified_fields: frozenset[str]
         _properties: KeysView[str]
-        _configuration: ImmutableMapping[str, Type[BaseAtomic]]
+        _configuration: ImmutableMapping[str, type[BaseAtomic]]
         __extra_slots__: ImmutableCollection[str]
         _all_accessible_fields: ImmutableCollection[KeysView[str]]
         _listener_funcs: ImmutableMapping[str, Iterable[Callable]]
-        _data_class: ImmutableValue[Type[BaseAtomic]]
-        _parent: ImmutableValue[Type[BaseAtomic]]
+        _data_class: ImmutableValue[type[BaseAtomic]]
+        _parent: ImmutableValue[type[BaseAtomic]]
 
-        def __iter__(self) -> Iterator[Tuple[str, Any]]: ...
+        def __iter__(self) -> Iterator[tuple[str, Any]]: ...
 
 
 Ts = TypeVarTuple("Ts")
@@ -195,11 +193,11 @@ class BaseAtomic(AbstractAtomic):
     __slots__ = ()
 
     @mark(base_cls=True)
-    def _clear(self: Self, fields: Optional[Iterable[str]] = None):
+    def _clear(self: Self, fields: Iterable[str] | None = None):
         pass
 
     if TYPE_CHECKING:
-        __public_class__: Callable[[], Type[Atomic]]
+        __public_class__: Callable[[], type[Atomic]]
 
     @mark(base_cls=True)
     def _set_defaults(self: Self) -> Self:
@@ -210,7 +208,7 @@ class BaseAtomic(AbstractAtomic):
 
 
 class AttrsDict(UserDict, Generic[T]):
-    def __getattr__(self, key: str) -> Optional[T]:
+    def __getattr__(self, key: str) -> T | None:
         try:
             return self.data[key]
         except KeyError:
@@ -250,7 +248,7 @@ class ImmutableCollection(BaseReadOnly, Generic[T]):
     __slots__ = ()
 
     value: Collection[T]
-    cast_type: Union[Type[Tuple[T, ...]], Type[Set[T]], None]
+    cast_type: type[tuple[T, ...]] | type[set[T]] | None
 
     def __init__(self, value):
         self.cast_type = None
@@ -265,7 +263,7 @@ class ImmutableMapping(BaseReadOnly, Generic[T, U]):
     __slots__ = ()
 
     value: Mapping[T, U]
-    cast_type: Optional[Type[FrozenMapping[T, U]]]
+    cast_type: type[FrozenMapping[T, U]] | None
 
     def __init__(self, value):
         self.cast_type = None
@@ -294,7 +292,7 @@ def is_readonly_mapping(item: BaseReadOnly) -> TypeGuard[ImmutableMapping[T, U]]
 
 
 def is_readonly_sequence(
-    item: BaseReadOnly, cls: Type[Collection[T]]
+    item: BaseReadOnly, cls: type[Collection[T]]
 ) -> TypeGuard[ImmutableCollection[T]]:
     return isinstance(item.value, cls)
 
@@ -310,7 +308,7 @@ FROZEN_MAPPING_SINGLETONS: Mapping[int, Any] = WeakValueDictionary()
 class FrozenMapping(Mapping[T, U]):
     __slots__ = "__value", "__hashcode", "__weakref__"
 
-    __value: Dict[T, U]
+    __value: dict[T, U]
     __hashcode: int
 
     def __new__(cls, *args, **kwargs):
@@ -412,7 +410,7 @@ class FrozenMapping(Mapping[T, U]):
         return iter(self.keys())
 
 
-EMPTY_TERMINUS: FrozenSet[Union[frozenset, FrozenMapping, None, str]] = frozenset(
+EMPTY_TERMINUS: frozenset[frozenset | FrozenMapping | None | str] = frozenset(
     {frozenset(), FrozenMapping(), None, ""}
 )
 
@@ -492,7 +490,7 @@ class InstanceCallable(Protocol[T_cta]):
 
 
 class ClassCallable(Protocol[T_cta]):
-    def __call__(self, cls: Type[T_cta], *args, **kwargs) -> Any: ...
+    def __call__(self, cls: type[T_cta], *args, **kwargs) -> Any: ...
 
 
 class BoundClassOrInstanceAttribute(Generic[T]):
@@ -503,19 +501,19 @@ class BoundClassOrInstanceAttribute(Generic[T]):
     """
 
     __slots__ = "_class_attribute", "_instance_attribute", "_classes", "_attr_names"
-    _class_attribute: Union[ClassCallable[T], None, Any]
-    _instance_attribute: Optional[InstanceCallable[T], Any]
-    _classes: WeakKeyDictionary[Type[Self], MethodType]
-    _attr_names: WeakKeyDictionary[Type[Self], str]
+    _class_attribute: ClassCallable[T] | None | Any
+    _instance_attribute: InstanceCallable[T] | Any | None
+    _classes: WeakKeyDictionary[type[Self], MethodType]
+    _attr_names: WeakKeyDictionary[type[Self], str]
     _call_immediately: bool
 
-    def __set_name__(self: Self, owner: Type[Self], name: str):
+    def __set_name__(self: Self, owner: type[Self], name: str):
         self._attr_names[owner] = name
 
     def __init__(
         self,
-        class_attr: Union[ClassCallable[T], None] = None,
-        instance_attr: Optional[InstanceCallable[T]] = None,
+        class_attr: ClassCallable[T] | None = None,
+        instance_attr: InstanceCallable[T] | None = None,
     ) -> None:
         self._classes = WeakKeyDictionary()
         self._attr_names = WeakKeyDictionary()
@@ -550,7 +548,7 @@ class BoundClassOrInstanceAttribute(Generic[T]):
         self._class_attribute = class_attr
         return self
 
-    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
+    def __get__(self, instance: T | None, owner: type[T] | None = None) -> MethodType:
         if isinstance(instance, BaseAtomic):
             owner = owner.__public_class__()
         try:
@@ -594,7 +592,7 @@ class ClassOrInstanceFuncsDescriptor(BoundClassOrInstanceAttribute[T]):
         self._class_attribute = class_attr
         return self
 
-    def __get__(self, instance: Optional[T], owner: Optional[Type[T]] = None) -> MethodType:
+    def __get__(self, instance: T | None, owner: type[T] | None = None) -> MethodType:
         thunk = super().__get__(instance, owner)
         return thunk()
 
@@ -609,13 +607,13 @@ class ClassOrInstanceFuncsDataDescriptor(ClassOrInstanceFuncsDescriptor):
 
     def __init__(
         self,
-        class_function: Union[ClassCallable[T], None] = None,
-        instance_function: Optional[InstanceCallable[T]] = None,
+        class_function: ClassCallable[T] | None = None,
+        instance_function: InstanceCallable[T] | None = None,
         *,
-        instance_setter: Optional[InstanceCallable[T]] = None,
-        instance_deleter: Optional[InstanceCallable[T]] = None,
-        class_setter: Union[ClassCallable[T], None] = None,
-        class_deleter: Union[ClassCallable[T], None] = None,
+        instance_setter: InstanceCallable[T] | None = None,
+        instance_deleter: InstanceCallable[T] | None = None,
+        class_setter: ClassCallable[T] | None = None,
+        class_deleter: ClassCallable[T] | None = None,
     ) -> None:
         super().__init__(class_function, instance_function)
         self._instance_setter_function = instance_setter
@@ -702,13 +700,13 @@ class ClassOrInstanceFuncsDataDescriptor(ClassOrInstanceFuncsDescriptor):
 
 
 @as_collectable(FrozenMapping)
-def flatten_fields(item) -> Iterable[Tuple[str, Union[None, FrozenMapping]]]:
+def flatten_fields(item) -> Iterable[tuple[str, None | FrozenMapping]]:
     if isinstance(item, str):
         yield (item, None)
     elif isinstance(item, (AbstractIterable, AbstractMapping)) and not isinstance(
         item, (bytearray, bytes)
     ):
-        iterable: Union[Iterable[Any], Iterable[Tuple[Any, Any]]]
+        iterable: Iterable[Any] | Iterable[tuple[Any, Any]]
         is_mapping = False
         if isinstance(item, AbstractMapping):
             iterable = ((key, item[key]) for key in item)
