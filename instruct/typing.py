@@ -20,7 +20,7 @@ from typing import (
     ForwardRef,
     overload,
 )
-from typing import Final
+from typing import Final, TYPE_CHECKING
 
 from .compat import (
     TypeVar,
@@ -201,7 +201,11 @@ def isabstractcollectiontype(
 
 TypeHint: TypeAlias = Union[TypingDefinition, Type]
 
-Atomic = TypeVar("Atomic", bound=BaseAtomic)
+if TYPE_CHECKING:
+
+    class Atomic(BaseAtomic, Generic): ...
+else:
+    Atomic = BaseAtomic
 
 JSONValue: TypeAlias = Optional[Union[str, int, float, bool]]
 JSON: TypeAlias = Union[
@@ -386,6 +390,10 @@ def resolve(
     hint: TypeHint | str, *hints: TypeHint | str, locals=None, globals=None
 ) -> Tuple[TypeHint, ...]:
     pass
+
+
+@overload
+def resolve(hint: dict[str, TypeHint | str], locals=None, globals=None) -> dict[str, TypeHint]: ...
 
 
 def resolve(*hints, locals=None, globals=None, frame=None):
