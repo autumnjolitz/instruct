@@ -2572,7 +2572,7 @@ class AtomicMeta(AbstractAtomic, type):
                 invert_mapping(generics_by_field)
             )
 
-        support_cls_attrs["_is_data_class"] = ImmutableValue[bool](False)
+        # support_cls_attrs["_is_data_class"] = ImmutableValue[bool](False)
         dc: ImmutableValue[type[Atomic]]
         # dc_parent: ImmutableValue[type[Atomic]]
 
