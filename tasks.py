@@ -680,6 +680,12 @@ def setup(
             )
             requirements = f"{requirements}[{extra_addons}]"
 
+    setup_flags = ()
+    if tests:
+        setup_flags = (*setup_flags, "--tests")
+    if devel:
+        setup_flags = (*setup_flags, "--devel")
+
     if swap_venv_stage == "1-copy-new-venv":
         perror(f"Removing old venv at {venv}")
         shutil.rmtree(root / "python")
@@ -695,6 +701,7 @@ def setup(
                 "setup",
                 "--swap-venv-stage",
                 "2-remove-tmp-venv",
+                *setup_flags,
             ),
             os.environ,
         )
@@ -703,22 +710,24 @@ def setup(
         tmp_venv = root / "python_"
         perror(f"Removing temp venv {tmp_venv}")
         shutil.rmtree(tmp_venv)
-        original_argv = []
+        post_setup_args = []
         try:
-            original_argv = json.loads(os.environ["_INSTRUCT_INVOKE_TASK_ORIG_ARGS"])
+            post_setup_args = json.loads(os.environ["_INSTRUCT_INVOKE_TASK_POST_SETUP_ARGS"])
         except ValueError:
             perror(
-                "Unable to decode original _INSTRUCT_INVOKE_TASK_ORIG_ARGS!",
+                "Unable to decode original _INSTRUCT_INVOKE_TASK_POST_SETUP_ARGS!",
                 file=sys.stderr,
             )
-        while original_argv and original_argv[0] == "--":
-            del original_argv[0]
-        perror("Attempting to restore argv after setup which is", original_argv)
-        if not original_argv:
+        while post_setup_args and post_setup_args[0] == "--":
+            del post_setup_args[0]
+        if not post_setup_args:
             return
+        post_setup_args_friendly = " ".join(post_setup_args)
+        perror(f"running after setup: {post_setup_args_friendly}")
+        del post_setup_args_friendly
         os.execve(
             f"{venv!s}/bin/python",
-            ("python", "-m", "invoke", *original_argv),
+            ("python", "-m", "invoke", *post_setup_args),
             os.environ,
         )
         assert False, "unreachable!"
@@ -746,7 +755,7 @@ def setup(
             perror("installing tmp venv invoke")
             context.run(f"{venv!s}_/bin/python -m pip install {line.decode()}", hide="both")
 
-        args = []
+        after_setup_tasks = []
         skip_if_args = 0
         task_executed = True
         for arg in sys.argv:
@@ -762,11 +771,19 @@ def setup(
                 skip_if_args -= 1
                 continue
             if task_executed is False:
-                args.append(arg)
-        os.environ["_INSTRUCT_INVOKE_TASK_ORIG_ARGS"] = json.dumps(args)
+                after_setup_tasks.append(arg)
+        os.environ["_INSTRUCT_INVOKE_TASK_POST_SETUP_ARGS"] = json.dumps(after_setup_tasks)
         os.execve(
             f"{venv!s}_/bin/python",
-            ("python", "-m", "invoke", "setup", "--swap-venv-stage", "1-copy-new-venv"),
+            (
+                "python",
+                "-m",
+                "invoke",
+                "setup",
+                "--swap-venv-stage",
+                "1-copy-new-venv",
+                *setup_flags,
+            ),
             os.environ,
         )
         assert False, "unreachable"
