@@ -264,7 +264,7 @@ def test_mapping_immutability():
 
 
 def test_coercion():
-    l = LinkedFields(id='2', name='Autumn') # noqa
+    l = LinkedFields(id="2", name="Autumn")  # noqa
     assert l.id == 2
     l.id = "5"
     assert l.id == 5
