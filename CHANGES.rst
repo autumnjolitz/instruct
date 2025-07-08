@@ -1,9 +1,8 @@
 .. |Changes|
-
 Version `v0.8.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.6>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2025-06-11
 
 `Compare with v0.8.5 <https://github.com/autumnjolitz/instruct/compare/v0.8.5...v0.8.6>`_ (9 commits since)
 
@@ -37,7 +36,7 @@ Build
 Version `v0.8.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.5>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2025-05-07
 
 `Compare with v0.8.4 <https://github.com/autumnjolitz/instruct/compare/v0.8.4...v0.8.5>`_ (17 commits since)
 
@@ -79,7 +78,7 @@ Build
 Version `v0.8.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.4>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-06-30
 
 `Compare with v0.8.3 <https://github.com/autumnjolitz/instruct/compare/v0.8.3...v0.8.4>`_ (3 commits since)
 
@@ -98,7 +97,7 @@ Build
 Version `v0.8.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.3>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-06-30
 
 `Compare with v0.8.2 <https://github.com/autumnjolitz/instruct/compare/v0.8.2...v0.8.3>`_ (14 commits since)
 
@@ -137,7 +136,7 @@ Other
 Version `v0.8.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.2>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-06-23
 
 `Compare with v0.8.1 <https://github.com/autumnjolitz/instruct/compare/v0.8.1...v0.8.2>`_ (4 commits since)
 
@@ -157,7 +156,7 @@ Build
 Version `v0.8.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.1>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-06-16
 
 `Compare with v0.8.0 <https://github.com/autumnjolitz/instruct/compare/v0.8.0...v0.8.1>`_ (6 commits since)
 
@@ -179,7 +178,7 @@ Build
 Version `v0.8.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.0>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-06-09
 
 `Compare with v0.7.5.post2 <https://github.com/autumnjolitz/instruct/compare/v0.7.5.post2...v0.8.0>`_ (66 commits since)
 
@@ -284,7 +283,7 @@ Build
 Version `v0.7.5.post2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.5.post2>`_
 ----------------------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-02-29
 
 `Compare with v0.7.5 <https://github.com/autumnjolitz/instruct/compare/v0.7.5...v0.7.5.post2>`_ (1 commits since)
 
@@ -295,9 +294,9 @@ Bug Fixes
 Version `v0.7.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.5>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-07-08
+Released 2024-02-29
 
-`Compare with first commit <https://github.com/autumnjolitz/instruct/compare/fd12152ab66246e18e4cdcd2876065814f1f8da5...v0.7.5>`_ (7 commits since)
+`Compare with v0.7.3.post1 <https://github.com/autumnjolitz/instruct/compare/v0.7.3.post1...v0.7.5>`_ (9 commits since)
 
 Features
 
@@ -310,6 +309,10 @@ Docs
 - template-ize for release note generation (`5e508b7 <https://github.com/autumnjolitz/instruct/commit/5e508b714bb47cd2d904a75e4534d7ffab912867>`_ by Autumn Jolitz).
 - test of `git-changelog <https://github.com/pawamoy/git-changelog>`_ (`a4aeb37 <https://github.com/autumnjolitz/instruct/commit/a4aeb375e0ee83fdbbb332d8d5573fadf91d8917>`_ by Autumn Jolitz).
 
+Chore
+
+- add badges to ``README.rst``, adjust github CI workflow names (`66b4067 <https://github.com/autumnjolitz/instruct/commit/66b4067edb731e1f76e324fa46e1127bdcc51f6c>`_ by Autumn).
+
 Continuous Integration
 
 - add PyPy in testing (`fd12152 <https://github.com/autumnjolitz/instruct/commit/fd12152ab66246e18e4cdcd2876065814f1f8da5>`_ by Autumn Jolitz).
@@ -317,72 +320,968 @@ Continuous Integration
 Build
 
 - bump version to v0.7.5 (`9924da8 <https://github.com/autumnjolitz/instruct/commit/9924da815d892a9c4b3127f337c7cd965148d033>`_ by Autumn).
+- refactor, use `invoke <https://www.pyinvoke.org/>`_ (`5871827 <https://github.com/autumnjolitz/instruct/commit/5871827f418aa250b3c4bef48d7b2f448ae3d956>`_ by Autumn Jolitz).
 
+Version `v0.7.3.post1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.3.post1>`_
+----------------------------------------------------------------------------------------------
 
+Released 2023-12-04
 
-Version v0.7.4
--------------------
-
-Release 2023-12-10
-
-Build
-
-- refactor, use `invoke <https://www.pyinvoke.org/>`_
-
-Chore
-
-- add badges to ``README.rst``, adjust github CI workflow names
+`Compare with v0.7.3 <https://github.com/autumnjolitz/instruct/compare/v0.7.3...v0.7.3.post1>`_ (2 commits since)
 
 Continuous Integration
 
-- add test
+- add test (`f3c25b0 <https://github.com/autumnjolitz/instruct/commit/f3c25b05b752ed6e329afe45a578b00441787f4a>`_ by Autumn).
 
-Version v0.7.3
--------------------
+Build
 
-Release 2023-07-18
+- bump version to v0.7.3.post1 (`f8afb3d <https://github.com/autumnjolitz/instruct/commit/f8afb3d562f177e23e9b679c7b6a85ed84ad8b62>`_ by Autumn).
 
-- add notes on use of ``Range`` and friends
-- Export ``RangeFlags`` from ``__init__``
-- Unlock ``typing-extensions`` range
+Version `v0.7.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.3>`_
+----------------------------------------------------------------------------------
 
+Released 2023-07-18
 
-Version v0.7.2
--------------------
+`Compare with v0.7.2 <https://github.com/autumnjolitz/instruct/compare/v0.7.2...v0.7.3>`_ (2 commits since)
 
-Release 2022-05-13
+Features
 
-- Add dummy ``__iter__`` to ``SimpleBase`` which addresses principal of least astonishment for an empty class
+- Port instruct to newer Python versions, implement CI/CD (`7dda1bd <https://github.com/autumnjolitz/instruct/commit/7dda1bde4af7e53808f278c07fca9adbc23c147e>`_ by Autumn Jolitz).
 
+Build
 
-Version v0.7.1
--------------------
+- unlock versions to be more flexible, bump to v0.7.3 (`2e0a5cc <https://github.com/autumnjolitz/instruct/commit/2e0a5ccc731ba686f8738d045b4af9d9061f2411>`_ by Autumn).
 
-Release 2022-05-13
+Version `v0.7.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.2>`_
+----------------------------------------------------------------------------------
 
-- Add ``devel`` to setup extras
-- export ``clear``, ``reset_to_defaults``
-- make ``_set_defaults`` first call the zero-init version, then cascade through the inheritance tree for any overrides
-- add default functions for empty classes, use ``__public_class__`` for ``public_class`` calls
-- Remove ``fast_new`` in favor of using ``_set_defaults``
-- Allow ``__public_class__`` to be overridden in rare cases
+Released 2022-05-13
 
+`Compare with v0.7.1 <https://github.com/autumnjolitz/instruct/compare/v0.7.1...v0.7.2>`_ (8 commits since)
 
-Version v0.7.0
--------------------
+Features
 
-Release 2022-05-12
+- export ``RangeFlags`` (`7420aa5 <https://github.com/autumnjolitz/instruct/commit/7420aa53aa6e5cd7e9ba660daa97fcffb147107e>`_ by Autumn).
+- remove fast new in favor of calling ``self._set_defaults()`` (`6edb925 <https://github.com/autumnjolitz/instruct/commit/6edb9255850aaadef7c1ad407e2f5341975c01a6>`_ by Autumn).
 
-- Add change log
-- Correct README example (it works!)
-- Correct bug where ``_asdict``, ``_astuple``, ``_aslist`` were not added to an empty class
-- Allow use of ``Annotation[type, ...others...]`` in type definitions
-- Support use of ``Range`` in a type ``Annotation`` to restrict the range of values allowed for a type
-- Support use of ``NoPickle``, ``NoJSON``, ``NoIterable`` to skip fields from pickling, JSON dumping and ``__iter__`` respectively
-- ``_asdict``/``_astuple``/``_aslist`` will still return **ALL** values within an instruct-class.
-- The field ``_annotated_metadata`` on a class contains a mapping of ``field_name -> (...others...)``
-- Correct a bug where ``Literal[Enum.Value]`` would erroneously allow a matching non-Enum value if the ``__eq__`` on the Enum was overridden to allow it
-- We now check via ``is`` and on ``__eq__`` checks we check the type as well to reject the wrong types
-- Upgrade to Jinja2 for the 3.x series!
-- Upgrade typing-extensions to 4.2.0
-- Mark support as Python 3.7+
+Bug Fixes
+
+- add dummy ``__iter__`` to handle empty class case (`a51c252 <https://github.com/autumnjolitz/instruct/commit/a51c25208af689506235231c900dd91ffd1c43fb>`_ by Autumn).
+
+Docs
+
+- add notes on use of ``Range`` and friends (`04356d2 <https://github.com/autumnjolitz/instruct/commit/04356d234b83019f5c825cea42fa371ebe8d392b>`_ by Autumn).
+- add comparison between instruct and pydantic (`9090595 <https://github.com/autumnjolitz/instruct/commit/90905952eb8ac3153c3ec66446103fb4e2bcdca9>`_ by Autumn).
+- update (`f8c0209 <https://github.com/autumnjolitz/instruct/commit/f8c0209afac48ed377cce28f5d366978388f672d>`_ by Autumn).
+
+Tests
+
+- use ``_set_defaults``  instead (`7ccf4a4 <https://github.com/autumnjolitz/instruct/commit/7ccf4a4405ebd1c800e160deeac980556c540513>`_ by Autumn).
+- add tests for ``_set_defaults(...)`` on a class (`12e2ee7 <https://github.com/autumnjolitz/instruct/commit/12e2ee7efb1a8dc65704452517ec64213616850a>`_ by Autumn).
+
+Version `v0.7.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.1>`_
+----------------------------------------------------------------------------------
+
+Released 2022-05-13
+
+`Compare with v0.7.0 <https://github.com/autumnjolitz/instruct/compare/v0.7.0...v0.7.1>`_ (5 commits since)
+
+Features
+
+- export ``instruct.clear()``, ``instruct.reset_to_defaults()``, make `instance._set_defaults()` first call the zero-init version, then cascade through the inheritance tree for any overrides, add default functions for empty classes, use ``__public_class__`` magic method for ``public_class`` calls (`1d1e528 <https://github.com/autumnjolitz/instruct/commit/1d1e528cd3ef8c1faa3218122f54e91f6f381d1d>`_ by Autumn).
+
+Chore
+
+- remove unused import in ``__main__.py`` (`fadf4c6 <https://github.com/autumnjolitz/instruct/commit/fadf4c6ae68dd5c7230270ae39fa672326870192>`_ by Autumn).
+
+Continuous Integration
+
+- check style (`252f2ba <https://github.com/autumnjolitz/instruct/commit/252f2ba27a0ae91563ad9a88da6eb4c56f8af715>`_ by Autumn).
+
+Build
+
+- v0.7.1 (`da6f64d <https://github.com/autumnjolitz/instruct/commit/da6f64d62a1f6a3bf2449b9b46e7ce5c8d3186cf>`_ by Autumn).
+- add **devel** extra (`87c6e3b <https://github.com/autumnjolitz/instruct/commit/87c6e3ba5ae8da7b8c6cb34620c877ea6babc8e3>`_ by Autumn).
+
+Version `v0.7.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.0>`_
+----------------------------------------------------------------------------------
+
+Released 2022-05-12
+
+`Compare with v0.6.7 <https://github.com/autumnjolitz/instruct/compare/v0.6.7...v0.7.0>`_ (7 commits since)
+
+Features
+
+- spider annotations, use the ``NoPickle`` et al constants to influence class behavior (`2eea997 <https://github.com/autumnjolitz/instruct/commit/2eea997c6a742a293ecf33f1ab0fe795006be60a>`_ by Autumn).
+- support ``Annotation[...]`` and within it, a set of ``Range``s, raise ``RangeError`` when a value is type allowed but does not fit the ranges specified! (`42599b0 <https://github.com/autumnjolitz/instruct/commit/42599b0fefe8a27dc645245e1aa34d97816954a2>`_ by Autumn).
+- implement several constants for use in ``Annotation[...]`` including ``Range`` for interval capping (and ``RangeError``)! (`11f25b3 <https://github.com/autumnjolitz/instruct/commit/11f25b3ced2530fb8620da6beeca0053a50160a5>`_ by Autumn).
+
+Docs
+
+- update README, add a CHANGES file (`8840218 <https://github.com/autumnjolitz/instruct/commit/8840218f372211854bcdd732a6ec5d0d8e81b820>`_ by Autumn).
+
+Dependencies
+
+- bump jinja2 and typing_extensions versions (`9adca04 <https://github.com/autumnjolitz/instruct/commit/9adca04cc2c6c2132884f5a45ea94eb623127385>`_ by Autumn).
+
+Tests
+
+- add additional tests (`7aa8c31 <https://github.com/autumnjolitz/instruct/commit/7aa8c315d64291ca0347d7a542c2891d84f5b596>`_ by Autumn).
+
+Build
+
+- bump to v0.7.0 (`f97c699 <https://github.com/autumnjolitz/instruct/commit/f97c6990649390292fc308ee7c5aeb43630f34cf>`_ by Autumn).
+
+Version `v0.6.7 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.7>`_
+----------------------------------------------------------------------------------
+
+Released 2021-03-31
+
+`Compare with v0.6.6 <https://github.com/autumnjolitz/instruct/compare/v0.6.6...v0.6.7>`_ (1 commits since)
+
+Performance Improvements
+
+- cache by effective skipped fields across the board, do not confuse with second level skip/redefinitions, bump to v0.6.7 (`10aea05 <https://github.com/autumnjolitz/instruct/commit/10aea05582e1015834f179516c8b174c1d3a08c5>`_ by Autumn).
+
+Version `v0.6.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.6>`_
+----------------------------------------------------------------------------------
+
+Released 2021-02-17
+
+`Compare with v0.6.5 <https://github.com/autumnjolitz/instruct/compare/v0.6.5...v0.6.6>`_ (1 commits since)
+
+Bug Fixes
+
+- handle zero-length collections correctly, type hints should resolve using the locals, module globals, then typing ones, bump to v0.6.6 (`b7d0898 <https://github.com/autumnjolitz/instruct/commit/b7d0898980f74dbb4e8af9635300e1153133bdf8>`_ by Autumn).
+
+Version `v0.6.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.5>`_
+----------------------------------------------------------------------------------
+
+Released 2021-02-16
+
+`Compare with v0.6.4 <https://github.com/autumnjolitz/instruct/compare/v0.6.4...v0.6.5>`_ (1 commits since)
+
+Features
+
+- allow ``instruct.public_class()`` to access subclasses by index, document ambiguities, cascade subtraction preservation, bump to v0.6.5 (`8a0fdda <https://github.com/autumnjolitz/instruct/commit/8a0fddacc5033d2bfb845a1d83e55eae2bf745e5>`_ by Autumn).
+
+Version `v0.6.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.4>`_
+----------------------------------------------------------------------------------
+
+Released 2021-01-13
+
+`Compare with v0.6.3 <https://github.com/autumnjolitz/instruct/compare/v0.6.3...v0.6.4>`_ (1 commits since)
+
+Bug Fixes
+
+- adjust ``instruct.public_class`` to detect modified subtracted classes, allow proper overrides of ``__coerce__`` when class inheritance is greater than 1 deep, bump to v0.6.4 (`c4d2b91 <https://github.com/autumnjolitz/instruct/commit/c4d2b91e5fb3bf853d228edf8664480137dfe392>`_ by Autumn).
+
+Version `v0.6.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.3>`_
+----------------------------------------------------------------------------------
+
+Released 2020-12-07
+
+`Compare with v0.6.2 <https://github.com/autumnjolitz/instruct/compare/v0.6.2...v0.6.3>`_ (1 commits since)
+
+Bug Fixes
+
+- fix ``.keys(...)`` to operate on simple field that is ``Atomic`` descendant (no optional, etc wrapping), bump to v0.6.3 (`697a4ec <https://github.com/autumnjolitz/instruct/commit/697a4ecfe47ecc6de41df60171f14fc4aa28e2d3>`_ by Autumn).
+
+Version `v0.6.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.2>`_
+----------------------------------------------------------------------------------
+
+Released 2020-12-07
+
+`Compare with v0.6.1 <https://github.com/autumnjolitz/instruct/compare/v0.6.1...v0.6.2>`_ (3 commits since)
+
+Features
+
+- add ``instruct.show_all_fields`` to public API, ensure reachability for ``Optional`` type hinted fields (`5dde190 <https://github.com/autumnjolitz/instruct/commit/5dde190da1313dbec2ca3c6c723b2611cdedbc43>`_ by Autumn).
+- allow ``instruct.keys()``, ``instruct.show_all_fields()`` to handle ``Union``, ``Optional`` with embedded ``Atomic`` types properly (`47f038d <https://github.com/autumnjolitz/instruct/commit/47f038dfb3936d255d8660d563cf94efad89f04d>`_ by Autumn).
+
+Build
+
+- v0.6.2 (`7e60b6a <https://github.com/autumnjolitz/instruct/commit/7e60b6ae264d08053235ecd50a35d8877a8efd7c>`_ by Autumn).
+
+Version `v0.6.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.1>`_
+----------------------------------------------------------------------------------
+
+Released 2020-12-07
+
+`Compare with v0.6.0 <https://github.com/autumnjolitz/instruct/compare/v0.6.0...v0.6.1>`_ (1 commits since)
+
+Features
+
+- allow class subtractions to be pickled/unpickled, make type name friendlier to ``inflection.titleize(...)``, ensure a test for class method replacements, pickling, bump to v0.6.1 (`e28f6c6 <https://github.com/autumnjolitz/instruct/commit/e28f6c66af8753060e783d829e2c89029d2a59b7>`_ by Autumn).
+
+Version `v0.6.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.6.0>`_
+----------------------------------------------------------------------------------
+
+Released 2020-12-04
+
+`Compare with v0.5.0 <https://github.com/autumnjolitz/instruct/compare/v0.5.0...v0.6.0>`_ (34 commits since)
+
+Features
+
+- allow keys() to operate and extract keys for an embedded field (`647ee5c <https://github.com/autumnjolitz/instruct/commit/647ee5c7c6dbd6979a574d56a0cc21f2fa991719>`_ by Autumn).
+- allow for downcasting of a parent type to a subtracted type when generating the skip keys type (`9ca88d0 <https://github.com/autumnjolitz/instruct/commit/9ca88d0d4f3c45c6679fa84940e57cc9291b65be>`_ by Autumn).
+- support collections by position, make unions branch on type checks, avoid pipe-nature in favor of graph branch approach (`fcbc5bc <https://github.com/autumnjolitz/instruct/commit/fcbc5bc1c3ac8ce985e8bf00075c6181a3e11c3c>`_ by Autumn).
+- allow for generation of an effective coerce function based on type spidering (`b2f8195 <https://github.com/autumnjolitz/instruct/commit/b2f81953807eac4ac6d31ca04797fa2d5a8311eb>`_ by Autumn).
+- introduce a union branch function that assumes unique traces in subtype (`7078730 <https://github.com/autumnjolitz/instruct/commit/7078730baae72305526c2bfe1320df2fc7f16c1d>`_ by Autumn).
+- add in initial approach (````subtype.py````) for automated parent value type coercion to subtracted type (`5b50dc2 <https://github.com/autumnjolitz/instruct/commit/5b50dc2f264f33e02a5bfb3e8e3be50adc3cd2b7>`_ by Autumn).
+- handle subtracted classes in a more generalized fashion, use the correct function globals for the ``LOAD_GLOBAL`` bytecode (`531918e <https://github.com/autumnjolitz/instruct/commit/531918eb0f43c5570acdad449d8b9c0e6d4cfff7>`_ by Autumn).
+- support ``classmethod()`` rewriting for skip keys (`1505945 <https://github.com/autumnjolitz/instruct/commit/1505945e464a2789237164505741f053dafb7aeb>`_ by Autumn).
+- implement ``cls & {...}`` (type inclusion masks) (`fbff83f <https://github.com/autumnjolitz/instruct/commit/fbff83f9c33cd31e4c923f0d4ac96a017d7e8311>`_ by Autumn).
+- introduce more complex type subtractions that are commutative (`17ad8af <https://github.com/autumnjolitz/instruct/commit/17ad8af5d9290afe620fe8728773a26bf53c8a19>`_ by Autumn).
+- implement a search-and-replace of instruct ``Atomics`` inside of type hint instances w/o overriding a singleton class instance (`39c8084 <https://github.com/autumnjolitz/instruct/commit/39c808471163a694b69d6aef43711aefb06cebcb>`_ by Autumn).
+- implement single level, single ``Atomic``-descendant removal of attribute names on an ``Atomic``-derived object (termed **Skip Keys**) (`422e7b4 <https://github.com/autumnjolitz/instruct/commit/422e7b4e5e050170b61ead9f92d3fd99c3f5e707>`_ by Autumn).
+
+Performance Improvements
+
+- refactor, allow caching of class subtractions via ``FrozenMapping`` (`d3e9ef7 <https://github.com/autumnjolitz/instruct/commit/d3e9ef71ff345f624223b3ad24af18f4ab472463>`_ by Autumn).
+
+Bug Fixes
+
+- in case of a tuple of existing types, add to it for the union (`bbd1ef6 <https://github.com/autumnjolitz/instruct/commit/bbd1ef6ed8f31a6f2f4507623d262faef76fbcfb>`_ by Autumn).
+- on subtraction of fields that cannot be, just ignore it (`08163a5 <https://github.com/autumnjolitz/instruct/commit/08163a5533c7b44dfb3eda55a7847ce536106cad>`_ by Autumn).
+- allow overriding of callouts to a class in a ``__coerce__`` function by using a closure intercept (`f2be81a <https://github.com/autumnjolitz/instruct/commit/f2be81a7a12f07ab5e154f6bc0877890073b45fd>`_ by Autumn).
+
+Code Refactoring
+
+- reduce wildcard exports, export ``instruct.public_class(...)`` (`890de96 <https://github.com/autumnjolitz/instruct/commit/890de968acec0543cfb832fa9555131e94377cae>`_ by Autumn).
+- limit ``instruct.show_all_fields``, refactor ``CellType`` creation to a simpler form (`ea9d46f <https://github.com/autumnjolitz/instruct/commit/ea9d46f9815e331f24cf9a182e7b5470eadc3c06>`_ by Autumn).
+
+Docs
+
+- track progress (`4fdc793 <https://github.com/autumnjolitz/instruct/commit/4fdc793828a12f3b51bda2aae7fe959243def7bc>`_ by Autumn).
+- update goals (`0a26794 <https://github.com/autumnjolitz/instruct/commit/0a2679417a292372b7a4b5d9656f5ffd9e307655>`_ by Autumn).
+
+Tests
+
+- move nameless person to test scope to pass flake8 false negative (`6fb8d11 <https://github.com/autumnjolitz/instruct/commit/6fb8d110801dc16260879909b72a6e3e2fd98c55>`_ by Autumn).
+- document absurdities (`f231790 <https://github.com/autumnjolitz/instruct/commit/f231790e957213437b0ce4e551ea403ce50fc723>`_ by Autumn).
+- note where the cached classes may be looked up (`e87d49a <https://github.com/autumnjolitz/instruct/commit/e87d49abd3b8e8af512f91e42d84a4f8ba7d629a>`_ by Autumn).
+
+Chore
+
+- add generic type hint param ``U`` (`6d12f28 <https://github.com/autumnjolitz/instruct/commit/6d12f289073cfa66a38113aa036f491c1c8de1bb>`_ by Autumn).
+- annotate the ``ClassOrInstanceFuncsDescriptor`` (`513c103 <https://github.com/autumnjolitz/instruct/commit/513c10377593dc0535a1da73a484c083768d127a>`_ by Autumn).
+- add ``CellType`` (`3054875 <https://github.com/autumnjolitz/instruct/commit/30548754ac1f867c094c403c46b906ed6b9a8b59>`_ by Autumn).
+- add stub for annotated decoding (`75efce7 <https://github.com/autumnjolitz/instruct/commit/75efce75709cd64f3d74cfd7a1937938faa1c5e3>`_ by Autumn).
+- add missing type (`5f46828 <https://github.com/autumnjolitz/instruct/commit/5f46828f6823aa08234bca2d1b088d01e12e9116>`_ by Autumn).
+
+Continuous Integration
+
+- update workflow (`a70bf50 <https://github.com/autumnjolitz/instruct/commit/a70bf50947c9a23e008e93ac5e82faf1170aa812>`_ by Autumn).
+- Add github action to test project (`b938446 <https://github.com/autumnjolitz/instruct/commit/b9384469e6449e861df8de9aba35a8cf41b16d44>`_ by Autumn Jolitz).
+
+Build
+
+- v0.6.0 release (`2784646 <https://github.com/autumnjolitz/instruct/commit/27846462454ca26b17d544cc0aeab8a35e205190>`_ by Autumn).
+- add trailing newline (`526c1de <https://github.com/autumnjolitz/instruct/commit/526c1deb62c427495f421d32c3dc2a136c0c9dfb>`_ by Autumn).
+- ignore build, pytype files (`cc2051e <https://github.com/autumnjolitz/instruct/commit/cc2051e60ae9ed82d0cca3f3007d73bd12248903>`_ by Autumn).
+
+Version `v0.5.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.5.0>`_
+----------------------------------------------------------------------------------
+
+Released 2020-11-10
+
+`Compare with v0.4.13 <https://github.com/autumnjolitz/instruct/compare/v0.4.13...v0.5.0>`_ (2 commits since)
+
+Features
+
+- implement for ``Literal[...]``, bump minimum ``typing_extensions`` version, bump to v0.5.0 (`dbad02c <https://github.com/autumnjolitz/instruct/commit/dbad02c0ae55643452994dc5d14cd2938d55c4a0>`_ by Autumn).
+
+Docs
+
+- track new design goals (`fb1125f <https://github.com/autumnjolitz/instruct/commit/fb1125fce11d00d6992b86e67929a64703414e10>`_ by Autumn).
+
+Version `v0.4.13 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.13>`_
+------------------------------------------------------------------------------------
+
+Released 2020-09-30
+
+`Compare with v0.4.12 <https://github.com/autumnjolitz/instruct/compare/v0.4.12...v0.4.13>`_ (1 commits since)
+
+Bug Fixes
+
+- correct typo where disabling derived should apply at **all** times, not only in *debug mode*, bump to v0.4.13 (`4801c14 <https://github.com/autumnjolitz/instruct/commit/4801c14bf72d3ea1146edc400b20732feaacba5f>`_ by Autumn).
+
+Version `v0.4.12 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.12>`_
+------------------------------------------------------------------------------------
+
+Released 2020-09-30
+
+`Compare with v0.4.11 <https://github.com/autumnjolitz/instruct/compare/v0.4.11...v0.4.12>`_ (1 commits since)
+
+Bug Fixes
+
+- when ``dict`` is in the __coerce__ types for a key, disable ``derived`` matching for setters, bump to v0.4.12 (`40ebbb3 <https://github.com/autumnjolitz/instruct/commit/40ebbb3536dc7c011bee278201705fd2d1306464>`_ by Autumn).
+
+Version `v0.4.11 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.11>`_
+------------------------------------------------------------------------------------
+
+Released 2020-07-15
+
+`Compare with v0.4.9 <https://github.com/autumnjolitz/instruct/compare/v0.4.9...v0.4.11>`_ (3 commits since)
+
+Features
+
+- add top module level functions (``asdict()``, ``keys()``, etc), implement ``bytes`` support for ``json`` encoding, ``__coerce__`` may now have a tuple of field names in place of a field name to assign a single coercion to multiple attributes, bump to v0.4.11 (`9bb6344 <https://github.com/autumnjolitz/instruct/commit/9bb6344cc4d4f4b285f08e48bcad82181307e96d>`_ by Autumn).
+- implement metaclass support of ``keys()``/``values()``/``items()``/``to_json()`` (allows class definitions to override those names but still recover it via the type or metaclass), add ``tuple``, ``list``, ``dict`` and ``NamedTuple``-like helper functions, bump to v0.4.10 (`1ee382a <https://github.com/autumnjolitz/instruct/commit/1ee382a3fae5141a2c763e31e722bc0eeea6c655>`_ by Autumn).
+
+Chore
+
+- preallocate names, values, ids before test (`373d6a2 <https://github.com/autumnjolitz/instruct/commit/373d6a29bc90f84086eeb6c9ab302d00560b47c0>`_ by Autumn).
+
+Version `v0.4.9 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.9>`_
+----------------------------------------------------------------------------------
+
+Released 2020-07-07
+
+`Compare with v0.4.8 <https://github.com/autumnjolitz/instruct/compare/v0.4.8...v0.4.9>`_ (1 commits since)
+
+Bug Fixes
+
+- correct issue where keyword only defaults were stripped, bump to v0.4.9 (`97ed502 <https://github.com/autumnjolitz/instruct/commit/97ed5022d3b735700d2e54bbcc37893b4ceb1af5>`_ by Autumn).
+
+Version `v0.4.8 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.8>`_
+----------------------------------------------------------------------------------
+
+Released 2020-07-02
+
+`Compare with v0.4.7 <https://github.com/autumnjolitz/instruct/compare/v0.4.7...v0.4.8>`_ (1 commits since)
+
+Bug Fixes
+
+- update ``README.rst``, allow class definition in IDLE sessions, bump to v0.4.8 (`2e70769 <https://github.com/autumnjolitz/instruct/commit/2e70769b79bf39c16ae5e68adb9c5beee7b469f9>`_ by Autumn).
+
+Version `v0.4.7 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.7>`_
+----------------------------------------------------------------------------------
+
+Released 2020-07-02
+
+`Compare with v0.4.6 <https://github.com/autumnjolitz/instruct/compare/v0.4.6...v0.4.7>`_ (2 commits since)
+
+Features
+
+- implement ``dataclass``/``NamedTuple``-like type hinting, allow for overriding of autogenerated magic methods while allowing argless ``super()`` in their overrides, bump to v0.4.7 (`b71398b <https://github.com/autumnjolitz/instruct/commit/b71398bd2be8e14e7a25d812c209d434ac4d119b>`_ by Autumn).
+
+Build
+
+- fix ``precommit`` to older ``black`` because I feel the new tuple unpacking style for everything is rather noisy (`00e9450 <https://github.com/autumnjolitz/instruct/commit/00e9450a2d40b756cc92f503ad42a3ee53093fd4>`_ by Autumn).
+
+Version `v0.4.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.6>`_
+----------------------------------------------------------------------------------
+
+Released 2020-05-11
+
+`Compare with v0.4.5 <https://github.com/autumnjolitz/instruct/compare/v0.4.5...v0.4.6>`_ (5 commits since)
+
+Features
+
+- allow subtraction of fields on an adhoc basis, bump to v0.4.6 (`59cf2b1 <https://github.com/autumnjolitz/instruct/commit/59cf2b1da59b0689b34f96057dba59a2c402a14b>`_ by Autumn).
+- add helper function to typedef to check if atomic type class or meta (`a280f4b <https://github.com/autumnjolitz/instruct/commit/a280f4becd61ec69eca97e5ad613497b8a5a3f18>`_ by Autumn).
+
+Bug Fixes
+
+- avoid calling ``parse_typedef`` on ``__coerce__ = None`` (`4018332 <https://github.com/autumnjolitz/instruct/commit/40183325773228d3a479e2dbc84b41aa0d94d0cc>`_ by Autumn).
+
+Code Refactoring
+
+- refactor to make clearer, rename ``dataclass`` to ``concrete_class`` to signal "don't touch this" (`2342e46 <https://github.com/autumnjolitz/instruct/commit/2342e46bb705bd9fef0bb4480d2ae04bf491c33e>`_ by Autumn).
+
+Docs
+
+- document ````typedef.py```` to be clearer, remove erroneous cast to type (`802cc67 <https://github.com/autumnjolitz/instruct/commit/802cc67eb5c3b21005762bd59aaa73e760544e42>`_ by Autumn).
+
+Version `v0.4.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.5>`_
+----------------------------------------------------------------------------------
+
+Released 2020-02-14
+
+`Compare with v0.4.4 <https://github.com/autumnjolitz/instruct/compare/v0.4.4...v0.4.5>`_ (1 commits since)
+
+Performance Improvements
+
+- keep a weak reference to the owning classes to avoid constant rebinding for one-time class definitions, bump to v0.4.5 (`fa6b459 <https://github.com/autumnjolitz/instruct/commit/fa6b459dd5b6afc9c4d68c07acc27aabb262a028>`_ by Autumn Jolitz).
+
+Version `v0.4.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.4>`_
+----------------------------------------------------------------------------------
+
+Released 2020-02-10
+
+`Compare with v0.4.3 <https://github.com/autumnjolitz/instruct/compare/v0.4.3...v0.4.4>`_ (1 commits since)
+
+Features
+
+- order preserving ``keys()`` on an instance, provide class-level ``keys()``, implement positional arguments, bump to v0.4.4 (`87c1b6f <https://github.com/autumnjolitz/instruct/commit/87c1b6f69e8eae34cbba97552227931b1558ab77>`_ by Autumn Jolitz).
+
+Version `v0.4.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.3>`_
+----------------------------------------------------------------------------------
+
+Released 2020-01-06
+
+`Compare with v0.4.2 <https://github.com/autumnjolitz/instruct/compare/v0.4.2...v0.4.3>`_ (3 commits since)
+
+Performance Improvements
+
+- at ``class ....`` definition time, track if the property type list **may** have a collection of ``Atomic`` descendants (allows one to check a mapping instead of type hints) (`ff812db <https://github.com/autumnjolitz/instruct/commit/ff812db57b5bc294fdfabd1495abd6d29457d111>`_ by Autumn Jolitz).
+
+Tests
+
+- functions for determining if it contains a collection/mapping of ``Atomic``-descendents in ``class ...`` definition (`95f79a5 <https://github.com/autumnjolitz/instruct/commit/95f79a5aeda698a135e1014b9c591f9549344e1d>`_ by Autumn Jolitz).
+
+Other
+
+- [about] 0.4.3 (`eb70a1c <https://github.com/autumnjolitz/instruct/commit/eb70a1cbb372ea072636ec349cc72d64e033c4d9>`_ by Autumn Jolitz).
+
+Version `v0.4.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.2>`_
+----------------------------------------------------------------------------------
+
+Released 2019-10-13
+
+`Compare with v0.4.1 <https://github.com/autumnjolitz/instruct/compare/v0.4.1...v0.4.2>`_ (2 commits since)
+
+Features
+
+- preserve original slots at ``_slots``, improve FrozenMapping interface, bump to v0.4.2 (`44ab8dc <https://github.com/autumnjolitz/instruct/commit/44ab8dcbaa239957ee63daee653d44956ed4c4a7>`_ by Autumn Jolitz).
+
+Version `v0.4.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.1>`_
+----------------------------------------------------------------------------------
+
+Released 2019-10-13
+
+`Compare with v0.4.0 <https://github.com/autumnjolitz/instruct/compare/v0.4.0...v0.4.1>`_ (1 commits since)
+
+Bug Fixes
+
+- restrict flatten to only merge list, tuple, generators, bump to v0.4.1 (`1d922a4 <https://github.com/autumnjolitz/instruct/commit/1d922a4c0492ea5c82d60f77c96ecd1d50d689c8>`_ by Autumn Jolitz).
+
+Version `v0.4.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.4.0>`_
+----------------------------------------------------------------------------------
+
+Released 2019-09-18
+
+`Compare with v0.3.8 <https://github.com/autumnjolitz/instruct/compare/v0.3.8...v0.4.0>`_ (1 commits since)
+
+Features
+
+- finer grained exceptions, support ``[]`` on properties, rename ``skip`` to ``dataclass``, impllement ability to handle property type violations with a handler function, bump to v0.4.0 (`15d26a5 <https://github.com/autumnjolitz/instruct/commit/15d26a5c23946b984c58e41fdcf0074bfb8b0594>`_ by Autumn Jolitz).
+
+Version `v0.3.8 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.8>`_
+----------------------------------------------------------------------------------
+
+Released 2019-08-22
+
+`Compare with v0.3.7 <https://github.com/autumnjolitz/instruct/compare/v0.3.7...v0.3.8>`_ (1 commits since)
+
+Bug Fixes
+
+- ``Mapping`` immutability on ``to_json``, enforce ``__coerce__`` constraints, bump to v0.3.8 (`a45e1b1 <https://github.com/autumnjolitz/instruct/commit/a45e1b152b687109e371fd40ab9c2fd83ab72321>`_ by Autumn Jolitz).
+
+Version `v0.3.7 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.7>`_
+----------------------------------------------------------------------------------
+
+Released 2019-08-07
+
+`Compare with v0.3.5 <https://github.com/autumnjolitz/instruct/compare/v0.3.5...v0.3.7>`_ (1 commits since)
+
+Bug Fixes
+
+- correct singular exception, bump to v0.3.7 (`103739b <https://github.com/autumnjolitz/instruct/commit/103739b25cc7118510b8603e0bceab7ad3a3e3f6>`_ by Autumn Jolitz).
+
+Version `v0.3.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.5>`_
+----------------------------------------------------------------------------------
+
+Released 2019-08-07
+
+`Compare with v0.3.4 <https://github.com/autumnjolitz/instruct/compare/v0.3.4...v0.3.5>`_ (2 commits since)
+
+Features
+
+- explicitly support ``Tuple[Type, ...]``, ``Dict[KeyType, ValueType]``, bump to v0.3.5 (`8903c5b <https://github.com/autumnjolitz/instruct/commit/8903c5b41f95d126d4cf07b7afdebaa7151fcb93>`_ by Autumn Jolitz).
+
+Build
+
+- add black (`3ed3a00 <https://github.com/autumnjolitz/instruct/commit/3ed3a004644196cfc23bd0739265474ed80e697e>`_ by Autumn Jolitz).
+
+Version `v0.3.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.4>`_
+----------------------------------------------------------------------------------
+
+Released 2019-04-30
+
+`Compare with v0.3.3 <https://github.com/autumnjolitz/instruct/compare/v0.3.3...v0.3.4>`_ (4 commits since)
+
+Features
+
+- support redefining properties on inherited members if explicitly called out, bump to v0.3.4 (`f60943f <https://github.com/autumnjolitz/instruct/commit/f60943f5bae8a508e2e3c53f6060f520ee17165d>`_ by Autumn Jolitz).
+
+Chore
+
+- pass type check in ````typedef.py```` (`d9ef56c <https://github.com/autumnjolitz/instruct/commit/d9ef56c622464aaf02a7fb63edbef711b6f5e25c>`_ by Autumn Jolitz).
+
+Build
+
+- add in hooks for `mypy <https://mypy.readthedocs.io/>`_ and `pytype <https://github.com/google/pytype>`_ (`0c0b526 <https://github.com/autumnjolitz/instruct/commit/0c0b5261d9413b41372f8b2331df1d7c2af098d3>`_ by Autumn Jolitz).
+- add in defintions for type checkers (`8834579 <https://github.com/autumnjolitz/instruct/commit/88345798b081e82ab81d432dac58c11a4b4ef532>`_ by Autumn Jolitz).
+
+Version `v0.3.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.3>`_
+----------------------------------------------------------------------------------
+
+Released 2019-04-22
+
+`Compare with v0.3.2 <https://github.com/autumnjolitz/instruct/compare/v0.3.2...v0.3.3>`_ (3 commits since)
+
+Chore
+
+- add type hints (`0c7f6bb <https://github.com/autumnjolitz/instruct/commit/0c7f6bbb0df090ce501489103be792a191c85dc9>`_ by Autumn Jolitz).
+- add project type hint definitions (`da3c079 <https://github.com/autumnjolitz/instruct/commit/da3c079ac3c036e0e6837761845cd3861e80bbe3>`_ by Autumn Jolitz).
+
+Build
+
+- bump to v0.3.3 (`0eb1781 <https://github.com/autumnjolitz/instruct/commit/0eb17817963ff028986ffadbd4d944a434b2891e>`_ by Autumn Jolitz).
+
+Version `v0.3.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.2>`_
+----------------------------------------------------------------------------------
+
+Released 2019-03-19
+
+`Compare with v0.3.1 <https://github.com/autumnjolitz/instruct/compare/v0.3.1...v0.3.2>`_ (1 commits since)
+
+Bug Fixes
+
+- support nested ``ClassCreationFailed``s, bump to v0.3.2 (`bbf15c7 <https://github.com/autumnjolitz/instruct/commit/bbf15c78060af699ba71f49cfd4e2356f86b0223>`_ by Autumn Jolitz).
+
+Version `v0.3.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.1>`_
+----------------------------------------------------------------------------------
+
+Released 2019-03-09
+
+`Compare with v0.3.0 <https://github.com/autumnjolitz/instruct/compare/v0.3.0...v0.3.1>`_ (1 commits since)
+
+Features
+
+- expose  ``_column_types`` for mixins, bump to v0.3.1 (`11636dc <https://github.com/autumnjolitz/instruct/commit/11636dc961171e539ed3edeeae1b933a1b1658e6>`_ by Autumn Jolitz).
+
+Version `v0.3.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.3.0>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-11
+
+`Compare with v0.2.7 <https://github.com/autumnjolitz/instruct/compare/v0.2.7...v0.3.0>`_ (1 commits since)
+
+Bug Fixes
+
+- renormalize the changes list, bump to v0.3.0 (`01c37b1 <https://github.com/autumnjolitz/instruct/commit/01c37b1a583617dd61536617b14ea96d3c83d1da>`_ by Autumn Jolitz).
+
+Version `v0.2.7 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.7>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-06
+
+`Compare with v0.2.6 <https://github.com/autumnjolitz/instruct/compare/v0.2.6...v0.2.7>`_ (1 commits since)
+
+Features
+
+- identify as a ``Mapping``, bump to v0.2.7 (`fe23126 <https://github.com/autumnjolitz/instruct/commit/fe2312652fc15c0503d166b8e6b857459710695d>`_ by Autumn Jolitz).
+
+Version `v0.2.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.6>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-06
+
+`Compare with v0.2.5 <https://github.com/autumnjolitz/instruct/compare/v0.2.5...v0.2.6>`_ (1 commits since)
+
+Features
+
+- add in a ``from_json`` top level helper, bump to v0.2.6 (`c57eb16 <https://github.com/autumnjolitz/instruct/commit/c57eb1676dd0ac22be35a525c4124dcf73e74281>`_ by Autumn Jolitz).
+
+Version `v0.2.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.5>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-06
+
+`Compare with v0.2.4 <https://github.com/autumnjolitz/instruct/compare/v0.2.4...v0.2.5>`_ (1 commits since)
+
+Bug Fixes
+
+- correct ``__qualname__`` for internal dataclasses, bump to v0.2.5 (`e611963 <https://github.com/autumnjolitz/instruct/commit/e61196348286909aada4cd14a9b2a7d5cfbecf2b>`_ by Autumn Jolitz).
+
+Version `v0.2.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.4>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-06
+
+`Compare with v0.2.3 <https://github.com/autumnjolitz/instruct/compare/v0.2.3...v0.2.4>`_ (3 commits since)
+
+Bug Fixes
+
+- correct ``__qualname__``, ``__module__`` on dataclass instances, bump to v0.2.4 (`f9c1362 <https://github.com/autumnjolitz/instruct/commit/f9c136207bd7858c21d4dda8f679e4571c6c8604>`_ by Autumn Jolitz).
+- remove leading ``_`` (`6b2bfbb <https://github.com/autumnjolitz/instruct/commit/6b2bfbbbd4175fab0cf2471309f91679fc572293>`_ by Autumn Jolitz).
+
+Tests
+
+- verify JSON and mutable values (`a54d2a8 <https://github.com/autumnjolitz/instruct/commit/a54d2a89bdc22785bd3a01f8a83de35eb33a8268>`_ by Autumn Jolitz).
+
+Version `v0.2.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.3>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-05
+
+`Compare with v0.2.2 <https://github.com/autumnjolitz/instruct/compare/v0.2.2...v0.2.3>`_ (1 commits since)
+
+Features
+
+- assume immutable copies if possible, bump to v0.2.3 (`0767baf <https://github.com/autumnjolitz/instruct/commit/0767baf3aa63bcd4fb778ab9d5209bc68446c573>`_ by Autumn Jolitz).
+
+Version `v0.2.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.2>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-04
+
+`Compare with v0.2.1 <https://github.com/autumnjolitz/instruct/compare/v0.2.1...v0.2.2>`_ (1 commits since)
+
+Features
+
+- add class name into class creation failure message, bump to v0.2.2 (`789b948 <https://github.com/autumnjolitz/instruct/commit/789b948ca2104f3b9a5faafe6234e08ed9a91be1>`_ by Autumn Jolitz).
+
+Version `v0.2.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.1>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-04
+
+`Compare with v0.2.0 <https://github.com/autumnjolitz/instruct/compare/v0.2.0...v0.2.1>`_ (2 commits since)
+
+Features
+
+- use the ``globals()`` for overridden props from ``__module__`` (`f61e851 <https://github.com/autumnjolitz/instruct/commit/f61e851c62d0b8094788d8203c75996b1332c155>`_ by Autumn Jolitz).
+
+Build
+
+- bump to v0.2.1 (`bc4d30c <https://github.com/autumnjolitz/instruct/commit/bc4d30cd85bb6ecfe264fdfd82f30a43fc7e884d>`_ by Autumn Jolitz).
+
+Version `v0.2.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.2.0>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-04
+
+`Compare with v0.1.1 <https://github.com/autumnjolitz/instruct/compare/v0.1.1...v0.2.0>`_ (4 commits since)
+
+Features
+
+- use `_{key}_` for internal access (`d647e21 <https://github.com/autumnjolitz/instruct/commit/d647e21df66fdd62e66c0f0988458140d516c3f1>`_ by Autumn Jolitz).
+- rename the internal of ``_raw_{key}`` to ``_{key}_``, fix up ``__class__`` reference for argless ``super()`` calls (`2690415 <https://github.com/autumnjolitz/instruct/commit/26904151e860bff27d128bbce32b23e6f4fb6ff8>`_ by Autumn Jolitz).
+
+Tests
+
+- add test for ``clear()`` (`573c535 <https://github.com/autumnjolitz/instruct/commit/573c535db80dad143ca40da9a6f61f4844be6c36>`_ by Autumn Jolitz).
+
+Build
+
+- bump to v0.2.0 (`4d376a4 <https://github.com/autumnjolitz/instruct/commit/4d376a4e1fd8bfb15663489e4b51df196641ebcf>`_ by Autumn Jolitz).
+
+Version `v0.1.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.1.1>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-01
+
+`Compare with v0.1.0 <https://github.com/autumnjolitz/instruct/compare/v0.1.0...v0.1.1>`_ (1 commits since)
+
+Bug Fixes
+
+- remove errant debug print, bump to v0.1.1 (`8ef5e5e <https://github.com/autumnjolitz/instruct/commit/8ef5e5e0e2372e723ba0a16f88f050e6ab9fe395>`_ by Autumn Jolitz).
+
+Version `v0.1.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.1.0>`_
+----------------------------------------------------------------------------------
+
+Released 2019-02-01
+
+`Compare with v0.0.21 <https://github.com/autumnjolitz/instruct/compare/v0.0.21...v0.1.0>`_ (1 commits since)
+
+Features
+
+- support 1-level ``Iterable[Base]`` -> ``JSON``, hooks, better pickling, ``__setitem__`` on class, bump to v0.1.0 (`2f0feea <https://github.com/autumnjolitz/instruct/commit/2f0feeacadee6760f77a154f79ba6b63f4dd51ac>`_ by Autumn Jolitz).
+
+Version `v0.0.21 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.21>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-19
+
+`Compare with v0.0.20 <https://github.com/autumnjolitz/instruct/compare/v0.0.20...v0.0.21>`_ (1 commits since)
+
+Tests
+
+- more tests, bump to v0.0.21 (`52a75e6 <https://github.com/autumnjolitz/instruct/commit/52a75e67fd19c6f2ce64ccf2a84695f66f8dad91>`_ by Autumn Jolitz).
+
+Version `v0.0.20 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.20>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-19
+
+`Compare with v0.0.19 <https://github.com/autumnjolitz/instruct/compare/v0.0.19...v0.0.20>`_ (1 commits since)
+
+Features
+
+- track coerce types, bump to v0.0.20 (`a5c96ca <https://github.com/autumnjolitz/instruct/commit/a5c96cae29ae08982a0d86b2ba7c4755c4195f2a>`_ by Autumn Jolitz).
+
+Version `v0.0.19 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.19>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-19
+
+`Compare with v0.0.18 <https://github.com/autumnjolitz/instruct/compare/v0.0.18...v0.0.19>`_ (2 commits since)
+
+Features
+
+- support nested List better, bump to v0.0.19 (`9f48c95 <https://github.com/autumnjolitz/instruct/commit/9f48c959b2f095352699441df136ffbdf25c0caf>`_ by Autumn Jolitz).
+
+Tests
+
+- fix test atomic (`10a7e56 <https://github.com/autumnjolitz/instruct/commit/10a7e56a802ec14ac75554e3fcd0de1f99668c30>`_ by Autumn Jolitz).
+
+Version `v0.0.18 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.18>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-19
+
+`Compare with v0.0.17 <https://github.com/autumnjolitz/instruct/compare/v0.0.17...v0.0.18>`_ (3 commits since)
+
+Bug Fixes
+
+- error on generics, support nested lists, bump to v0.0.18 (`96582de <https://github.com/autumnjolitz/instruct/commit/96582de0696f95151d05d6bb8ee657db86bee914>`_ by Autumn Jolitz).
+
+Chore
+
+- ignore python/ venv and .pytest_cache (`4ab0a70 <https://github.com/autumnjolitz/instruct/commit/4ab0a70f03d0c05a9b6c44d19a2c6f6368574360>`_ by Autumn Jolitz).
+- remove inaccurate ``setup.cfg`` (`6709054 <https://github.com/autumnjolitz/instruct/commit/67090547b4b8d5e3e1cf7d3ab5da698f1398a90b>`_ by Autumn Jolitz).
+
+Version `v0.0.17 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.17>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-14
+
+`Compare with v0.0.16 <https://github.com/autumnjolitz/instruct/compare/v0.0.16...v0.0.17>`_ (1 commits since)
+
+Bug Fixes
+
+- fix type message, bump to v0.0.17 (`ded8a9c <https://github.com/autumnjolitz/instruct/commit/ded8a9cb98794868361a4415f3452ccba57e7bc7>`_ by Autumn Jolitz).
+
+Version `v0.0.16 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.16>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-13
+
+`Compare with v0.0.15 <https://github.com/autumnjolitz/instruct/compare/v0.0.15...v0.0.16>`_ (1 commits since)
+
+Features
+
+- fix history truncation, bump to v0.0.16 (`e18a73c <https://github.com/autumnjolitz/instruct/commit/e18a73c62b460bfb169932ba47806c23e4153579>`_ by Autumn Jolitz).
+
+Version `v0.0.15 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.15>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-13
+
+`Compare with v0.0.14 <https://github.com/autumnjolitz/instruct/compare/v0.0.14...v0.0.15>`_ (1 commits since)
+
+Bug Fixes
+
+- support correct property accounting (`431742d <https://github.com/autumnjolitz/instruct/commit/431742dc7f6761231f7ccf3f0c5ffbb32ed04ea3>`_ by Autumn Jolitz).
+
+Version `v0.0.14 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.14>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-13
+
+`Compare with v0.0.13 <https://github.com/autumnjolitz/instruct/compare/v0.0.13...v0.0.14>`_ (1 commits since)
+
+Features
+
+- now with better type names, bump to v0.0.14 (`9a1994f <https://github.com/autumnjolitz/instruct/commit/9a1994f6a2056b90e59495d34af3ae3f79f877e5>`_ by Autumn Jolitz).
+
+Version `v0.0.13 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.13>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-12
+
+`Compare with v0.0.12 <https://github.com/autumnjolitz/instruct/compare/v0.0.12...v0.0.13>`_ (1 commits since)
+
+Features
+
+- index properties onto the class, bump to v0.0.13 (`aabef91 <https://github.com/autumnjolitz/instruct/commit/aabef91bb95ac3885d45f3ce341ee0961ff1a0c5>`_ by Autumn Jolitz).
+
+Version `v0.0.12 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.12>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-12
+
+`Compare with v0.0.11 <https://github.com/autumnjolitz/instruct/compare/v0.0.11...v0.0.12>`_ (1 commits since)
+
+Features
+
+- supports overrideable type errors, bump version to v0.0.12 (`2b7746a <https://github.com/autumnjolitz/instruct/commit/2b7746ab0b6556de97ac0cdea0e8f3498044b9f6>`_ by Autumn Jolitz).
+
+Version `v0.0.11 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.11>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-11
+
+`Compare with v0.0.10 <https://github.com/autumnjolitz/instruct/compare/v0.0.10...v0.0.11>`_ (1 commits since)
+
+Bug Fixes
+
+- Correct bug in class keyword argument ``fast=True``, bump version to v0.0.11 (`eb7e57f <https://github.com/autumnjolitz/instruct/commit/eb7e57fccc817430072e2b384f690c27ec3116b7>`_ by Autumn Jolitz).
+
+Version `v0.0.10 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.10>`_
+------------------------------------------------------------------------------------
+
+Released 2018-12-11
+
+`Compare with v0.0.9 <https://github.com/autumnjolitz/instruct/compare/v0.0.9...v0.0.10>`_ (1 commits since)
+
+Features
+
+- add in ``**mapping`` support (`e07105e <https://github.com/autumnjolitz/instruct/commit/e07105e98c71ca9b3e4cd84a988cecbc33edecf9>`_ by Autumn Jolitz).
+
+Version `v0.0.9 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.9>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-11
+
+`Compare with v0.0.8 <https://github.com/autumnjolitz/instruct/compare/v0.0.8...v0.0.9>`_ (1 commits since)
+
+Code Refactoring
+
+- restructure and introduce better naming (`99e1ae8 <https://github.com/autumnjolitz/instruct/commit/99e1ae812e441e7edd124947280e7018bcd3882b>`_ by Autumn Jolitz).
+
+Version `v0.0.8 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.8>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-11
+
+`Compare with v0.0.7 <https://github.com/autumnjolitz/instruct/compare/v0.0.7...v0.0.8>`_ (1 commits since)
+
+Features
+
+- Support generation of custom types to match requirements (`a1a5643 <https://github.com/autumnjolitz/instruct/commit/a1a5643f5dd64bec2ec1b5da6649920b592d7975>`_ by Autumn Jolitz).
+
+Version `v0.0.7 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.7>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.6 <https://github.com/autumnjolitz/instruct/compare/v0.0.6...v0.0.7>`_ (1 commits since)
+
+Bug Fixes
+
+- restore ``__hash__`` to data classes (`0e9ef2b <https://github.com/autumnjolitz/instruct/commit/0e9ef2b7dc7261b16a764774aead2ccce747317a>`_ by Autumn Jolitz).
+
+Version `v0.0.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.6>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.5 <https://github.com/autumnjolitz/instruct/compare/v0.0.5...v0.0.6>`_ (1 commits since)
+
+Features
+
+- make it possible to get the parent support class (`9088c1f <https://github.com/autumnjolitz/instruct/commit/9088c1fde075e485dc4e68b3ea0031e62954a39f>`_ by Autumn Jolitz).
+
+Version `v0.0.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.5>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.4 <https://github.com/autumnjolitz/instruct/compare/v0.0.4...v0.0.5>`_ (1 commits since)
+
+Features
+
+- Python 3.7 focus (`d32a4e9 <https://github.com/autumnjolitz/instruct/commit/d32a4e94eb19dcff94cc2055a9e3a124fdb2ca1a>`_ by Autumn Jolitz).
+
+Version `v0.0.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.4>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.3 <https://github.com/autumnjolitz/instruct/compare/v0.0.3...v0.0.4>`_ (2 commits since)
+
+Features
+
+- allow use of ``type`` as a attribute name (`8d91b48 <https://github.com/autumnjolitz/instruct/commit/8d91b4852a02289649bf3ee7f8cdf5147820ab3b>`_ by Autumn Jolitz).
+
+Chore
+
+- bump version (`3848f59 <https://github.com/autumnjolitz/instruct/commit/3848f590a88919cc494dba9dce7973e2eed62335>`_ by Autumn Jolitz).
+
+Version `v0.0.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.3>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.2 <https://github.com/autumnjolitz/instruct/compare/v0.0.2...v0.0.3>`_ (1 commits since)
+
+Build
+
+- this is not a universal build (`1e3bab8 <https://github.com/autumnjolitz/instruct/commit/1e3bab8031b710c8bc33507cab3a23858056ace7>`_ by Autumn Jolitz).
+
+Version `v0.0.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.2>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-10
+
+`Compare with v0.0.1 <https://github.com/autumnjolitz/instruct/compare/v0.0.1...v0.0.2>`_ (1 commits since)
+
+Features
+
+- updates for Python 3.7 (`0ed83ef <https://github.com/autumnjolitz/instruct/commit/0ed83efcbae0bbed31f3b17f5bedd8c32576e94c>`_ by Autumn Jolitz).
+
+Version `v0.0.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.0.1>`_
+----------------------------------------------------------------------------------
+
+Released 2018-12-09
+
+`Compare with first commit <https://github.com/autumnjolitz/instruct/compare/3d80b09739f780ebaa60a85583b615805277cab3...v0.0.1>`_ (20 commits since)
+
+Features
+
+- update for Python 3.6 (`004caba <https://github.com/autumnjolitz/instruct/commit/004caba2f07c3cdc411ce2d910e6155f0a69121f>`_ by Autumn Jolitz).
+- Add JSON, pickle, and coercion (allows casting from ``N`` types to an appropriate type) (`8fe8aa2 <https://github.com/autumnjolitz/instruct/commit/8fe8aa2c581031d93791938c073d02c7979baac0>`_ by Autumn Jolitz).
+- Add field linkages (`9531dad <https://github.com/autumnjolitz/instruct/commit/9531dad9fc9e9287148a09f91061453ee8b4a827>`_ by Autumn Jolitz).
+- Support multiple inheritance, optimize edge classes (`2d7a4fa <https://github.com/autumnjolitz/instruct/commit/2d7a4fa34747407af008c168e895aca1b607be34>`_ by Autumn Jolitz).
+- Use Jinja to handle the macro-work (`487fa3d <https://github.com/autumnjolitz/instruct/commit/487fa3de98896a203a9d58904bf75e9fbf29c784>`_ by Autumn Jolitz).
+- Optimize through use of ``__new__`` to seed vital fields ahead of time (`48f29d3 <https://github.com/autumnjolitz/instruct/commit/48f29d331da00cda1cfed8d50a4ca1ccdb035d86>`_ by Autumn Jolitz).
+- Support derived embedded classes and duck-eqing them (`b514f07 <https://github.com/autumnjolitz/instruct/commit/b514f0721de47be00153c54f535006727f1f1805>`_ by Autumn Jolitz).
+- Flush out an idea (`3d80b09 <https://github.com/autumnjolitz/instruct/commit/3d80b09739f780ebaa60a85583b615805277cab3>`_ by Autumn Jolitz).
+
+Performance Improvements
+
+- Increase performance through codegen of constant structural cases (`f51acac <https://github.com/autumnjolitz/instruct/commit/f51acac3d8c68a5d0a3dd6021de0ef55aa8a3d81>`_ by Autumn Jolitz).
+
+Bug Fixes
+
+- bugfixes (`7803843 <https://github.com/autumnjolitz/instruct/commit/7803843896c0867753e0b33626f67d3ccddf0017>`_ by Autumn Jolitz).
+
+Docs
+
+- update (`24ad8fd <https://github.com/autumnjolitz/instruct/commit/24ad8fd9f61b2d644e25dcdbdb8a7c5104b6dcc4>`_ by Autumn Jolitz).
+- update intent (`9ecfb23 <https://github.com/autumnjolitz/instruct/commit/9ecfb23f9cf0893edd6e183c7ad91123c5819d26>`_ by Autumn Jolitz).
+- Add docs (`d0fb82c <https://github.com/autumnjolitz/instruct/commit/d0fb82cebe5b2dfc2ac790347878b6175f6f60f7>`_ by Autumn Jolitz).
+- Log performance (`efe710a <https://github.com/autumnjolitz/instruct/commit/efe710ae29452604278c3af79e90d1fdc157c790>`_ by Autumn Jolitz).
+- Log my approach (`d6972e8 <https://github.com/autumnjolitz/instruct/commit/d6972e8da542d7841b2e0d5ff4af92e110c31bea>`_ by Autumn Jolitz).
+
+Dependencies
+
+- add pytest dependency (`7b1022a <https://github.com/autumnjolitz/instruct/commit/7b1022abb2cfc70b3725625b2109abe6b36a590d>`_ by Autumn Jolitz).
+
+Tests
+
+- add test for the readme (`ce75dfd <https://github.com/autumnjolitz/instruct/commit/ce75dfd7f2fdac9615e5751b4286aa631dc84a7d>`_ by Autumn Jolitz).
+
+Chore
+
+- Delete unused code (`93e8791 <https://github.com/autumnjolitz/instruct/commit/93e87911b7065f7438d187d942e5994a196f73d0>`_ by Autumn Jolitz).
+
+Build
+
+- initial release of just the object structure (`9c43431 <https://github.com/autumnjolitz/instruct/commit/9c4343143b53efeefbeb8d8b28b01b524a6e1cdf>`_ by Autumn Jolitz).

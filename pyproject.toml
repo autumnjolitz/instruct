@@ -34,7 +34,6 @@ convention='conventional'
 marker_line = '.. |Changes|'
 template = 'path:CHANGES.rst.template'
 version_regex = '^Version `?(?P<version>v?[\w\d\.\+]+)'
-filter_commits = '5871827f418aa250b3c4bef48d7b2f448ae3d956..'
 sections= ["revert", "feat", "perf", "fix", "refactor", "docs", "deps", "tests", "style", "chore", "ci", "build"]
 parse_trailers = true
 parse_refs = true
