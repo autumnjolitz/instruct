@@ -1,62 +1,165 @@
 .. |Changes|
 
-Version `v0.8.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.5>`_
+Version `v0.8.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.6>`_
 ----------------------------------------------------------------------------------
 
-Released 2025-05-07
+Released 2025-07-08
 
-`Compare with v0.8.4 <https://github.com/autumnjolitz/instruct/compare/v0.8.4...v0.8.5>`_ (16 commits since)
+`Compare with v0.8.5 <https://github.com/autumnjolitz/instruct/compare/v0.8.5...v0.8.6>`_ (9 commits since)
+
+Features
+
+- implement ``AutoRepr`` (aka ``autorepr=True``) (`d58c423 <https://github.com/autumnjolitz/instruct/commit/d58c423ddc06ef80cdb349f51b4005245efbc9f8>`_ by Autumn).
 
 Bug Fixes
 
-- satisfy both mypy and ruff for ``TypingDefinition`` (`3e9e34a <https://github.com/autumnjolitz/instruct/commit/3e9e34a518829eebbb5a0d6ec63060ad513532a2>`_ by Autumn).
-- apply ``pre-commit`` to all files (`2184824 <https://github.com/autumnjolitz/instruct/commit/21848240dd6d52e0159d5633cc2c27d41267363e>`_ by Autumn).
-- satisfy mypy (`51e7320 <https://github.com/autumnjolitz/instruct/commit/51e73202c4b328187d7db2fafc0b2da8f7ca7437>`_ by Autumn).
-- ValidationError should operate on ``.errors`` as it is ``list[Exception] | tuple[Exception, ...]`` (`6d544df <https://github.com/autumnjolitz/instruct/commit/6d544dfe4765885e0a5a90efc5ec132566d3ed4d>`_ by Autumn).
+- only call ``.as_json()`` when encountering ``Exception`` (if the stack is expanded from item that has ``.errors``, it will already have JSONable items) (`3e75170 <https://github.com/autumnjolitz/instruct/commit/3e7517024c39fce016b30cea2ff3fd077a26452d>`_ by Autumn).
+- avoid exposing ``NoIterable`` fields via ``keys()``, ``items()`` (`dc6a6d8 <https://github.com/autumnjolitz/instruct/commit/dc6a6d8f28b67e54904867d0cd4946d9eb41f798>`_ by Autumn).
+- correct syntax error when no effective fields (may occur if all fields are ``Annotated[..., NoIterable]``) (`2b47a16 <https://github.com/autumnjolitz/instruct/commit/2b47a16985637ed34f62afdcd68d1da29dde404d>`_ by Autumn).
+
+Docs
+
+- update (`7f4e53c <https://github.com/autumnjolitz/instruct/commit/7f4e53c9f8662c0fa974057b95b48a89cf105bc2>`_ by Autumn).
+
+Tests
+
+- verify ``NoPickle`` (`886fedd <https://github.com/autumnjolitz/instruct/commit/886fedd0a0b33f0ab1233c79e91b7f13e0d5b4ce>`_ by Autumn).
+
+Chore
+
+- correct type hint errors (`e554179 <https://github.com/autumnjolitz/instruct/commit/e554179422e98772dbc99ee03665e0ec11c28b0a>`_ by Autumn).
+
+Build
+
+- use a tempfile instead of a ``StringIO`` for ``git tag -F`` (`57d2e0d <https://github.com/autumnjolitz/instruct/commit/57d2e0d795053368ce156a9b45d28c3736ed8262>`_ by Autumn).
+- set version to 0.8.6 (`6590620 <https://github.com/autumnjolitz/instruct/commit/6590620204e82cb8594fb9e41531e603e4b3f05e>`_ by Autumn).
+
+Version `v0.8.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.5>`_
+----------------------------------------------------------------------------------
+
+Released 2025-07-08
+
+`Compare with v0.8.4 <https://github.com/autumnjolitz/instruct/compare/v0.8.4...v0.8.5>`_ (17 commits since)
+
+Bug Fixes
+
+- satisfy both mypy and ruff for ``TypingDefinition`` (`895f357 <https://github.com/autumnjolitz/instruct/commit/895f35764c7f549c0a471b1d7ae854f570b7edee>`_ by Autumn).
+- apply ``pre-commit`` to all files (`f1164d1 <https://github.com/autumnjolitz/instruct/commit/f1164d1e2177eb557ad653f6898c3a8499e23276>`_ by Autumn).
+- ``ValidationError`` should operate on ``.errors`` as it is ``list[Exception] | tuple[Exception, ...]`` (`c6d85bf <https://github.com/autumnjolitz/instruct/commit/c6d85bf163f13bcdef939cd0dfeb9196599825f1>`_ by Autumn).
+
+Docs
+
+- update (`1c69969 <https://github.com/autumnjolitz/instruct/commit/1c699692248952aac6ca18b03ea2038746996589>`_ by Autumn).
+
+Dependencies
+
+- add missing ``=`` for version (`9bfc231 <https://github.com/autumnjolitz/instruct/commit/9bfc231e6589c4c99624ebe08637f901d79c50e7>`_ by Autumn).
+- remove ``black``, update packages (`74d22d6 <https://github.com/autumnjolitz/instruct/commit/74d22d64565c87ac24e6e0ddffd2d6b0f1fb1898>`_ by Autumn).
+
+Chore
+
+- satisfy mypy type checks (`8566e7f <https://github.com/autumnjolitz/instruct/commit/8566e7f015af87be76dd86c35bbf64474bd99425>`_ by Autumn).
+
+Continuous Integration
+
+- remove Python 3.7 support (`6b0e61d <https://github.com/autumnjolitz/instruct/commit/6b0e61d6bb519ea31f00585f5760b13edf8d0cbc>`_ by Autumn).
+
+Build
+
+- remove Python 3.10+ specific type reference (`f41c750 <https://github.com/autumnjolitz/instruct/commit/f41c750cdb5893f99b08858fbc86914fed06321d>`_ by Autumn).
+- add Python 3.10, 3.12 specific checks (`7a7694f <https://github.com/autumnjolitz/instruct/commit/7a7694ffef9922b9dfcca744c544a03285d4ef78>`_ by Autumn).
+- refactor, move verify types/style into task file (`5597576 <https://github.com/autumnjolitz/instruct/commit/5597576a0c44e0c29cab4d33ec1f1268ca8565e5>`_ by Autumn).
+- add ``instruct.compat`` as a typing compat module (`76cf633 <https://github.com/autumnjolitz/instruct/commit/76cf6334086d706d0329cac8d4d10592168acb7f>`_ by Autumn).
+- drop unused mypy/pytype code (`5d7a32e <https://github.com/autumnjolitz/instruct/commit/5d7a32eb4ff2b85154c21c5968640362003cc3f4>`_ by Autumn).
+- update pre-commit with ruff (`f648133 <https://github.com/autumnjolitz/instruct/commit/f648133a945ce5d05bed3c398f3a30fab3fde992>`_ by Autumn).
+- update pre-commit-config (`edf9b20 <https://github.com/autumnjolitz/instruct/commit/edf9b20f87cd2ab444b7021cd833fde02814464c>`_ by Autumn).
+- update precommit to use ruff (`82f0d9c <https://github.com/autumnjolitz/instruct/commit/82f0d9cd6e714701bca2ba87349141df2a03b75d>`_ by Autumn).
+- set version to 0.8.5 (`57ac9d4 <https://github.com/autumnjolitz/instruct/commit/57ac9d4743a3311626dd6c95bc077326d27ad982>`_ by Autumn).
 
 Version `v0.8.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.4>`_
 ----------------------------------------------------------------------------------
 
-Released 2024-07-30
+Released 2025-07-08
 
-`Compare with v0.8.3 <https://github.com/autumnjolitz/instruct/compare/v0.8.3...v0.8.4>`_ (2 commits since)
+`Compare with v0.8.3 <https://github.com/autumnjolitz/instruct/compare/v0.8.3...v0.8.4>`_ (3 commits since)
 
 Bug Fixes
 
-- adjust ``copy_with`` to attempt to use ``__class_getitem__`` as the fallback (`2117a8d <https://github.com/autumnjolitz/instruct/commit/2117a8d0ca154c86ceedff2a546b5942c56b0301>`_ by Autumn).
+- adjust ``copy_with`` to attempt to use ``__class_getitem__`` as the fallback (`597e16f <https://github.com/autumnjolitz/instruct/commit/597e16f6b4ee500d05967418b3855fa10aed1e03>`_ by Autumn).
+
+Docs
+
+- update (`cd8b31d <https://github.com/autumnjolitz/instruct/commit/cd8b31d406b024c2ab344c34e1a5879c9716fb57>`_ by Autumn).
+
+Build
+
+- set version to 0.8.4 (`ad5d62c <https://github.com/autumnjolitz/instruct/commit/ad5d62c153aeeabe6a3d3acb0938dfdeb4c7ffa7>`_ by Autumn).
 
 Version `v0.8.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.3>`_
 ----------------------------------------------------------------------------------
 
-Released 2024-07-30
+Released 2025-07-08
 
-`Compare with v0.8.2 <https://github.com/autumnjolitz/instruct/compare/v0.8.2...v0.8.3>`_ (13 commits since)
+`Compare with v0.8.2 <https://github.com/autumnjolitz/instruct/compare/v0.8.2...v0.8.3>`_ (14 commits since)
+
+Features
+
+- run benchmarks in CI, update ``README.rst``, add coverage reports (`c79546b <https://github.com/autumnjolitz/instruct/commit/c79546bdc145d030a7333b031fbfb43d26e1aa79>`_ by Autumn).
 
 Bug Fixes
 
-- correct subtype generation for 3.10+ ``types.UnionType``s (`50a7439 <https://github.com/autumnjolitz/instruct/commit/50a74390e57449e32d9c72eef901f0e8982d651d>`_ by Autumn).
-- add ``mode`` to benchmarking, refactor slightly (`1e0e821 <https://github.com/autumnjolitz/instruct/commit/1e0e8216ceb88905224c5370dd52a6622aa58eb8>`_ by Autumn).
-- ``fast=True`` now supports all event listener forms (`9bf8489 <https://github.com/autumnjolitz/instruct/commit/9bf84898095d3d2241b94801661811d12dc8ca70>`_ by Autumn).
-- ``__main__`` now can run benchmark again (`67d59fd <https://github.com/autumnjolitz/instruct/commit/67d59fd50e466be46d9d4bd80cb9a5df0af2d0c3>`_ by Autumn).
+- correct subtype generation for Python 3.10+ ``types.UnionType``s (`2a970b0 <https://github.com/autumnjolitz/instruct/commit/2a970b062141aec0ae4e2f7fbadd79df1a14a5f1>`_ by Autumn).
+- add ``mode`` to benchmarking in ``__main__.py``, refactor slightly (`af22b9b <https://github.com/autumnjolitz/instruct/commit/af22b9b779e41519ca83b546d5680c12c8ff0135>`_ by Autumn).
+- ``instruct.Atomic``-derived type keywork argument ``fast=True`` now supports *all* event listener forms (`175f859 <https://github.com/autumnjolitz/instruct/commit/175f85997b92de3be3e173b7530d81b8c6f048a2>`_ by Autumn).
+- ``__main__.py`` now can run ``benchmark`` again (`7726865 <https://github.com/autumnjolitz/instruct/commit/7726865f1d46067fce2a9229eba4332f81a039c0>`_ by Autumn).
+
+Docs
+
+- update (`cd2c748 <https://github.com/autumnjolitz/instruct/commit/cd2c74879c36c717c34337deeb13abd794c27de3>`_ by Autumn).
+- remove ``|commits-since|`` as it is unused (`310ded3 <https://github.com/autumnjolitz/instruct/commit/310ded3715b1598ab3b1043b9495cfa23f24471e>`_ by Autumn).
+
+Continuous Integration
+
+- tweak output of benchmark post-processing (`2986c9c <https://github.com/autumnjolitz/instruct/commit/2986c9c1e4b2a0ab3722dafcec30716706b8db53>`_ by Autumn).
+- rename the workflows (`c12c49e <https://github.com/autumnjolitz/instruct/commit/c12c49e4ea1c3dbb6d26b4f60ec535c0912479b7>`_ by Autumn).
+
+Build
+
+- fix changes since url, CI output (`c50c856 <https://github.com/autumnjolitz/instruct/commit/c50c8562bf9ead06fda7bf769886c002dd8692ad>`_ by Autumn).
+- add ``test`` and ``benchmark``commands (`e5a05cf <https://github.com/autumnjolitz/instruct/commit/e5a05cff98684dde9b60b6a8ba2b9a944b51cfca>`_ by Autumn).
+- simplify the wrapper code to a common function, implement base64 wrapping (`1aed800 <https://github.com/autumnjolitz/instruct/commit/1aed800245a9f92f8b6e597e7311206c4cb55183>`_ by Autumn).
+- set version to 0.8.3 (`e41da57 <https://github.com/autumnjolitz/instruct/commit/e41da57183802955c036010ab8b2d6411729c5f2>`_ by Autumn).
 
 Other
 
-- feature: implement simple ``type alias = hint`` (3.12+) (`e9e0ac7 <https://github.com/autumnjolitz/instruct/commit/e9e0ac782ae48d5f07bc3a68edaea97bb81af322>`_ by Autumn).
+- feature(typedef): implement simple ``type alias = hint`` (3.12+) (`a16b1cb <https://github.com/autumnjolitz/instruct/commit/a16b1cb47f45c6ebc9cd1b3c4f39dffb2839feb6>`_ by Autumn).
 
-Version v0.8.2
--------------------
+Version `v0.8.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.2>`_
+----------------------------------------------------------------------------------
 
-Release 2024-07-23
+Released 2025-07-08
+
+`Compare with v0.8.1 <https://github.com/autumnjolitz/instruct/compare/v0.8.1...v0.8.2>`_ (4 commits since)
 
 Bug Fixes
 
-- handle fixed tuples correctly (`f1ab15f <https://github.com/autumnjolitz/instruct/commit/f1ab15fbf3e2d5819b50c5d8280b50d6f83e4329>`_ by Autumn).
-- use ``types.CodeType.replace(...)`` when available (`0930b36 <https://github.com/autumnjolitz/instruct/commit/0930b36b8df4d7dd358792fc74361ce21d6bc3ac>`_ by Autumn).
+- handle fixed tuples correctly (`c1bcd41 <https://github.com/autumnjolitz/instruct/commit/c1bcd41a6e58b3b38c106cc29a6d4766db771089>`_ by Autumn).
+- use ``types.CodeType.replace(...)`` when available (`8bbc3cf <https://github.com/autumnjolitz/instruct/commit/8bbc3cfb4fe1aee28a80169fef2d21e85455dd7b>`_ by Autumn).
 
-Version v0.8.1
--------------------
+Docs
 
-Release 2024-07-16
+- update (`820f4ea <https://github.com/autumnjolitz/instruct/commit/820f4ea36c4b859203fa3a10b0aa127f5d90fd94>`_ by Autumn).
+
+Build
+
+- set version to 0.8.2 (`d29ffc5 <https://github.com/autumnjolitz/instruct/commit/d29ffc597b49cce6d2ee999c3f0515e651dee006>`_ by Autumn).
+
+Version `v0.8.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.1>`_
+----------------------------------------------------------------------------------
+
+Released 2025-07-08
+
+`Compare with v0.8.0 <https://github.com/autumnjolitz/instruct/compare/v0.8.0...v0.8.1>`_ (6 commits since)
 
 Bug Fixes
 
@@ -64,7 +167,7 @@ Bug Fixes
 
 Docs
 
-- update (`8f9ea11 <https://github.com/autumnjolitz/instruct/commit/8f9ea113905356c6a11dc71b9c1a2770d96a7d3f>`_ by Autumn).
+- update (`900b323 <https://github.com/autumnjolitz/instruct/commit/900b323255092d8148428dc0a5b07d2965d27a3e>`_ by Autumn).
 - remove contradictory statement (`e4ed0b4 <https://github.com/autumnjolitz/instruct/commit/e4ed0b40a82be3e24cc0362a5e76832057344204>`_ by Autumn).
 
 Build
@@ -73,10 +176,12 @@ Build
 - adjust tasks to allow for releasing on a version other than the ``CURRENT_VERSION.txt`` next default (`fc42c02 <https://github.com/autumnjolitz/instruct/commit/fc42c02de0dbba61bb1e89b61babcd2d1f0429e6>`_ by Autumn).
 - bump version to 0.8.1 (`8a4c2ef <https://github.com/autumnjolitz/instruct/commit/8a4c2ef7b4122edab3a92123fd7846bca2571cb8>`_ by Autumn).
 
-Version v0.8.0
--------------------
+Version `v0.8.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.0>`_
+----------------------------------------------------------------------------------
 
-Release 2025-07-07
+Released 2025-07-08
+
+`Compare with v0.7.5.post2 <https://github.com/autumnjolitz/instruct/compare/v0.7.5.post2...v0.8.0>`_ (66 commits since)
 
 Features
 
@@ -176,19 +281,23 @@ Build
 - prerelease v0.8.0a0 (`ef84469 <https://github.com/autumnjolitz/instruct/commit/ef84469be82d7813492f701d9650ca1e414c11fd>`_ by Autumn).
 - bump to v0.8.0 series (`f0ad5ae <https://github.com/autumnjolitz/instruct/commit/f0ad5aed353bfd62d9a40bec65fb306aa96ff618>`_ by Autumn).
 
-Version v0.7.5.post2
--------------------
+Version `v0.7.5.post2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.5.post2>`_
+----------------------------------------------------------------------------------------------
 
-Release 2025-07-08
+Released 2025-07-08
+
+`Compare with v0.7.5 <https://github.com/autumnjolitz/instruct/compare/v0.7.5...v0.7.5.post2>`_ (1 commits since)
 
 Bug Fixes
 
 - correct for Python 3.7 (`e58c523 <https://github.com/autumnjolitz/instruct/commit/e58c523ce4edbca560267b6a6a0c1fd8919c485c>`_ by Autumn).
 
-Version v0.7.5
--------------------
+Version `v0.7.5 <https://github.com/autumnjolitz/instruct/releases/tag/v0.7.5>`_
+----------------------------------------------------------------------------------
 
-Release 2025-07-08
+Released 2025-07-08
+
+`Compare with first commit <https://github.com/autumnjolitz/instruct/compare/fd12152ab66246e18e4cdcd2876065814f1f8da5...v0.7.5>`_ (7 commits since)
 
 Features
 
@@ -208,6 +317,7 @@ Continuous Integration
 Build
 
 - bump version to v0.7.5 (`9924da8 <https://github.com/autumnjolitz/instruct/commit/9924da815d892a9c4b3127f337c7cd965148d033>`_ by Autumn).
+
 
 
 Version v0.7.4
