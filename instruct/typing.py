@@ -263,6 +263,9 @@ if sys.version_info[:2] >= (3, 10):
 
     UnionTypes = (Union, UnionType)
 
+    def _forward_union_ref_for(hint_ref_name: str, hint: Tuple[Type, ...]):
+        return " | ".join(f"{hint_ref_name}[{i}]" for i in range(len(hint))), hint
+
     # patch get_origin to always return a Union over a 'a | b'
     def get_origin(cls):  # type:ignore[no-redef]
         t = _get_origin(cls)
@@ -334,6 +337,9 @@ else:
     UnionTypes = (Union,)
     get_origin = _get_origin
 
+    def _forward_union_ref_for(hint_ref_name: str, hint: Tuple[Type, ...]):
+        return hint_ref_name, Union[*hint]
+
     def copy_with(hint, args):
         return hint.copy_with(args)
 
@@ -394,20 +400,6 @@ def resolve(
 
 @overload
 def resolve(hint: dict[str, TypeHint | str], locals=None, globals=None) -> dict[str, TypeHint]: ...
-
-
-@overload
-def _forward_union_ref_for(hint_ref_name: str, hint: Tuple[Type, ...]) -> Tuple[str, TypeHint]: ...
-
-
-if sys.version_info[:2] >= (3, 10):
-
-    def _forward_union_ref_for(hint_ref_name, hint):
-        return " | ".join(f"{hint_ref_name}[{i}]" for i in range(len(hint))), hint
-else:
-
-    def _forward_union_ref_for(hint_ref_name, hint):
-        return hint_ref_name, Union[*hint]
 
 
 def resolve(*hints, locals=None, globals=None, frame=None):
