@@ -535,7 +535,23 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                         with closing(fh):
                             for line in fh:
                                 if line.startswith(b"version ="):
-                                    buf.write(b"version = %s\n" % (public_version.encode(),))
+                                    buf.write(b'version = "%s"\n' % (public_version.encode(),))
+                                elif b"/blob/master/" in line:
+                                    buf.write(
+                                        line.replace(
+                                            b"/blob/master/",
+                                            b"/blob/v%s/" % (public_version.encode(),),
+                                            count=1,
+                                        )
+                                    )
+                                elif b"refs/heads/master" in line:
+                                    buf.write(
+                                        line.replace(
+                                            b"refs/heads/master",
+                                            b"refs/tags/v%s" % (public_version.encode(),),
+                                            count=1,
+                                        )
+                                    )
                                 else:
                                     buf.write(line)
                         metadata.size = buf.tell()
