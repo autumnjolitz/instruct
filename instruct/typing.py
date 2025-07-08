@@ -396,6 +396,20 @@ def resolve(
 def resolve(hint: dict[str, TypeHint | str], locals=None, globals=None) -> dict[str, TypeHint]: ...
 
 
+@overload
+def _forward_union_ref_for(hint_ref_name: str, hint: Tuple[Type, ...]) -> Tuple[str, TypeHint]: ...
+
+
+if sys.version_info[:2] >= (3, 10):
+
+    def _forward_union_ref_for(hint_ref_name, hint):
+        return " | ".join(f"{hint_ref_name}[{i}]" for i in range(len(hint))), hint
+else:
+
+    def _forward_union_ref_for(hint_ref_name, hint):
+        return hint_ref_name, Union[*hint]
+
+
 def resolve(*hints, locals=None, globals=None, frame=None):
     """
     Parse a hint into a hint type
@@ -434,8 +448,13 @@ def resolve(*hints, locals=None, globals=None, frame=None):
             ann[hint_ref_name] = hint_forward
             parsed_hint_refs.append(hint_ref_name)
         else:
+            hint_ref_value = hint_ref_name
+            # Python 3.12 doesn't like a ForwardRef returning a tuple,
+            # so rewrite it...
+            if isinstance(hint, tuple):
+                hint_ref_value, hint = _forward_union_ref_for(hint_ref_name, hint)
             locals[hint_ref_name] = hint
-            ann[hint_ref_name] = ForwardRef(hint_ref_name)
+            ann[hint_ref_name] = ForwardRef(hint_ref_value)
             parsed_hint_refs.append(hint_ref_name)
 
     o = _SimpleNamespace(__annotations__=ann)
@@ -445,7 +464,8 @@ def resolve(*hints, locals=None, globals=None, frame=None):
         m = get_type_hints(o, locals, globals)
     parsed_hints = []
     for ref in parsed_hint_refs:
-        parsed_hints.append(m[ref])
+        parsed_hint = m[ref]
+        parsed_hints.append(parsed_hint)
     if len(hints) == 1:
         return parsed_hints[0]
     return tuple(parsed_hints)
