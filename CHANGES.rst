@@ -1,4 +1,61 @@
 .. |Changes|
+Version `v0.9.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.0>`_
+----------------------------------------------------------------------------------
+
+Released 2025-07-08
+
+`Compare with v0.8.6 <https://github.com/autumnjolitz/instruct/compare/v0.8.6...v0.9.0>`_ (26 commits since)
+
+Features
+
+- remove class keyword ``concrete_class`` fully in favor of ``contextvars.ContextVar`` approach (`378680d <https://github.com/autumnjolitz/instruct/commit/378680d0be63665b26b3fbd4fb4e16c9e3ae7b80>`_ by Autumn).
+- upgrade all files to 3.8 (`25d2874 <https://github.com/autumnjolitz/instruct/commit/25d2874ec1b9bc52ea3dbf3cbad6f0b98162e832>`_ by Autumn).
+- drop 3.7 official support (`8818c45 <https://github.com/autumnjolitz/instruct/commit/8818c457033ab85408fc35e8c57cc70caa2c21cd>`_ by Autumn).
+
+Bug Fixes
+
+- remove unused field (`78596a3 <https://github.com/autumnjolitz/instruct/commit/78596a3add164687559e2a87a3767eafdc45c5e4>`_ by Autumn).
+- format (`a9e1c4b <https://github.com/autumnjolitz/instruct/commit/a9e1c4b784d6094e24da64e46f9c3c00e0615d67>`_ by Autumn).
+
+Docs
+
+- update (`a9d73c6 <https://github.com/autumnjolitz/instruct/commit/a9d73c601fa9419cede295891673fede89a196bb>`_ by Autumn Jolitz).
+- remove broken change logs (`4d94f1e <https://github.com/autumnjolitz/instruct/commit/4d94f1e9bb6b574313e4238784f09adb18fa449b>`_ by Autumn).
+
+Dependencies
+
+- update pre-commit-hooks (`dc016c3 <https://github.com/autumnjolitz/instruct/commit/dc016c3d4cd2a0960b1fdd05cf94aab688f08016>`_ by Autumn Jolitz).
+
+Style
+
+- fix ignore comments (`30ed5e1 <https://github.com/autumnjolitz/instruct/commit/30ed5e17b7f0ff54a9355b908543420e5e92c7b1>`_ by Autumn Jolitz).
+
+Chore
+
+- pass linter on ``__main__.py`` (`ef815a6 <https://github.com/autumnjolitz/instruct/commit/ef815a668ee5b2bad15024811cfef01d400092e5>`_ by Autumn).
+- update copyright year (`9795d2e <https://github.com/autumnjolitz/instruct/commit/9795d2e53916c465ad5e8f4fd95b0bee82b73af7>`_ by Autumn).
+
+Build
+
+- set version to 0.9.0 (`455acea <https://github.com/autumnjolitz/instruct/commit/455acea6b2467bc053c81783ee37f329c8270d05>`_ by Autumn Jolitz).
+- remove changelog constraints, fix up changelog with release dates from `PyPI <https://pypi.org/project/instruct/#history>`_ (`f88d342 <https://github.com/autumnjolitz/instruct/commit/f88d34226d8a61b3f303d6d79c7343b2156bf618>`_ by Autumn Jolitz).
+- fix setup to account for git's packed refs, add ``packaging`` to setup requirements (`7330dba <https://github.com/autumnjolitz/instruct/commit/7330dba96a072c8e3a94737194c5034035eb932b>`_ by Autumn Jolitz).
+- use newer commit as ``git log`` can't see the older commit (`9828f81 <https://github.com/autumnjolitz/instruct/commit/9828f814746e4e5e60db9d09b77e2d86dac3092e>`_ by Autumn).
+- fix case where venv was not passing ``--devel``/``--tests`` (`6cecebc <https://github.com/autumnjolitz/instruct/commit/6cecebc00f079e5e86be57f665ff8896b45f98c9>`_ by Autumn).
+- ignore ``__main__.py`` for pyupgrade (`32bfcc7 <https://github.com/autumnjolitz/instruct/commit/32bfcc77bad1269e938a7a3c1e4d81ebbc094411>`_ by Autumn).
+- enforce py38+ typing (`d32d3e0 <https://github.com/autumnjolitz/instruct/commit/d32d3e02da7699d6f4edacf8eff98967f8c45ab4>`_ by Autumn).
+- use 3.8 as lowest python (`5b6a820 <https://github.com/autumnjolitz/instruct/commit/5b6a820311e3f99fbf0bd227be0edd40d4f2100c>`_ by Autumn).
+- set version to 0.8.7 (`1d83ee5 <https://github.com/autumnjolitz/instruct/commit/1d83ee5cacd42442ea6208917c95d04cbe8c98a6>`_ by Autumn).
+- fix changes since url, CI output (`b261284 <https://github.com/autumnjolitz/instruct/commit/b2612843e91d576f644c0aae2d11b52e15227568>`_ by Autumn).
+- fix changelog generation (`5ab995d <https://github.com/autumnjolitz/instruct/commit/5ab995d8cd773c475c4091b8f7b40a288ead5c98>`_ by Autumn).
+
+Other
+
+- feature!: remove type ``_parent`` in favor of fixed thunks on data classes pointing to parent and metaclass handling type level queries (`7148644 <https://github.com/autumnjolitz/instruct/commit/7148644cbfd0816234ea851f82a47b8cd8d0caff>`_ by Autumn).
+- feature: correct typehints and implement slice/int array operations by default (`76fb2f9 <https://github.com/autumnjolitz/instruct/commit/76fb2f9aa54dfc06fdcb26fda157f6bfe9c3f773>`_ by Autumn).
+- feature: make use of ``deduplicate(...)`` (`f944d91 <https://github.com/autumnjolitz/instruct/commit/f944d9133efc359da466c5e4563b22452e353658>`_ by Autumn).
+- feature!: clean up, deprecate class kwargs that can clash with other impls (`a53552f <https://github.com/autumnjolitz/instruct/commit/a53552f02ff2d9bf093c5851093eb72f76ba42b5>`_ by Autumn).
+
 Version `v0.8.6 <https://github.com/autumnjolitz/instruct/releases/tag/v0.8.6>`_
 ----------------------------------------------------------------------------------
 
