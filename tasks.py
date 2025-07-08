@@ -465,8 +465,20 @@ def get_topmost_directory(p: Path) -> Path:
     return p
 
 
-@task
-def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
+@task(
+    incrementable=("verbose",),
+    iterable=("include", "exclude"),
+    help={
+        "include": "add additional files or directories to the source distribution",
+        "exclude": "remove files from the source distribution",
+    },
+)
+def build(
+    context: Context,
+    validate: bool = False,
+    include: Optional[List[str]] = None,
+    exclude: Optional[List[str]] = None,
+) -> Tuple[Path, ...]:
     """
     Create special sdists that do not depend on source control and
     a bdist from said sdist.
@@ -485,13 +497,34 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
     As a safety, we have a ``validate`` option that will try to install
     the artifacts into a venv and try to import instruct.
     """
+    root = _.project_root(Path, silent=True)
     python_bin = _.python_path(str, silent=True)
-    dist = _.project_root(Path, silent=True) / "dist"
+    dist = root / "dist"
     if not dist.exists():
         perror(f"Creating {dist!s}")
         dist.mkdir()
     public_version = None
     files = []
+    unmatched_excludes = set(exclude or ())
+    missing_files: Tuple[str, ...] = ()
+    include_files: Tuple[Path, ...] = ()
+    for filename in include or ():
+        try:
+            file = (root / filename).resolve()
+        except FileNotFoundError:
+            missing_files = (*missing_files, filename)
+        else:
+            try:
+                additional_file = file.relative_to(root)
+            except ValueError:
+                raise ValueError(f"Unable to add {filename!r} as it is outside the archive!")
+            include_files = (*include_files, additional_file)
+
+    if missing_files:
+        raise LookupError("Unable to find: {}".format(", ".join(missing_files)))
+    del missing_files
+    written_filenames = ()
+
     with tempfile.TemporaryDirectory() as tmp:
         t = Path(tmp)
         del tmp
@@ -502,20 +535,27 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
         with tarfile.open(sdist) as source, tarfile.open(
             f"{tempdist!s}/{sdist.name}", "w:gz"
         ) as dest:
-            top_most = None
+            archive_root = None
             for metadata in source:
                 buf = None
-                filename = Path(metadata.name)
-                if top_most is None:
-                    top_most = get_topmost_directory(filename)
-                assert top_most is not None
-                if filename.parent.name == top_most.name and filename.name in (
-                    "generate_version.py",
-                    "CURRENT_VERSION.txt",
-                ):
+                file = Path(metadata.name)
+                if archive_root is None:
+                    archive_root = get_topmost_directory(file)
+                assert archive_root is not None
+                if archive_root == file:
+                    written_filenames = (*written_filenames, ".")
+                    dest.addfile(metadata)
+                    continue
+                relative_file = file.relative_to(archive_root)
+                relative_filepath = f"{relative_file!s}"
+                if relative_filepath in exclude:
+                    unmatched_excludes -= relative_filepath
+                    perror(f"Omitting {relative_filepath} from archive")
+                    continue
+                if relative_filepath in ("generate_version.py", "CURRENT_VERSION.txt"):
                     continue
                 if metadata.isfile():
-                    if (filename.parent.name, filename.name) == (
+                    if (file.parent.name, file.name) == (
                         "instruct",
                         "about.py",
                     ):
@@ -525,8 +565,8 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                         exec(buf.read(), gs)
                         buf.seek(0)
                         public_version = gs["__version_info__"].public
-                    elif (filename.parent.name, filename.name) == (
-                        top_most.name,
+                    elif (file.parent.name, file.name) == (
+                        archive_root.name,
                         "setup.cfg",
                     ):
                         buf = io.BytesIO()
@@ -535,13 +575,13 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                         with closing(fh):
                             for line in fh:
                                 if line.startswith(b"version ="):
-                                    buf.write(b'version = "%s"\n' % (public_version.encode(),))
+                                    buf.write(b"version = %s\n" % (public_version.encode(),))
                                 elif b"/blob/master/" in line:
                                     buf.write(
                                         line.replace(
                                             b"/blob/master/",
                                             b"/blob/v%s/" % (public_version.encode(),),
-                                            count=1,
+                                            1,
                                         )
                                     )
                                 elif b"refs/heads/master" in line:
@@ -549,7 +589,7 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                                         line.replace(
                                             b"refs/heads/master",
                                             b"refs/tags/v%s" % (public_version.encode(),),
-                                            count=1,
+                                            1,
                                         )
                                     )
                                 else:
@@ -564,18 +604,38 @@ def build(context: Context, validate: bool = False) -> Tuple[Path, ...]:
                         dest.addfile(metadata, buf)
                 else:
                     dest.addfile(metadata)
-        context.run(f"{python_bin} -m venv {t!s}/venv")
-        context.run(
-            f"{t!s}/venv/bin/python -m pip wheel --no-deps file:///{dest.name!s} -w {t!s}/dist"
-        )
+                written_filenames = (*written_filenames, relative_filepath)
+            assert archive_root is not None
+            if unmatched_excludes:
+                perror(
+                    "Warning: did not match any files against: {}".format(
+                        ", ".join(unmatched_excludes)
+                    )
+                )
+            for repository_file in include_files:
+                if f"{repository_file}" in written_filenames:
+                    perror(f'warn: skipping "{repository_file!s}" as it is already in the archive!')
+                    continue
+                archive_file = archive_root / repository_file
+                dest.add(f"{root / repository_file!s}", f"{archive_file!s}")
+                written_filenames = (*written_filenames, f"{repository_file}")
+        with cd(f"{t!s}"):
+            perror("Creating clean virtual env to generate wheels in...")
+            context.run(f"{python_bin} -m venv ./venv")
+            with context.prefix(". venv/bin/activate"):
+                perror("Creating wheel from source distribution...")
+                context.run("python -m pip install -U wheel")
+                context.run(f"python -m pip wheel --no-deps file:///{dest.name!s} -w ./dist")
         if validate:
-            for filename in tempdist.iterdir():
+            for file in tempdist.iterdir():
                 with tempfile.TemporaryDirectory() as venv:
                     context.run(f"{python_bin} -m venv {venv}")
-                    context.run(f"{venv!s}/bin/python -m pip install file:///{filename!s}")
-                    context.run(f"{venv!s}/bin/python -c 'import instruct'")
-        for filename in tempdist.iterdir():
-            files.append(filename.rename(dist / filename.name))
+                    with cd(venv):
+                        context.run(f"./bin/python -m pip install file:///{file!s}")
+                        context.run("./bin/python -c 'import instruct'")
+                        context.run("./bin/python -m instruct benchmark")
+        for file in tempdist.iterdir():
+            files.append(file.rename(dist / file.name))
     return tuple(files)
 
 
