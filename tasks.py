@@ -550,7 +550,10 @@ def build(
                 relative_filepath = f"{relative_file!s}"
                 if relative_filepath in exclude:
                     unmatched_excludes -= relative_filepath
-                    perror(f"Omitting {relative_filepath} from archive")
+                    perror(f"exclude: Omitting {relative_filepath} from archive")
+                    continue
+                if relative_filepath in include:
+                    perror(f"include: Omitting pre-existing {relative_filepath}")
                     continue
                 if relative_filepath in ("generate_version.py", "CURRENT_VERSION.txt"):
                     continue
