@@ -154,7 +154,8 @@ jobs:
         name: Create artifacts
         id: artifacts
         run: |
-          invoke build --validate
+          sed -i '1d' CHANGES.rst
+          invoke build --validate --include CHANGES.rst
           printf '%s\n=======================\n\n' '${{ steps.version.outputs.CURRENT_VERSION }}' | tee RELEASE_NOTES.rst
           invoke last-logged-changes | tee -a RELEASE_NOTES.rst
           invoke checksum | tee -a RELEASE_NOTES.rst
