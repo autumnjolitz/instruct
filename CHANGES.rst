@@ -1,4 +1,38 @@
 .. |Changes|
+Version `v0.9.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.1>`_
+----------------------------------------------------------------------------------
+
+Released 2025-07-09
+
+`Compare with v0.9.0 <https://github.com/autumnjolitz/instruct/compare/v0.9.0...v0.9.1>`_ (15 commits since)
+
+Bug Fixes
+
+- gather **all** defining scopes for type hint resolution (`ced1d08 <https://github.com/autumnjolitz/instruct/commit/ced1d083e52773529c239c7b6f5c03eaa5b29b37>`_ by Autumn Jolitz).
+- satisfy verify-types (`2972b85 <https://github.com/autumnjolitz/instruct/commit/2972b85fc745c1c6ecb90b853e0da440cce9acb9>`_ by Autumn Jolitz).
+- handle case where ``instruct.typing.resolve()`` is given ``(type, hint)`` and expects a UnionType out of it (`e796397 <https://github.com/autumnjolitz/instruct/commit/e7963973ddf81805d2aaa2a7970b11169b895bd9>`_ by Autumn Jolitz).
+
+Style
+
+- fix missing whitespace (`4352555 <https://github.com/autumnjolitz/instruct/commit/4352555e611904c0c94852db8db8f1cb72bbaa0c>`_ by Autumn Jolitz).
+
+Continuous Integration
+
+- delete anchor line from rst to avoid pypi errors (`44ee9d8 <https://github.com/autumnjolitz/instruct/commit/44ee9d85e236e86ea16d8754d94eea14456826e1>`_ by Autumn Jolitz).
+
+Build
+
+- set version to 0.9.1 (`0fabda7 <https://github.com/autumnjolitz/instruct/commit/0fabda7b9501da726bc622eb2da502a47d0e0a9a>`_ by Autumn Jolitz).
+- remove invalid classifiers due to PyPI returning **only one error per run** (`c227194 <https://github.com/autumnjolitz/instruct/commit/c227194ed136a2251a1f56af4e46316ebd6ca0ea>`_ by Autumn Jolitz).
+- fallback to just the README due to PyPi being too restrictive (`6576c9a <https://github.com/autumnjolitz/instruct/commit/6576c9ac12775b7682631fb70aa9471ae2cf780c>`_ by Autumn Jolitz).
+- remove changelog due to rst errors on pypi (`fca19ff <https://github.com/autumnjolitz/instruct/commit/fca19ffb9fc1ba5c67867a57c529698fdb7da57f>`_ by Autumn Jolitz).
+- include files unconditionally (`ae7c1ab <https://github.com/autumnjolitz/instruct/commit/ae7c1ab272fc49c7b55148aec6d376328d8650dd>`_ by Autumn Jolitz).
+- ``invoke build`` may ``--include`` or ``--exclude`` files (`3865f99 <https://github.com/autumnjolitz/instruct/commit/3865f99095a3e9700405e47a89e945bdc5827695>`_ by Autumn Jolitz).
+- replace mutable source control references with tagged references (`d17072f <https://github.com/autumnjolitz/instruct/commit/d17072fd10888b42c7e019ca633f63884fade1b1>`_ by Autumn Jolitz).
+- prune classifiers, add min python marker (`d4849d5 <https://github.com/autumnjolitz/instruct/commit/d4849d5f28f55bcd4e2e07af5a2e1470e650b066>`_ by Autumn Jolitz).
+- add changelog and benchmark to source dist (`8bc2ac3 <https://github.com/autumnjolitz/instruct/commit/8bc2ac3b18401aef1e439ef0a263919b0b40e7fe>`_ by Autumn Jolitz).
+- set version to 0.9.1a0 (`eaa1cce <https://github.com/autumnjolitz/instruct/commit/eaa1cce5b34ab34ab61c4bbbb50d0bd1c95ab737>`_ by Autumn Jolitz).
+
 Version `v0.9.0 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.0>`_
 ----------------------------------------------------------------------------------
 
