@@ -18,7 +18,7 @@ import weakref
 
 from contextlib import suppress, contextmanager
 from contextvars import ContextVar
-from collections import abc
+from collections import abc, ChainMap
 from base64 import urlsafe_b64encode
 from collections.abc import (
     Mapping as AbstractMapping,
@@ -29,7 +29,7 @@ from collections.abc import (
 )
 from enum import IntEnum
 
-# from importlib import import_module
+from importlib import import_module
 from itertools import chain
 from types import CodeType, FunctionType
 from typing import (
@@ -236,7 +236,8 @@ def public_class(
     instance_or_type: type[Atomic] | Atomic | AtomicMeta,
     *property_path: str,
     preserve_subtraction: bool = False,
-) -> type[Atomic] | tuple[type[Atomic], ...]:
+    default: Literal[Undefined] | T = Undefined,  # type:ignore
+) -> type[Atomic] | tuple[type[Atomic], ...] | T:
     """
     Given a data class or instance of, give us the public facing
     class.
@@ -250,6 +251,8 @@ def public_class(
     else:
         possible_cls = instance_or_type
     if not isinstance(possible_cls, AtomicMeta):
+        if default is not Undefined:
+            return default
         raise TypeError(f"Can only call on AtomicMeta-metaclassed types!, {possible_cls}")
     cls: type[Atomic] = cast(type[Atomic], possible_cls)
     if property_path:
@@ -1851,10 +1854,14 @@ class AtomicMeta(AbstractAtomic, type):
             concrete = cast(type[Atomic], new_cls)
             _data_classes.add(concrete)
             return concrete
+
+        # support for reconstructing the type hints!
         maybe_calling_frame = None
         calling_frame = None
-        calling_locals: dict[str, Any] = {}
-        calling_globals: dict[str, Any] = {}
+        calling_locals: Mapping[str, Any] = {}
+        calling_globals: Mapping[str, Any]
+        provisional_globals: ChainMap[str, Any] = ChainMap()
+
         try:
             calling_frame = inspect.currentframe()
             if calling_frame is not None:
@@ -1866,10 +1873,25 @@ class AtomicMeta(AbstractAtomic, type):
         else:
             if calling_frame is not None:
                 calling_locals = calling_frame.f_locals
-                calling_globals = calling_frame.f_globals
+                if (
+                    calling_frame.f_globals.get("__package__")
+                    == __name__
+                    == calling_locals.get("__package__")
+                ):
+                    pass
+                else:
+                    provisional_globals.maps.append(calling_frame.f_globals)
         finally:
             # ARJ: avoid leaking frames
             del calling_frame, maybe_calling_frame
+
+        defining_module = import_module(attrs["__module__"])
+        provisional_globals.maps.append(vars(defining_module))
+        for base in bases[::-1]:
+            for b in base.mro():
+                if b.__module__ not in ("builtins", "instruct"):
+                    provisional_globals.maps.append(vars(import_module(b.__module__)))
+        calling_globals = provisional_globals
 
         # ARJ: Used to create an "anchor"-base type that just marks
         # that this is now an "Atomic"-type (b/c there aren't good ways to express all
