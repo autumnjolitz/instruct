@@ -1885,8 +1885,10 @@ class AtomicMeta(AbstractAtomic, type):
             # ARJ: avoid leaking frames
             del calling_frame, maybe_calling_frame
 
-        defining_module = import_module(attrs["__module__"])
-        provisional_globals.maps.append(vars(defining_module))
+        if "__module__" in attrs:
+            defining_module = import_module(attrs["__module__"])
+            provisional_globals.maps.append(vars(defining_module))
+
         for base in bases[::-1]:
             for b in base.mro():
                 if b.__module__ not in ("builtins", "instruct"):
@@ -2407,25 +2409,16 @@ class AtomicMeta(AbstractAtomic, type):
                     globals=dict(calling_globals),
                     locals=dict(calling_locals),
                 )
-                if not is_typing_definition(values_hint):
-                    values_hint = f"{values_hint.__name__}"
                 maybe_values_hint = _make_union(
                     *(tuple(combined_slots.values()) + (None,)),
                     globals=dict(calling_globals),
                     locals=dict(calling_locals),
                 )
-                if not is_typing_definition(maybe_values_hint):
-                    maybe_values_hint = f"{maybe_values_hint.__name__}"
-
                 set_values_hint = _make_union(
                     *(tuple(combined_slots.values()) + (typing.Any,)),
                     globals=dict(calling_globals),
                     locals=dict(calling_locals),
                 )
-                if not is_typing_definition(set_values_hint):
-                    # print('ARJ', set_values_hint, flush=True)
-                    set_values_hint = f"{set_values_hint.__name__}"
-
             all_field_names = tuple(deduplicate(combined_columns, properties))
             if all_field_names:
                 keys_hint = _make_union(
