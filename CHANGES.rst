@@ -1,4 +1,20 @@
 .. |Changes|
+Version `v0.9.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.2>`_
+----------------------------------------------------------------------------------
+
+Released 2025-07-11
+
+`Compare with v0.9.1 <https://github.com/autumnjolitz/instruct/compare/v0.9.1...v0.9.2>`_ (3 commits since)
+
+Bug Fixes
+
+- preserve type hint as-is to avoid type alias issues (`d3de374 <https://github.com/autumnjolitz/instruct/commit/d3de37462200816e0d2faf1b63a319c600ea1484>`_ by Autumn Jolitz).
+
+Build
+
+- set version to 0.9.2 (`c2959d2 <https://github.com/autumnjolitz/instruct/commit/c2959d23339b5410b44786b9807bec2ed7907736>`_ by Autumn Jolitz).
+- set version to 0.9.2a0 (`e418c99 <https://github.com/autumnjolitz/instruct/commit/e418c99524827b4b685af14b9dd4b384e64e6171>`_ by Autumn Jolitz).
+
 Version `v0.9.1 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.1>`_
 ----------------------------------------------------------------------------------
 
