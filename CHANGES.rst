@@ -1,4 +1,20 @@
 .. |Changes|
+Version `v0.9.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.3>`_
+----------------------------------------------------------------------------------
+
+Released 2025-08-26
+
+`Compare with v0.9.2 <https://github.com/autumnjolitz/instruct/compare/v0.9.2...v0.9.3>`_ (3 commits since)
+
+Features
+
+- ``__init_subclass__`` sanitizer, ``match ...`` clause support, ``__class_iter__`` overrides (`f683eaf <https://github.com/autumnjolitz/instruct/commit/f683eaf1958f47a7a6c634dd6caf4c3f7d18f7be>`_ by Autumn Jolitz).
+
+Build
+
+- set version to 0.9.3 (`98f9dcd <https://github.com/autumnjolitz/instruct/commit/98f9dcd10f21b4af9e5ffcc27720d7e029f8e428>`_ by Autumn Jolitz).
+- set version to 0.9.3a0 (`cb63a93 <https://github.com/autumnjolitz/instruct/commit/cb63a93614be6af0e277cfcdaef0d726cdcd71bc>`_ by Autumn Jolitz).
+
 Version `v0.9.2 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.2>`_
 ----------------------------------------------------------------------------------
 
