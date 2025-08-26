@@ -26,6 +26,7 @@ from collections.abc import (
     KeysView as AbstractKeysView,
     ValuesView as AbstractValuesView,
     ItemsView as AbstractItemsView,
+    Iterator,
 )
 from enum import IntEnum
 
@@ -1690,8 +1691,11 @@ class AtomicMeta(AbstractAtomic, type):
         # to filter it out of the `type(...)` call
         super().__init__(*args)
 
-    def __iter__(self):
-        yield from self._columns
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.__class_iter__())
+
+    def __class_iter__(self) -> Iterator[str]:
+        return iter(self._columns)
 
     def __len__(self):
         return len(self._columns)
@@ -1936,7 +1940,10 @@ class AtomicMeta(AbstractAtomic, type):
         support_cls_attrs = attrs
         # if '.<locals>' in support_cls_attrs["__qualname__"]:
         #     _type_hint_lookaside.add(support_cls)
-
+        override_class_iter = None
+        if "__class_iter__" in support_cls_attrs:
+            override_class_iter = support_cls_attrs.pop("__class_iter__")
+        create_match_args = "__match_args__" not in support_cls_attrs
         del attrs
 
         # if "__module__" in support_cls_attrs:
@@ -2035,17 +2042,16 @@ class AtomicMeta(AbstractAtomic, type):
         init_subclass_kwargs = {}
 
         for mixin_name in tuple(mixins):
-            if mixins[mixin_name]:
-                try:
-                    mixin_cls = klass.MIXINS[mixin_name]
-                except KeyError:
-                    if base_class_has_subclass_init:
-                        init_subclass_kwargs[mixin_name] = mixins[mixin_name]
-                        continue
-                    raise ValueError(f"{mixin_name!r} is not a registered Mixin on AtomicMeta!")
-                if isinstance(mixins[mixin_name], type):
-                    mixin_cls = mixins[mixin_name]
-                bases = (mixin_cls,) + bases
+            try:
+                mixin_cls = klass.MIXINS[mixin_name]
+            except KeyError:
+                if base_class_has_subclass_init:
+                    init_subclass_kwargs[mixin_name] = mixins[mixin_name]
+                    continue
+                raise ValueError(f"{mixin_name!r} is not a registered Mixin on AtomicMeta!")
+            if isinstance(mixins[mixin_name], type):
+                mixin_cls = mixins[mixin_name]
+            bases = (mixin_cls,) + bases
 
         # Setup wrappers are nested
         # pieces of code that effectively surround a part that sets
@@ -2607,7 +2613,11 @@ class AtomicMeta(AbstractAtomic, type):
             type[Atomic],
             super().__new__(klass, class_name, bases, support_cls_attrs, **init_subclass_kwargs),
         )  # type:ignore[misc]
+        if create_match_args:
+            support_cls.__match_args__ = tuple(cast(AbstractAtomic, support_cls))  # type:ignore[misc]
         # assert '<' not in support_cls.__qualname__, f'poop {c}'
+        if override_class_iter is not None:
+            support_cls.__class_iter__ = types.MethodType(override_class_iter, support_cls)  # type:ignore[method-assign]
 
         for prop_name, value in support_cls_attrs.items():
             if isinstance(value, property):
@@ -3126,6 +3136,11 @@ class SimpleBase(metaclass=AtomicMeta):
         if item in cls._skipped_fields:
             return False
         return item in cls._all_accessible_fields
+
+    def __init_subclass__(cls, **kwargs):
+        if kwargs:
+            raise ValueError(f"Unconsumed __init_subclass__ keyword arguments: {kwargs!r}")
+        return super().__init_subclass__()
 
     def __reduce__(self):
         # Create an empty class then let __setstate__ in the autogen

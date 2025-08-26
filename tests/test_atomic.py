@@ -1601,9 +1601,10 @@ def test_with_init_subclass():
     Registry = {}
 
     class Foo(SimpleBase):
-        def __init_subclass__(cls, *, swallow: str = None, **kwargs):
-            print("ARRH", cls)
-            Registry[cls] = swallow
+        def __init_subclass__(cls, **kwargs):
+            if "swallow" in kwargs:
+                swallow = kwargs.pop("swallow")
+                Registry[cls] = swallow
             super().__init_subclass__()
 
     f = Foo()  # noqa
@@ -1623,6 +1624,36 @@ def test_with_init_subclass():
     class BreakChainBar(BarBar): ...
 
     assert len(Registry) == 2
+    seen = set()
+
+    class Mixin1(Foo):
+        def __init_subclass__(cls, **kwargs):
+            if "val1" in kwargs:
+                cls.val1 = kwargs["val1"]
+                del kwargs["val1"]
+                seen.add((cls, Mixin1))
+            return super().__init_subclass__(**kwargs)
+
+    Foo.register_mixin("mixin1", Mixin1)
+
+    class Mixin2(Foo):
+        def __init_subclass__(cls, **kwargs):
+            if "val2" in kwargs:
+                cls.val2 = kwargs["val2"]
+                del kwargs["val2"]
+                seen.add((cls, Mixin2))
+            return super().__init_subclass__(**kwargs)
+
+    Foo.register_mixin("mixin2", Mixin2)
+
+    class FooBarBase(Foo, mixin1=True, mixin2=True): ...
+
+    class FooBarAll(FooBarBase, val1=0, val2=""): ...
+
+    assert (FooBarAll, Mixin1) in seen
+    assert (FooBarAll, Mixin2) in seen
+    assert FooBarAll.val1 == 0
+    assert FooBarAll.val2 == ""
 
 
 def test_simple_generics():
@@ -1761,3 +1792,17 @@ def test_setitem_int_slice():
     a[-3::1] = ["foobar", 22, {}]
     assert a[-3::1] == ("foobar", 22, {}) == (a.name, a.age, a.talents)
     assert a[-4] == 1
+
+
+def test_class_iter():
+    class Custom(Base):
+        foo: str
+        bar_value: int
+
+        def __class_iter__(cls):
+            metaclass = type(cls)
+            yield from metaclass.__class_iter__(cls)
+            yield "bar-value"
+
+    assert "bar-value" in Custom
+    assert "bar_value" in tuple(Custom)

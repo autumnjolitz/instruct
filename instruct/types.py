@@ -76,6 +76,7 @@ class AbstractAtomic:
         REGISTRY: ImmutableCollection[set[type[BaseAtomic]]]
         MIXINS: ImmutableMapping[str, BaseAtomic]
         BINARY_JSON_ENCODERS: dict[str, Callable[[bytearray | bytes], Any]]
+        __match_args__: tuple[str, ...]
 
         _set_defaults: Callable[[], None]
         _slots: Mapping[str, TypingDefinition]
@@ -94,9 +95,11 @@ class AbstractAtomic:
         _all_accessible_fields: ImmutableCollection[KeysView[str]]
         _listener_funcs: ImmutableMapping[str, Iterable[Callable]]
         _data_class: ImmutableValue[type[BaseAtomic]]
-        # _parent: ImmutableValue[type[BaseAtomic]]
 
-        def __iter__(self) -> Iterator[tuple[str, Any]]: ...
+        # _parent: ImmutableValue[type[BaseAtomic]]
+        def __class_iter__(self) -> Iterator[str]: ...
+
+        def __iter__(self) -> Iterator[Any]: ...
 
         @overload
         def __getitem__(self: Self, key: str) -> Any: ...
@@ -221,6 +224,8 @@ class BaseAtomic(AbstractAtomic):
 
     if TYPE_CHECKING:
         __public_class__: Callable[[], type[Atomic]]
+
+        def __iter__(self) -> Iterator[tuple[str, Any]]: ...
 
         def _asdict(self: Self) -> dict[str, Any]: ...
 
