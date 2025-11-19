@@ -89,7 +89,7 @@ else:
     def typevar_has_no_default(t: Union[IntTypeVar, ExtTypeVar]) -> TypeGuard[NoDefaultType]:
         with suppress(AttributeError):
             return t.__default__ is NoDefault  # type:ignore[union-attr]
-        return False
+        return True
 
 
 __all__ = [
