@@ -289,8 +289,16 @@ def public_class(
             else:
                 (next_cls,) = atomic_classes
         else:
-            assert isinstance(next_type_hint, type)
-            next_cls = next_type_hint
+            if isinstance(next_type_hint, type):
+                if issubclass(next_type_hint, BaseAtomic):
+                    next_cls = next_type_hint
+                elif rest:
+                    raise TypeError(f"Unable to apply path {rest!r} to non-Atomic hint")
+            else:
+                raise ValueError(
+                    f"{next_type_hint!r} ({type(next_type_hint)!r}) at "
+                    f"{key!r} is a nonAtomicMeta-metaclassed type!"
+                )
         return public_class(next_cls, *rest, preserve_subtraction=preserve_subtraction)
     cls = cls.__public_class__()
     if preserve_subtraction and any((cls._skipped_fields, cls._modified_fields)):
