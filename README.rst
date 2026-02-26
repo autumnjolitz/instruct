@@ -67,6 +67,24 @@ Next Goals:
 - Recursive ``TypeAliasType`` / ``ForwardRef`` ?
     + Currrently eager evaluated, causes ``RecursionError``
 
+Issues
+---------
+
+Next notes:
+
+1. I hate listeners not being "run if all have been set" mode
+2. I hate the use of Jinja -- it is too slow!
+3. I hate that we don't do a struct.Struct(...) thingy
+4. I hate how I can't listen for an object to have a change of a property
+5. I hate the use of weakrefs (slows down python3.14)
+6. It would be nice to do something like @instruct.on_event("clear" | "set", "field1", depends=("field2", "feild3"))
+7. I really wanna
+
+class F(...):
+    @instruct.add_event_listener("field")
+    def _(self, new):  # this is left as "_" and doesn't appear on the public export
+        ...
+
 Design Goal
 -------------
 
