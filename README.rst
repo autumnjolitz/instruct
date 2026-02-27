@@ -73,7 +73,7 @@ Issues
 Next notes:
 
 1. I hate listeners not being "run if all have been set" mode
-2. I hate the use of Jinja -- it is too slow!
+2. do we really need to use a full templating engine?
 3. I hate that we don't do a struct.Struct(...) thingy
 4. I hate how I can't listen for an object to have a change of a property
 5. I hate the use of weakrefs (slows down python3.14)
