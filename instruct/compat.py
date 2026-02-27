@@ -54,6 +54,14 @@ elif sys.version_info[:2] >= (3, 8):
 else:
     NoDefault: NoDefaultType = NoDefaultType(None)
 
+if sys.version_info[:2] >= (3, 14):
+    from annotationlib import call_annotate_function
+else:
+
+    def call_annotate_function(*args, **kwargs):
+        raise NotImplementedError
+
+
 if typing.TYPE_CHECKING:
     if sys.version_info[:2] >= (3, 8):
         from types import CellType

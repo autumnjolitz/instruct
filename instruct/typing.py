@@ -37,14 +37,14 @@ from .compat import (
     get_origin as _get_origin,
     Annotated,
     typevar_has_no_default,
+    call_annotate_function,
 )
 from .types import BaseAtomic
 
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
-
+call_annotate_function
 HAS_GET_ANNOTATIONS = callable(getattr(inspect, "get_annotations", None))
-
 T = TypeVar("T")
 Ts = TypeVarTuple("Ts")
 U = TypeVar("U")
@@ -330,7 +330,9 @@ if sys.version_info[:2] >= (3, 10):
             finally:
                 del frame
         parsed_hints = resolve(*args, locals=locals, globals=globals)
-        return tuple[*parsed_hints]
+        if not isinstance(parsed_hints, tuple):
+            parsed_hints = (parsed_hints,)
+        return tuple[parsed_hints]
 
 
 else:
@@ -338,7 +340,9 @@ else:
     get_origin = _get_origin
 
     def _forward_union_ref_for(hint_ref_name: str, hint: Tuple[Type, ...]):
-        return hint_ref_name, Union[*hint]
+        if not isinstance(hint, tuple):
+            hint = (hint,)
+        return hint_ref_name, Union[hint]
 
     def copy_with(hint, args):
         return hint.copy_with(args)
@@ -383,7 +387,9 @@ else:
             finally:
                 del frame
         parsed_hints = resolve(*args, locals=locals, globals=globals)
-        return Tuple[*parsed_hints]
+        if not isinstance(parsed_hints, tuple):
+            parsed_hints = (parsed_hints,)
+        return tuple[parsed_hints]
 
 
 @overload
@@ -451,9 +457,9 @@ def resolve(*hints, locals=None, globals=None, frame=None):
 
     o = _SimpleNamespace(__annotations__=ann)
     if _GET_TYPEHINTS_ALLOWS_EXTRA:
-        m = get_type_hints(o, locals, globals, include_extras=True)
+        m = get_type_hints(o, localns=locals, globalns=globals, include_extras=True)
     else:
-        m = get_type_hints(o, locals, globals)
+        m = get_type_hints(o, localns=locals, globalns=globals)
     parsed_hints = []
     for ref in parsed_hint_refs:
         parsed_hint = m[ref]

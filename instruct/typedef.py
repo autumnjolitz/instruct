@@ -7,6 +7,7 @@ import typing
 from functools import wraps
 from types import FunctionType
 from contextlib import suppress
+from functools import partial
 from collections.abc import (
     Mapping as AbstractMapping,
     MutableMapping as AbstractMutableMapping,
@@ -421,6 +422,16 @@ def has_collect_class(
     return False
 
 
+def test_func_type_or_metatype(child, root_cls, metaclass):
+    return isinstance(child, type) and issubormetasubclass(  # noqa: E731
+        child, root_cls, metaclass=metaclass
+    )
+
+
+def test_type_var(child):
+    return isinstance(child, TypeVar)
+
+
 def find_class_in_definition(
     type_hints: type | tuple[type, ...] | list[type] | TypeHint,
     root_cls: type,
@@ -435,11 +446,10 @@ def find_class_in_definition(
         or isinstance(type_hints, type)
     ), f"{type_hints} is a {type(type_hints)}"
 
-    test_func = lambda child: isinstance(child, type) and issubormetasubclass(  # noqa: E731
-        child, root_cls, metaclass=metaclass
-    )
+    test_func = partial(test_func_type_or_metatype, root_cls=root_cls, metaclass=metaclass)
+
     if issubclass(root_cls, TypeVar):
-        test_func = lambda child: isinstance(child, TypeVar)  # noqa: E731
+        test_func = test_type_var
 
     if is_typing_definition(type_hints):
         type_cls: TypeHint = type_hints

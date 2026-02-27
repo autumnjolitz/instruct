@@ -93,6 +93,7 @@ from .typing import (
     make_tuple as _make_tuple,
     resolve as _resolve_hint,
     get_annotations as _get_annotations,
+    call_annotate_function as _call_annotate_function,
 )
 from .typedef import (
     parse_typedef,
@@ -1905,7 +1906,7 @@ class AtomicMeta(AbstractAtomic, type):
             for b in base.mro():
                 if b.__module__ not in ("builtins", "instruct"):
                     provisional_globals.maps.append(vars(import_module(b.__module__)))
-        calling_globals = provisional_globals
+        calling_globals = {**provisional_globals}
 
         # ARJ: Used to create an "anchor"-base type that just marks
         # that this is now an "Atomic"-type (b/c there aren't good ways to express all
@@ -1961,7 +1962,19 @@ class AtomicMeta(AbstractAtomic, type):
         #     raise ValueError(support_cls_attrs)
 
         missing_slots = "__slots__" not in support_cls_attrs
-        support_cls_attrs.setdefault("__annotations__", {})
+        empty = {}
+        support_cls_attrs.setdefault("__annotations__", empty)
+        if support_cls_attrs["__annotations__"] is empty:
+            try:
+                athunk = support_cls_attrs["__annotate_func__"]
+            except KeyError:
+                if is_debug_mode("annotations"):
+                    print(
+                        f"warn: empty annotations for {class_name}: {support_cls_attrs}",
+                        file=sys.stderr,
+                    )
+            else:
+                support_cls_attrs["__annotations__"] = _call_annotate_function(athunk, 1)
 
         if missing_slots and support_cls_attrs["__annotations__"]:
             hints = _resolve_hint(
@@ -2436,7 +2449,7 @@ class AtomicMeta(AbstractAtomic, type):
             all_field_names = tuple(deduplicate(combined_columns, properties))
             if all_field_names:
                 keys_hint = _make_union(
-                    Literal[*all_field_names],
+                    Literal[all_field_names],
                     globals=dict(calling_globals),
                     locals=dict(calling_locals),
                 )
