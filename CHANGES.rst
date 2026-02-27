@@ -1,4 +1,42 @@
 .. |Changes|
+Version `v0.9.4 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.4>`_
+----------------------------------------------------------------------------------
+
+Released 2026-02-27
+
+`Compare with v0.9.3 <https://github.com/autumnjolitz/instruct/compare/v0.9.3...v0.9.4>`_ (16 commits since)
+
+Features
+
+- support 3.14 (`b468979 <https://github.com/autumnjolitz/instruct/commit/b468979b934b23cb92059d5d6deefc296ba62566>`_ by Autumn Jolitz).
+
+Bug Fixes
+
+- correct type hints (`ebf53fb <https://github.com/autumnjolitz/instruct/commit/ebf53fbb453f2e7fa369f73bb1f0af5933e239c3>`_ by Autumn Jolitz).
+- complain when public_class results in a non-traversible path (`e3bc8da <https://github.com/autumnjolitz/instruct/commit/e3bc8da0893a5015538d7ad6963d5b5b70a4eba4>`_ by Autumn Jolitz).
+- TypeVars w/o defaults on 3.12 and below (`5b830d7 <https://github.com/autumnjolitz/instruct/commit/5b830d7aaf7ef9caa7d5fb9d3a8f69121ddeebc9>`_ by Autumn Jolitz).
+
+Docs
+
+- move wish to code block (`abca413 <https://github.com/autumnjolitz/instruct/commit/abca413b4184a9a2547fb7102c2c29e4f0031738>`_ by Autumn Jolitz).
+- use more effective language for notes (`9dbc4fd <https://github.com/autumnjolitz/instruct/commit/9dbc4fd70bcaae9e3abe836c9151bae8cf408a71>`_ by Autumn Jolitz).
+- add grouses to README (`2849cce <https://github.com/autumnjolitz/instruct/commit/2849ccef30ace2984c1fa5e066b78b2ddfc4897f>`_ by Autumn Jolitz).
+
+Continuous Integration
+
+- add 3.13, 3.14 (`e079af9 <https://github.com/autumnjolitz/instruct/commit/e079af9448765f52bfdfd4d3a25e9e73bdb720ed>`_ by Autumn Jolitz).
+
+Build
+
+- set version to 0.9.4 (`be616fd <https://github.com/autumnjolitz/instruct/commit/be616fd63057d11240dbf440af468c017b42d6dc>`_ by Autumn Jolitz).
+- fix pip argument in 3.14 (`78aacb3 <https://github.com/autumnjolitz/instruct/commit/78aacb349bfffa1bdab067948f0e7e55de6c3f43>`_ by Autumn Jolitz).
+- add 3.13, 3.14, remove illegal argument (`c6c88a7 <https://github.com/autumnjolitz/instruct/commit/c6c88a70e8d2376290fe89ca886ccd373c8408b8>`_ by Autumn Jolitz).
+- remove 3.7, 3.8 and above (`93d609c <https://github.com/autumnjolitz/instruct/commit/93d609c11e6bb187d8cdbbfb6658b646a47815d4>`_ by Autumn Jolitz).
+- fix invoke for python3.14 (`bdac56b <https://github.com/autumnjolitz/instruct/commit/bdac56beccd08ddc51f1ff45996e4fec3a5482c7>`_ by Autumn Jolitz).
+- add ``ruff-force-format`` (`68a3cd3 <https://github.com/autumnjolitz/instruct/commit/68a3cd32592ce9bfc1d21bfaad7e6969107716e5>`_ by Autumn Jolitz).
+- update pre-commit (`35674aa <https://github.com/autumnjolitz/instruct/commit/35674aa564cbf590456c22cf4cec6ee23da61ea8>`_ by Autumn Jolitz).
+- set version to 0.9.4a0 (`3f6528a <https://github.com/autumnjolitz/instruct/commit/3f6528a1592ac24cfcdc9c92f8f13d031812d7c6>`_ by Autumn Jolitz).
+
 Version `v0.9.3 <https://github.com/autumnjolitz/instruct/releases/tag/v0.9.3>`_
 ----------------------------------------------------------------------------------
 
