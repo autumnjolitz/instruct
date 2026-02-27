@@ -60,18 +60,21 @@ repos:
             )$
       # Run the formatter.
       - id: ruff-format
+        alias: ruff-force-format
         args: [  --target-version, py38 ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
             )$
       - id: ruff-format
+        alias: ruff-force-format
         args: [  --target-version, py310 ]
         files: |
             (?x)^(
                 tests\/test_(.*)_310\.py
             )$
       - id: ruff-format
+        alias: ruff-force-format
         args: [  --target-version, py312 ]
         files: |
             (?x)^(
