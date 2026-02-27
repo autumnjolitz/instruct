@@ -94,6 +94,7 @@ from .typing import (
     resolve as _resolve_hint,
     get_annotations as _get_annotations,
     call_annotate_function as _call_annotate_function,
+    Format as _HintFormat,
 )
 from .typedef import (
     parse_typedef,
@@ -292,6 +293,7 @@ def public_class(
         else:
             if isinstance(next_type_hint, type):
                 if issubclass(next_type_hint, BaseAtomic):
+                    assert is_atomic_type(next_type_hint)
                     next_cls = next_type_hint
                 elif rest:
                     raise TypeError(f"Unable to apply path {rest!r} to non-Atomic hint")
@@ -1962,11 +1964,13 @@ class AtomicMeta(AbstractAtomic, type):
         #     raise ValueError(support_cls_attrs)
 
         missing_slots = "__slots__" not in support_cls_attrs
-        empty = {}
+        empty: dict[str, Any] = {}
         support_cls_attrs.setdefault("__annotations__", empty)
         if support_cls_attrs["__annotations__"] is empty:
             try:
-                athunk = support_cls_attrs["__annotate_func__"]
+                athunk: Callable[[_HintFormat], dict[str, Any]] = support_cls_attrs[
+                    "__annotate_func__"
+                ]
             except KeyError:
                 if is_debug_mode("annotations"):
                     print(
@@ -1974,7 +1978,9 @@ class AtomicMeta(AbstractAtomic, type):
                         file=sys.stderr,
                     )
             else:
-                support_cls_attrs["__annotations__"] = _call_annotate_function(athunk, 1)
+                support_cls_attrs["__annotations__"] = _call_annotate_function(
+                    athunk, _HintFormat.FORWARDREF
+                )
 
         if missing_slots and support_cls_attrs["__annotations__"]:
             hints = _resolve_hint(

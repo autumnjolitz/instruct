@@ -219,13 +219,13 @@ def _make_custom_typecheck(
 
     bases: tuple[type, ...]
     if is_abstract_type:
-        bases = (CustomTypeCheck, cast_type(Type, Generic[T]))  # type:ignore[misc]
+        bases = (CustomTypeCheck, cast_type(Type, Generic[T]))  # type:ignore[misc,index]
     else:
         assert isinstance(typehint, type), f"wyf - {typehint!s} ({type(typehint)})"
         type_cls: type[T] = cast_type(Type[T], typehint)
         bases = (
             CustomTypeCheck,
-            cast_type(Type, Generic[T]),  # type:ignore[misc]
+            cast_type(Type, Generic[T]),  # type:ignore[misc,index]
             cast_type(Type, typehint),
         )  # type:ignore[misc]
 
@@ -260,7 +260,7 @@ def _make_custom_typecheck(
                         )
                     yield item
 
-    class CustomTypeCheckType(*bases, metaclass=CustomTypeCheckMeta[T]):  # type:ignore[misc]
+    class CustomTypeCheckType(*bases, metaclass=CustomTypeCheckMeta[T]):  # type:ignore[misc,metaclass]
         __slots__ = ()
 
         def __class_getitem__(self, key):
@@ -446,7 +446,9 @@ def find_class_in_definition(
         or isinstance(type_hints, type)
     ), f"{type_hints} is a {type(type_hints)}"
 
-    test_func = partial(test_func_type_or_metatype, root_cls=root_cls, metaclass=metaclass)
+    test_func: Callable[[Any], bool] = partial(
+        test_func_type_or_metatype, root_cls=root_cls, metaclass=metaclass
+    )
 
     if issubclass(root_cls, TypeVar):
         test_func = test_type_var

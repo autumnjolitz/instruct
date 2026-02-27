@@ -1,6 +1,8 @@
+import enum
 import sys
 import typing
 from contextlib import suppress
+from collections.abc import Callable
 from typing import NewType, Any, TypeVar as IntTypeVar, Union
 
 from typing_extensions import get_origin, get_args
@@ -54,12 +56,19 @@ elif sys.version_info[:2] >= (3, 8):
 else:
     NoDefault: NoDefaultType = NoDefaultType(None)
 
+
 if sys.version_info[:2] >= (3, 14):
     from annotationlib import call_annotate_function
+    from annotationlib import Format
 else:
 
-    def call_annotate_function(*args, **kwargs):
+    def _call_annotate_function(annotate: Callable, format) -> dict[str, str]:
         raise NotImplementedError
+
+    call_annotate_function = _call_annotate_function
+
+    class Format(enum.IntEnum):
+        FORWARDREF = 3
 
 
 if typing.TYPE_CHECKING:

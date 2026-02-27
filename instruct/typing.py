@@ -38,12 +38,14 @@ from .compat import (
     Annotated,
     typevar_has_no_default,
     call_annotate_function,
+    Format,
 )
 from .types import BaseAtomic
 
 NoneType = type(None)
 CoerceMapping = Dict[str, Tuple[Union[Type, Tuple[Type, ...]], Callable]]
 call_annotate_function
+Format
 HAS_GET_ANNOTATIONS = callable(getattr(inspect, "get_annotations", None))
 T = TypeVar("T")
 Ts = TypeVarTuple("Ts")
