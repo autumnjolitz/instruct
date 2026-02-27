@@ -35,8 +35,12 @@ else:
     from typing_extensions import TypeGuard, TypeAlias
 if sys.version_info[:2] >= (3, 11):
     from typing import Never, assert_never
+
+    HAS_GET_OVERLOADS_NATIVELY = True
 else:
+    HAS_GET_OVERLOADS_NATIVELY = False
     from typing_extensions import Never, assert_never
+
 
 if typing.TYPE_CHECKING:
     from packaging.version import Version
@@ -64,7 +68,7 @@ else:
 
 
 from invoke.context import Context
-from tasksupport import task
+from tasksupport import task, _add_note
 
 _ = types.SimpleNamespace()
 this = sys.modules[__name__]
@@ -317,11 +321,17 @@ def pre_commit(
 
     if changed:
         extra = f"--files {' '.join(str(row[0].relative_to(str(root))) for row in files)}"
-
-    context.run(f"{python_bin} -m pre_commit --version")
+    pre_commit_path = f"{python_bin} -m pre_commit"
+    pre_commit_version = context.run(f"{pre_commit_path!s} --version", warn=True)
+    if not pre_commit_version:
+        if "No module named pre_commit" in pre_commit_version.stderr:
+            pre_commit_path = "pre-commit"
+        else:
+            raise ValueError(str(pre_commit_version))
+    pre_commit_version = context.run(f"{pre_commit_path!s} --version", warn=True)
 
     with context.cd(f"{root!s}"):
-        cli = f"{python_bin} -m pre_commit run {extra} {override_hook} "
+        cli = f"{pre_commit_path!s} run {extra} {override_hook} "
         context.run(cli)
     with tempfile.NamedTemporaryFile(mode="w+") as fh:
         context.run(f"{python_bin} {generate_version!s} {fh.name}")
@@ -329,7 +339,7 @@ def pre_commit(
             new.write(fh.read())
             fh.seek(0)
         if not context.run(
-            f"{python_bin} -m pre_commit run --files {new.name} {override_hook} ",
+            f"{pre_commit_path!s} run --files {new.name} {override_hook} ",
             warn=True,
         ):
             perror("generate_version returns pre-commit issues!")
@@ -354,7 +364,10 @@ def test(
     test_files: Optional[Union[str, List[str], Tuple[str, ...]]] = None,
     verbose: bool = False,
     fail_fast: bool = False,
-):
+) -> None:
+    """
+    Run tests
+    """
     python_bin = _.python_path(str, silent=True)
     extra = ""
     if verbose:
@@ -371,6 +384,9 @@ def test(
 
 @task
 def coverage_report(context: Context):
+    """
+    Create test coverage report
+    """
     python_bin = _.python_path(str, silent=True)
     context.run(f"{python_bin} -m coverage report -m")
 
@@ -379,6 +395,9 @@ def coverage_report(context: Context):
 def setup_metadata(
     file: Optional[str] = None,
 ) -> Dict[str, Union[str, Tuple[str, ...]]]:
+    """
+    Print package metadata
+    """
     in_metadata = False
     sep = "="
     if file is None:
@@ -471,6 +490,7 @@ def get_topmost_directory(p: Path) -> Path:
     help={
         "include": "add additional files or directories to the source distribution",
         "exclude": "remove files from the source distribution",
+        "validate": "test if instruct is importable and passes sanity check",
     },
 )
 def build(
@@ -713,7 +733,13 @@ def python_path(
 @task(
     optional={
         "all",
-    }
+    },
+    help={
+        "all": "install all extras",
+        "devel": "install development dependencies",
+        "project": "install project in venv for development",
+        "python_bin": "Path to python/python3 for this session",
+    },
 )
 def setup(
     context: Context,
@@ -734,11 +760,11 @@ def setup(
     """
     root = _.project_root(Path)
     venv = root / "python"
-    if python_bin is None:
+    if not python_bin:
         python_bin = _.python_path(str)
     if all:
         tests = devel = True
-    all = builtins.all
+    del all
 
     requirements = ""
     if project:
@@ -747,7 +773,7 @@ def setup(
         requirements = f"{requirements} -r dev-requirements.txt"
     else:
         requirements = f"{requirements} invoke"
-        if sys.version_info[:2] < (3, 11):  # 3.11 has get_overloads
+        if not HAS_GET_OVERLOADS_NATIVELY:  # 3.11 has get_overloads
             requirements = f"{requirements} typing-extensions"
     if tests:
         requirements = f"{requirements} -r test-requirements.txt"
@@ -946,7 +972,10 @@ def create_release(
     next_version: Union[str, Version] = "",
     version: Union[str, Version] = "",
 ) -> Version:
-    assert has_packaging
+    if not has_packaging:
+        e = ImportError("packaging")
+        raise _add_note(e, "please install packaging!")
+
     branch = _.branch_name(context)
     assert branch == "master"
     root = _.project_root(Path, silent=True)
@@ -1011,7 +1040,9 @@ def create_release(
 
 @task
 def show_version(context: Context) -> Version:
-    assert has_packaging
+    if not has_packaging:
+        e = ImportError("packaging")
+        raise _add_note(e, "please install packaging!")
     root = _.project_root(Path, silent=True)
     with open(root / "CURRENT_VERSION.txt") as fh:
         for line in (x.strip() for x in fh):
@@ -1040,7 +1071,9 @@ def bump_version(
     *,
     from_version: Union[str, Version] = "",
 ) -> Version:
-    assert has_packaging
+    if not has_packaging:
+        e = ImportError("packaging")
+        raise _add_note(e, "please install packaging!")
 
     root = _.project_root(Path, silent=True)
     branch = _.branch_name(context, silent=True)
@@ -1255,7 +1288,10 @@ def benchmark(
 @task
 def verify_types(
     context: Context,
-):
+) -> None:
+    """
+    Run type checkers
+    """
     python_bin = _.python_path(str, silent=True)
     context.run(f"{python_bin!s} -m mypy {_.project_name(context, silent=True)}")
     _.pre_commit(context, "ruff-check")
@@ -1264,5 +1300,11 @@ def verify_types(
 @task
 def verify_style(
     context: Context,
-):
+    force: bool = False,
+) -> None:
+    """
+    Check style
+    """
+    if force:
+        _.pre_commit(context, "ruff-force-format")
     _.pre_commit(context, "ruff-format-check")

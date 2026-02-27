@@ -11,6 +11,7 @@ import pprint
 import typing
 import importlib
 import builtins
+import __future__
 import importlib.util
 from pathlib import Path
 from typing import (
@@ -319,6 +320,8 @@ def get_types_from(
         return
     if f"{annotation.__module__}.{annotation.__name__}" != annotation.__qualname__:
         type_name = f"{annotation.__module__}.{annotation.__name__}"
+        first, *rest = type_name.split(".")
+
     path = []
     target = types.SimpleNamespace(**in_namespace)
     path_values = []
@@ -593,29 +596,31 @@ def task(callable_=None, **kwargs):
                 "format_value": format_value,
             }
         )
-        globalns = {
-            "_origin_globals_ref": task_frame.f_globals,
-            "__name__": task_frame.f_globals["__name__"],
-            # '__file__': task_frame.f_globals["__file__"],
-            "__builtins__": builtins,
-            "__file__": filename,
-            "ModuleType": types.ModuleType,
-            "Any": Any,
-            "Optional": Optional,
-            "List": List,
-            "Tuple": Tuple,
-            "NamedTuple": NamedTuple,
-            "typing": typing,
-            "NoneType": type(None),
-        }
+        module = importlib.util.module_from_spec(
+            importlib.util.spec_from_file_location(f"tasksupport.support.{func.__name__}", filename)
+        )
+        globalns = module.__dict__
+        globalns.update(
+            {
+                "_origin_globals_ref": task_frame.f_globals,
+                # "__name__": task_frame.f_globals["__name__"],
+                # '__file__': task_frame.f_globals["__file__"],
+                "__builtins__": builtins,
+                "ModuleType": types.ModuleType,
+                "Any": Any,
+                "Optional": Optional,
+                "List": List,
+                "Tuple": Tuple,
+                "NamedTuple": NamedTuple,
+                "typing": typing,
+                "NoneType": type(None),
+            }
+        )
         if has_typing_extensions:
             globalns["typing_extensions"] = typing_extensions
         # populate global ns with a chain map:
         truly_local_modifications = {}
         localns = ChainMap(truly_local_modifications, task_frame.f_locals, task_frame.f_globals)
-        module = importlib.util.module_from_spec(
-            importlib.util.spec_from_file_location(f"tasksupport.support.{func.__name__}", filename)
-        )
         localns.maps.append(globalns)
         code = """
 this: Optional[ModuleType] = None
@@ -624,8 +629,10 @@ def __getattr__(name: str):
     '''
     Look up in original global ns. Effective ChainMap of namespaces.
     '''
-    print('a')
-    return _origin_globals_ref[name]
+    try:
+        return _origin_globals_ref[name]
+    except KeyError as e:
+        raise AttributeError(f"{e!s}") from e
 
 """
         if DEBUG_CODEGEN:
@@ -633,7 +640,13 @@ def __getattr__(name: str):
                 fh.write(code)
                 fh.seek(0)
                 code = fh.read()
-        exec(compile(code, filename, "exec"), globalns, localns)
+        exec(
+            compile(
+                code, filename, "exec", dont_inherit=True, flags=__future__.CO_FUTURE_ANNOTATIONS
+            ),
+            globalns,
+            localns,
+        )
         globalns.update(truly_local_modifications)
         truly_local_modifications.clear()
         blank = ""
@@ -740,7 +753,17 @@ def __getattr__(name: str):
                     fh.seek(0)
                     code = fh.read()
 
-            exec(compile(code, filename, "exec"), task_frame.f_globals, ns)
+            exec(
+                compile(
+                    code,
+                    filename,
+                    "exec",
+                    dont_inherit=True,
+                    flags=__future__.CO_FUTURE_ANNOTATIONS,
+                ),
+                task_frame.f_globals,
+                ns,
+            )
             new_func = ns.maps[0][func.__name__]
             setattr(this._, f"_original_{func.__name__}", func)
             return new_func
@@ -764,7 +787,13 @@ def __getattr__(name: str):
                 code = fh.read()
         task_frame.f_globals["pprint"] = pprint
         task_frame.f_globals
-        exec(compile(code, filename, "exec"), task_frame.f_globals, localns)
+        exec(
+            compile(
+                code, filename, "exec", dont_inherit=True, flags=__future__.CO_FUTURE_ANNOTATIONS
+            ),
+            task_frame.f_globals,
+            localns,
+        )
         setattr(this._, func.__name__, wrap_func(func))
         public_func = localns[func.__name__]
         indent = " " * indentation_length(func.__doc__ or blank)
@@ -858,3 +887,14 @@ def truncate(s: str, limit: int, *, trailer: str = "…") -> str:
     if trailer:
         return s[: limit - 1] + trailer
     return s[:limit]
+
+
+def _add_note(e: Exception, s: str):
+    thunk = None
+    try:
+        thunk = e.add_note
+    except AttributeError:
+        return e
+    else:
+        thunk(s)
+        return e
