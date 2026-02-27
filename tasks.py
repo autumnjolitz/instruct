@@ -648,13 +648,13 @@ def build(
             with context.prefix(". venv/bin/activate"):
                 perror("Creating wheel from source distribution...")
                 context.run("python -m pip install -U wheel")
-                context.run(f"python -m pip wheel --no-deps file:///{dest.name!s} -w ./dist")
+                context.run(f"python -m pip wheel --no-deps file://{dest.name!s} -w ./dist")
         if validate:
             for file in tempdist.iterdir():
                 with tempfile.TemporaryDirectory() as venv:
                     context.run(f"{python_bin} -m venv {venv}")
                     with cd(venv):
-                        context.run(f"./bin/python -m pip install file:///{file!s}")
+                        context.run(f"./bin/python -m pip install file://{file!s}")
                         context.run("./bin/python -c 'import instruct'")
                         context.run("./bin/python -m instruct benchmark")
         for file in tempdist.iterdir():
