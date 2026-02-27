@@ -80,10 +80,15 @@ Next notes:
 6. It would be nice to do something like @instruct.on_event("clear" | "set", "field1", depends=("field2", "feild3"))
 7. I really wanna
 
-class F(...):
-    @instruct.add_event_listener("field")
-    def _(self, new):  # this is left as "_" and doesn't appear on the public export
-        ...
+.. code-block:: python
+
+    class F(...):
+        @instruct.add_event_listener("field")
+        def _(self, new):
+            # this is left as "_" and
+            # doesn't appear on the public export
+            ...
+
 
 Design Goal
 -------------
