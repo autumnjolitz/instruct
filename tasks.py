@@ -708,16 +708,13 @@ def python_path(
             python = Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python"
     if skip_venv or not python.exists():
         failed_pythons = []
-        for version in ("3.12", "3.11", "3.10", "3.9", "3.8", "3.7", "3"):
+        for version in ("3.14", "3.13", "3.12", "3.11", "3.10", "3.9", "3.8", "3.7", "3"):
             candidate = shutil.which(f"python{version}")
             if candidate is None:
                 continue
             with suppress(FileNotFoundError):
                 python = Path(
                     candidate,
-                    path=":".join(
-                        x for x in os.environ["PATH"].split(":") if Path(x) != python.parent
-                    ),
                 ).resolve(True)
                 break
             failed_pythons.append(candidate or f"python{version}")
