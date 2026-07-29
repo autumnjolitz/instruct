@@ -26,12 +26,14 @@ from collections.abc import (
     KeysView as AbstractKeysView,
     ValuesView as AbstractValuesView,
     ItemsView as AbstractItemsView,
+    Callable as AbstractCallable,
+    Hashable as AbstractHashable,
     Iterator,
 )
-from enum import IntEnum
+from enum import IntEnum, IntFlag, auto
 
 from importlib import import_module
-from itertools import chain
+from itertools import chain, cycle
 from types import CodeType, FunctionType
 from typing import (
     Any,
@@ -3301,6 +3303,974 @@ class Base(SimpleBase, mapping=True, json=True, autorepr=True):
 
 
 AbstractMapping.register(Base)  # pytype: disable=attribute-error
+
+
+def order_by(items, o):
+    try:
+        return items.index(o.name)
+    except ValueError:
+        return float("inf")
+
+
+def definition_types_for(o: type, /):
+    definitions = t.__definitions__
+    attr_type_map = {}
+    for attr in definitions:
+        field = definitions[attr]
+        has_typehint = field.hint is not None and field.hint is not _empty
+        if has_typehint:
+            attr_type_map[attr] = field.hint
+        else:
+            attr_type_map[attr] = object
+
+    class Fake:
+        pass
+
+    Fake.__module__ = ns["__module__"]
+    Fake.__qualname__ = ns["__qualname__"]
+    Fake.__annotations__ = attr_type_map
+
+    attr_type_map = typing.get_type_hints(Fake)
+    for attr in attr_type_map:
+        attr_type_map[attr] = parse_typedef(attr_type_map[attr])
+    return attr_type_map
+
+
+def create_new_for(
+    module: str,
+    qualname: str,
+    definitions: Mapping[str, Field],
+    *,
+    template=None,
+):
+    if not template:
+        template = general_new
+    elif not callable(template):
+        raise TypeError(f"{template!r} is not a valid __init__ function!")
+    params = []
+    attr_type_map = {}
+    for attr in definitions:
+        field = definitions[attr]
+        has_typehint = field.hint is not None and field.hint is not _empty
+        if has_typehint:
+            attr_type_map[attr] = field.hint
+        else:
+            attr_type_map[attr] = object
+        match field.config:
+            case {"_kind": ParameterKind.HIDE}:
+                continue
+            case {"_kind": ParameterKind() as kind}:
+                kwargs = {}
+                if field.default is not _empty:
+                    kwargs["default"] = field.default
+                elif (func := field.default_factory) is not None:
+                    kwargs["default"] = func()
+                if has_typehint:
+                    kwargs["annotation"] = field.hint
+                params.append(inspect.Parameter(attr, kind.value, **kwargs))
+
+    sig = inspect.Signature(params, return_annotation=None)
+
+    class Fake:
+        pass
+
+    Fake.__module__ = module
+    Fake.__qualname__ = qualname
+    Fake.__annotations__ = attr_type_map
+
+    attr_type_map = typing.get_type_hints(Fake)
+    for attr in attr_type_map:
+        attr_type_map[attr] = parse_typedef(attr_type_map[attr])
+    thunk = functools.partial(template, {"signature": sig, "types": attr_type_map})
+    thunk.__signature__ = sig
+    return thunk
+
+
+def general_new(config, /, cls, *args, **kwargs):
+    print(cls, args, kwargs)
+    assert issubclass(cls, tuple)
+    sig = config["signature"]
+    type_map = config["types"]
+    type_fail = config.get("type_check_failure_exc")
+    definitions = cls.__definitions__
+    attr_indices = tuple(definitions)
+    bound = sig.bind(*args, **kwargs)
+    default_attrs = definitions.keys() - bound.arguments.keys()
+    errors = ()
+    args = [None] * len(definitions)
+    for attr in bound.arguments:
+        value = bound.arguments[attr]
+        index = attr_indices.index(attr)
+        args[index] = value
+    for attr in default_attrs:
+        index = attr_indices.index(attr)
+        definition = definitions[attr]
+        if (default := definition.default) is not _empty:
+            pass
+        elif definition.default_factory is not None:
+            default = definition.default_factory()
+        else:
+            continue
+        args[index] = default
+    o = super(cls, cls).__new__(cls, args)
+    validate(o, type_map=type_map, on_type_error=type_fail)
+    return o
+
+
+def tuple_new(config, /, cls, *args, **kwargs):
+    assert issubclass(cls, tuple), f"{cls.__qualname__} must be a subclass of tuple!"
+    sig = config["signature"]
+    type_map = config["types"]
+    type_fail = config.get("type_check_failure_exc")
+    definitions = cls.__definitions__
+    attr_indices = tuple(definitions)
+    bound = sig.bind(*args, **kwargs)
+    default_attrs = definitions.keys() - bound.arguments.keys()
+    errors = ()
+    args = [None] * len(definitions)
+    for attr in bound.arguments:
+        value = bound.arguments[attr]
+        index = attr_indices.index(attr)
+        args[index] = value
+    for attr in default_attrs:
+        index = attr_indices.index(attr)
+        definition = definitions[attr]
+        if (default := definition.default) is not _empty:
+            pass
+        elif definition.default_factory is not None:
+            default = definition.default_factory()
+        else:
+            continue
+        args[index] = default
+    o = tuple.__new__(cls, args)
+    validate(o, type_map=type_map, on_type_error=type_fail)
+    return o
+
+
+def create_init_for(
+    module: str,
+    qualname: str,
+    definitions: Mapping[str, Field],
+    *,
+    template=None,
+    post_init=False,
+):
+    if not template:
+        template = general_init
+    elif not callable(template):
+        raise TypeError(f"{template!r} is not a valid __init__ function!")
+    params = []
+    attr_type_map = {}
+    for attr in definitions:
+        field = definitions[attr]
+        has_typehint = field.hint is not None and field.hint is not _empty
+        if has_typehint:
+            attr_type_map[attr] = field.hint
+        else:
+            attr_type_map[attr] = object
+        match field.config:
+            case {"_kind": ParameterKind.HIDE}:
+                continue
+            case {"_kind": ParameterKind() as kind}:
+                kwargs = {}
+                if field.default is not _empty:
+                    kwargs["default"] = field.default
+                elif (func := field.default_factory) is not None:
+                    kwargs["default"] = func()
+                if has_typehint:
+                    kwargs["annotation"] = field.hint
+                params.append(inspect.Parameter(attr, kind.value, **kwargs))
+    sig = inspect.Signature(params, return_annotation=None)
+
+    class Fake:
+        pass
+
+    Fake.__module__ = module
+    Fake.__qualname__ = qualname
+    Fake.__annotations__ = attr_type_map
+
+    attr_type_map = typing.get_type_hints(Fake)
+    for attr in attr_type_map:
+        attr_type_map[attr] = parse_typedef(attr_type_map[attr])
+    thunk = functools.partial(
+        template, {"post_init": post_init, "signature": sig, "types": attr_type_map}
+    )
+    thunk.__signature__ = sig
+    return thunk
+
+
+def _default_type_error(msg, attr, value) -> Exception:
+    e = TypeError(msg)
+    e.attr_name = attr
+    e.attr_value = value
+    return e
+
+
+def validate(
+    data,
+    *,
+    type_map=None,
+    on_type_error: type[Exception] | Callable[[str, str, Any], Exception] | None = None,
+):
+    errors = ()
+    if not on_type_error:
+        on_type_error = _default_type_error
+    cls = type(data)
+    if not type_map:
+        type_map = definition_types_for(cls)
+    for attr_name in cls.__definitions__:
+        value = getattr(data, attr_name)
+        t = type_map[attr_name]
+        if not isinstance(value, t):
+            exc = on_type_error(
+                f"Expected {t} for {attr_name}, got {value!r} (a {type(value)!r}) instead",
+                attr_name,
+                value,
+            )
+            errors = (*errors, exc)
+    if errors:
+        raise group_many_if(f"Multiple issues encountered on validating {cls.__name__}", *errors)
+    return data
+
+
+def general_init(config, /, self, *args, **kwargs):
+    cls = type(self)
+    sig = config["signature"]
+    type_map = config["types"]
+    post_init = config["post_init"]
+    type_fail = config.get("type_check_failure_exc")
+    definitions = cls.__definitions__
+    bound = sig.bind(*args, **kwargs)
+    errors = ()
+    for attr_name in bound.arguments:
+        value = bound.arguments[attr_name]
+        setattr(self, attr_name, value)
+    default_attrs = definitions.keys() - bound.arguments.keys()
+    for attr in default_attrs:
+        definition = definitions[attr]
+        if (default := definition.default) is not _empty:
+            pass
+        elif definition.default_factory is not None:
+            default = definition.default_factory()
+        else:
+            default = None
+        setattr(self, attr, default)
+    if post_init:
+        self.__post_init__()
+    validate(self, type_map=type_map, on_type_error=type_fail)
+
+
+from operator import itemgetter
+
+
+def class_and(cls, fields):
+    if not isinstance(cls, type):
+        cls = cls.__class__
+    definitions = cls.__definitions__
+    errors = ()
+    ann = {}
+
+    attrs = {
+        "__module__": cls.__module__,
+        "__annotations__": ann,
+    }
+    for field in fields:
+        if field not in definitions:
+            errors = (*errors, ValueError(f"{field} is not in {cls}!"))
+            continue
+        definition = definitions[field]
+        if definition.hint is not None and definition.hint is not _empty:
+            ann[field] = definition.hint
+        attrs[field] = definition
+    skip_keys = []
+    for field in definitions:
+        if field in fields:
+            continue
+        skip_keys.append(field)
+
+    missing_f = "And".join(inflection.titleize(x) for x in skip_keys)
+    name = f"{cls.__name__}Without{missing_f}"
+    match cls.__qualname__.rpartition("."):
+        case ("", "", _):
+            qualname = name
+        case (prefix, _, _):
+            qualname = f"{prefix}.{name}"
+        case _ as wtf:
+            assert_never(wtf)
+
+    if errors:
+        raise group_many_if(f"Cannot &-{cls}: encountered {len(errors)} errors", *errors)
+    t = type(name, (cls,), attrs)
+    return data_class(t, immutable=True, ignore=skip_keys)
+
+
+class ClassAndDescriptor:
+    __slots__ = ("name",)
+
+    def __init__(self):
+        self.name = None
+
+    def __set_name__(self, owner, name):
+        print(owner, name)
+        assert self.name is None, f"{self.name!r}"
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        print("a!!")
+        print(obj, objtype)
+        1 / 0
+
+
+class _DataTuple:
+    def __getitem__(self, o):
+        cls = self.__class__
+        match o:
+            case int() | str():
+                return super().__getitem__(o)
+            case slice() as s if (s.start, s.stop, s.step) == (None, None, None):
+                return self._replace()
+            case slice() as s:
+                parent_keys = tuple(key for key in cls.__definitions__)
+                keys = parent_keys[s]
+                new_cls = class_and(cls, keys)
+                assert len(new_cls.__definitions__) == len(keys)
+                args = []
+                kwargs = {}
+                arg_indices = {}
+                for index, attr in enumerate(new_cls.__definitions__):
+                    field = cls.__definitions__[attr]
+                    print(field)
+                    parent_index = parent_keys.index(attr)
+                    match field.config:
+                        case {"_kind": ParameterKind.HIDE}:
+                            continue
+                        case {"_kind": ParameterKind.KEYWORD_ONLY | ParameterKind.VAR_KEYWORD}:
+                            kwargs[attr] = self[parent_index]
+                        case {"_kind": _}:
+                            args.append(self[parent_index])
+                return new_cls(*args, *kwargs)
+            case _:
+                return NotImplemented
+
+    def __hash__(self):
+        return hash(tuple(self))
+
+    def __add__(self, other):
+        return NotImplemented
+
+    def __ge__(self, other):
+        return NotImplemented
+
+    def __le__(self, other):
+        return NotImplemented
+
+    def __lt__(self, other):
+        return NotImplemented
+
+    def __gt__(self, other):
+        return NotImplemented
+
+    def __eq__(self, other):
+        cls = self.__class__
+        if isinstance(other, cls):
+            return super().__eq__(other)
+        return False
+
+    def __ne__(self, other):
+        cls = self.__class__
+        if isinstance(other, cls):
+            return super().__ne__(other)
+        return True
+
+    def _replace(self, **kwargs):
+        cls = self.__class__
+        unknown_keys = kwargs.keys() - cls.__definitions__.keys()
+        if unknown_keys:
+            unknown_f = ", ".join(repr(key) for key in unknown_keys)
+            raise ValueError(f"Unknown attributes for {cls.__name__}: {unknown_f}")
+        names = tuple(cls.__definitions__)
+        new_args = {}
+        var_args = ()
+        new_kwargs = {}
+        for key in cls.__definitions__:
+            index = names.index(key)
+            field = cls.__definitions__[key]
+            current = getattr(self, key)
+            match field.config:
+                case {"_kind": ParameterKind.HIDE} if key in kwargs:
+                    errors = (*errors, ValueError(f"Not able to set hidden parameter: {key!r}"))
+                    continue
+                case {"_kind": ParameterKind.KEYWORD_ONLY | ParameterKind.VAR_KEYWORD}:
+                    value = current
+                    if key in kwargs:
+                        value = kwargs[key]
+                    new_kwargs[key] = value
+                case {"_kind": ParameterKind.POSITIONAL_ONLY | ParameterKind.POSITIONAL_OR_KEYWORD}:
+                    value = current
+                    if key in kwargs:
+                        value = kwargs[key]
+                    new_args[index] = value
+        indices = sorted(new_args)
+        args = [new_args[index] for index in indices]
+        return cls(*args, **new_kwargs)
+
+
+def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[type[T]], type[T]]:
+
+    not_set = object()
+    kwargs.setdefault("repr", True)
+
+    def wrapper(cls: type[T]) -> type[T]:
+        me, *bases, _object = cls.mro()
+        bases = tuple(bases)
+        assert _object is object
+        assert cls is me
+        attrs: dict[str, Field] = {}
+
+        match kwargs:
+            case {"slots": True | False as val}:
+                slots = val
+            case {"slots": tuple() as f} if all(isinstance(x, str) for x in f):
+                slots = f
+            case {"slots": wtf}:
+                raise TypeError(f"Expected True or False for slots, got a {wtf!r} (a {type(wtf)})")
+            case {}:
+                slots = True
+                for base in bases[::1]:
+                    if getattr(base, "__definitions__", not_set) is not not_set:
+                        assert isinstance(base.__definitions__, dict)
+                        assert all(isinstance(f, Field) for f in base.__definitions__.values())
+                        # data_classes are automatically slottable lol
+                        for key in base.__definitions__:
+                            attrs[key] = base.__definitions__[key]
+                    elif getattr(base, "__slots__", not_set) is not_set:
+                        slots = False
+        ns = {
+            "__module__": cls.__module__,
+            "__qualname__": cls.__qualname__,
+            "__doc__": cls.__doc__,
+            **vars(cls),
+        }
+        if kwargs["repr"]:
+            ns["__repr__"] = default_repr
+        _setup_class_attr_ns(ns)
+        for key in ns:
+            if isinstance(ns[key], Field):
+                setattr(cls, key, ns[key])
+        annotations = getattr(cls, "__annotations__", {})
+        assert annotations == ns["__annotations__"]
+        match kwargs:
+            case {"ignore": ignore}:
+                pass
+            case _:
+                ignore = ()
+        ignore = (
+            "__dict__",
+            "__weakref__",
+            "__static_attributes__",
+            "__definitions__",
+            "__slots__",
+            *ignore,
+        )
+        import types
+
+        for key in ignore:
+            ns.pop(key, True)
+        new_ns = {
+            "__definitions__": attrs,
+        }
+        annotation_keys = tuple(annotations)
+        iterable = list(inspect.classify_class_attrs(cls))
+        iterable.sort(key=functools.partial(order_by, annotation_keys))
+        for item in iterable:
+            if item.name in ns:
+                item = item._replace(object=ns[item.name], defining_class=cls)
+            match item.object:
+                case _ if item.name in ignore:
+                    if item.name in attrs:
+                        del attrs[item.name]
+                    continue
+                case Field() as f:
+                    assert item.name == f.name
+                    if item.name not in ns["__annotations__"]:
+                        assert f.hint is not None
+                        ns["__annotations__"][item.name] = f.hint
+                    assert f.hint is ns["__annotations__"][item.name]
+                    attrs[f.name] = f
+                    del ns[f.name]
+                case _ if item.defining_class is object:
+                    continue
+                case types.MemberDescriptorType():
+                    assert item.name in attrs
+                    assert item.name not in ns
+                case _ if item.kind == "data" and item.defining_class is cls:
+                    if item.name not in ns:
+                        ns[item.name] = getattr(cls, item.name)
+                    continue
+                case _ if item.kind == "data":
+                    continue
+                case _ if item.kind == "method":
+                    if item.defining_class is not cls:
+                        assert item.name not in ns, (
+                            f"{item.name} is in ns {item.defining_class} != {cls}?"
+                        )
+                        continue
+                    assert item.name in ns
+                    print("function", item)
+                case _:
+                    print("wtf", item)
+
+        immutable = False
+        match kwargs:
+            case {"immutable": True | False as v}:
+                immutable = v
+            case {"immutable": wtf}:
+                raise TypeError(wtf)
+        data_bases = ()
+        if immutable:
+            if not isinstance(slots, tuple):  # auto slots are nulled
+                slots = ()
+            data_bases = (
+                _DataTuple,
+                tuple,
+            )
+            for index, attr in enumerate(attrs):
+                if attr not in slots:
+                    new_ns[attr] = property(fget=itemgetter(index))
+        elif slots is True:
+            slots = tuple(x for x in attrs)
+
+        match ns:
+            case {"__init__": _}:
+                pass
+            case _ if immutable:
+                pass
+            case _ if not immutable:
+                init_func = create_init_for(
+                    cls.__module__,
+                    cls.__qualname__,
+                    attrs,
+                    post_init=True,
+                )
+                new_ns["__init__"] = init_func
+
+        if slots is False:
+            p_cls = type(
+                cls.__name__,
+                bases,
+                {
+                    **ns,
+                    **new_ns,
+                },
+            )
+        else:
+            p_cls = SomeTypeFactory(
+                cls.__name__,
+                bases,
+                {
+                    **ns,
+                    **new_ns,
+                    "__slots__": (),
+                },
+            )
+            if slots or data_bases:
+                dc_attrs = {}
+                if immutable:
+                    dc_attrs["__new__"] = create_new_for(
+                        cls.__module__,
+                        cls.__qualname__,
+                        attrs,
+                        template=tuple_new,
+                    )
+                    dc_attrs["__init__"] = object.__init__
+                dc_attrs["__class__"] = p_cls
+                d_cls = SomeTypeFactory(
+                    f"_{cls.__name__}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
+                )
+                p_cls.__new__ = functools.partial(detour_data_class_when, p_cls.__new__, d_cls)
+        print("created", p_cls, "with", getattr(p_cls, "__slots__", None))
+        return p_cls
+
+    if o is None:
+        return wrapper
+    return wrapper(o)
+
+
+class SomeTypeFactory(builtins.type):
+    def __and__(self, other):
+        cls = class_and(self, other)
+        return cls
+
+    def __sub__(self, other):
+        match other:
+            case str() as s:
+                other = (other,)
+            case (*other,):
+                pass
+        keep = []
+        for attr in self.__definitions__:
+            if attr not in other:
+                keep.append(attr)
+        return class_and(self, tuple(keep))
+
+
+def default_repr(self):
+    not_set = object()
+    cls = type(self)
+    if isinstance(self, tuple):
+        return f"{self.__class__.__name__}({tuple.__repr__(self)[1:-2]})"
+    kwargs = []
+    for key in cls.__definitions__:
+        if (value := getattr(self, key, not_set)) is not not_set:
+            kwargs.append(f"{key}={value!r}")
+    kw_friendly = ", ".join(kwargs)
+    return f"{self.__class__.__name__}({kw_friendly})"
+
+
+def ignore_init(config, /, self, *args, **kwargs):
+    type_map = config["types"]
+    type_fail = config.get("type_check_failure_exc")
+    validate(self, type_map=type_map, on_type_error=type_fail)
+
+
+def detour_data_class_when(__new__, data_cls, /, cls, *args, **kwargs):
+    _, parent, *_ = data_cls.mro()
+    if cls is parent:
+        return data_cls(*args, **kwargs)
+        return __new__(data_cls, *args, **kwargs)
+    return __new__(cls, *args, **kwargs)
+
+
+def overlaps(a, b):
+    result = []
+    for some_b in b:
+        for some_a in a:
+            if some_b == some_a:
+                result.append(some_b)
+    return tuple(result)
+
+
+def _setup_class_attr_ns(ns):
+    _not_set = object()
+    errors = []
+
+    match ns:
+        case {"__annotations__": {**annotations}}:
+            for key in annotations:
+                hint = annotations[key]
+                if key not in ns:
+                    ns[key] = Field.new(key, hint, {})
+                    continue
+                if isinstance(field := ns[key], Field):
+                    if not field.name or field.name != key:
+                        ns[key] = Field.new(
+                            key,
+                            hint,
+                            field.config,
+                            default_factory=field.default_factory,
+                            default=field.default,
+                        )
+                    continue
+                default = ns[key]
+                hashable = False
+                copyable = False
+                try:
+                    hash(default)
+                except TypeError:
+                    pass
+                else:
+                    hashable = True
+                try:
+                    default.copy()
+                except (AttributeError, TypeError):
+                    pass
+                else:
+                    copyable = True
+                if hashable:
+                    ns[key] = Field.new(key, hint, {}, default=default)
+                elif copyable:
+                    ns[key] = Field.new(key, hint, {}, default_factory=default.copy)
+                else:
+                    errors.append(
+                        TypeError(
+                            f"{default!r} is not hashable (i.e. immutable) or copy()-able. Please initialize it as Field()"
+                        )
+                    )
+    if errors:
+        name = ns["__qualname__"]
+        raise group_many_if(f"Unable to instantiate {name}", *errors)
+    return ns
+
+
+class SetupClassAttrProxy[T]:
+    _wrapped: T
+
+    def __init__(self, wrapped):
+        object.__setattr__(self, "_wrapped", wrapped)
+
+    def __getattr__(self, attr):
+        o = object.__getattribute__(self, "_wrapped")
+        value = getattr(o, attr)
+        here = inspect.currentframe()
+        caller_locals = here.f_back.f_locals
+        try:
+            match caller_locals:
+                case {"__module__": _, "__qualname__": _}:
+                    _setup_class_attr_ns(caller_locals)
+                case _ as wtf:
+                    print(wtf, attr)
+                    raise ValueError("Not called witin a class definition!")
+        finally:
+            del here, caller_locals
+        return value
+
+
+def group_many_if(msg, *errors):
+    e, *rest = errors
+    if rest:
+        return ExceptionGroup(msg, list(errors))
+    return e
+
+
+class ConfigSpace:
+    def parameter_kind(
+        self,
+        attrs: str | Field | tuple[str, ...] | tuple[Field, ...],
+        kind: ParameterKind,
+        *kinds: ParameterKind,
+    ):
+        match attrs:
+            case str(attr) | (Field() as attr) | (str(attr),) | (Field() as attr,):
+                if kinds:
+                    raise ValueError(f"Expected 1 kind, not {len(kinds) + 1}: {kinds!r}")
+                attrs = (attr,)
+            case (*attrs,) if attrs:
+                errors = []
+                for index, item in enumerate(attrs):
+                    match item:
+                        case Field() | str():
+                            pass
+                        case _ as wtf:
+                            errors.append(
+                                TypeError(
+                                    f"Unrecognized type for attrs[{index}]: {wtf!r} (a {type(wtf)!r})"
+                                )
+                            )
+                if errors:
+                    raise group_many_if("Multiple attributes failed!", errors)
+                if kinds and (count := len(kinds) + 1) != len(attrs):
+                    raise ValueError(f"Expected 1 or {len(attrs)} kinds, got {count} instead")
+            case ():
+                raise ValueError("Expected at least 1 attribute name, got 0 for attrs")
+            case _ as wtf:
+                raise TypeError(f"Unrecognized type for attrs: {wtf!r} (a {type(wtf)})")
+        if kinds:
+            kind_iterable = (kind, *kinds)
+        else:
+            kind_iterable = cycle((kind,))
+        for attr, kind in zip(attrs, kind_iterable):
+            attr.config["_kind"] = kind
+
+    def add_converter[T, U](
+        self,
+        field: str | Field,
+        /,
+        from_types: type | tuple[type, ...],
+        converter: Callable[[T], U],
+    ):
+        match converter:
+            case AbstractCallable() as c:
+                pass
+            case _ as wtf:
+                raise TypeError(f"Expected Callable for {converter=!r} (a {type(wtf)})")
+        match from_types:
+            case type() as t:
+                from_types = (t,)
+            case (*some_types,) if some_types and all(
+                isinstance(item, type) for item in some_types
+            ):
+                pass
+            case _:
+                raise TypeError("from_types must be type | tuple[type, ...] !")
+
+        from_types = tuple(deduplicate(from_types))
+
+        match field.config:
+            case {"converters": list() as converters}:
+                pass
+            case _:
+                field.config["converters"] = converters = []
+        for item in converters:
+            match item:
+                case (et, func) if o := overlaps(et, from_types):
+                    raise ValueError(f"{o} conflicts with pre-existing converter {et}={func}")
+                case (et, func):
+                    pass
+                case _ as wtf:
+                    assert_never(wtf)
+        converters.append((from_types, converter))
+        return self
+
+    def add_event_listener(
+        self, target: tuple[str, ...] | str | Field | tuple[Field, ...], /, handler=None
+    ):
+        if handler is None:
+            return functools.partial(self.add_event_listener, target)
+        if not isinstance(handler, Callable):
+            raise TypeError(f"Expected handler to be Callable, got {handler!r} (a {type(handler)})")
+        print("register", target, "with", handler)
+        return handler
+
+
+_empty = object()
+
+
+class Field[T](NamedTuple):
+    name: str
+    hint: type[T]
+    config: dict[str, Any]
+    default: Literal[_empty, T]
+    default_factory: None | Callable[[], T]
+
+    @overload
+    def new(cls, name: str, hint, config: dict[str, Any], *, default_factory=None, default=_empty):
+        pass
+
+    @overload
+    def new(cls, *, default_factory=None, default=_empty):
+        pass
+
+    @classmethod
+    def new(cls, *args, default_factory=None, default=_empty):
+        errors = []
+        validate = True
+        match args:
+            case (name, hint, config):
+                pass
+            case (name, hint):
+                config = {}
+            case (name,):
+                hint = "typing.Any"
+                config = {}
+            case () if default_factory is not None or default is not _empty:
+                name = None
+                hint = None
+                validate = False
+                config = {}
+            case ():
+                raise TypeError(
+                    f"{cls.new}() missing at least 1 required keyword-only argument: 'default_factory' or 'default'!"
+                )
+            case _ if args:
+                raise TypeError(f"{cls.new}() expected at most 3 arguments, got {len(args)}")
+        if validate:
+            if not isinstance(name, str):
+                errors.append(
+                    TypeError(f"Expected a string for name, got {name!r} (a {type(name)})")
+                )
+            if not isinstance(config, dict):
+                errors.append(
+                    TypeError(f"Expected a dict for config, got {config!r} (a {type(name)})")
+                )
+
+        if errors:
+            e, *errors = errors
+            if errors:
+                errors = (e, *errors)
+                raise ExceptionGroup(
+                    f"Unable to construct {cls.__name___} due to {len(errors)}", list(errors)
+                )
+            raise e
+        return cls(name, hint, config, default, default_factory)
+
+
+_ = SetupClassAttrProxy(ConfigSpace())
+
+
+class Fart(IntFlag):
+    FOO = 1
+    BART = 2
+    BAZ = 4
+
+    def parse(
+        cls,
+        o,
+        /,
+    ):
+        match o:
+            case str(s) if (maybe_fart := getattr(cls, s.upper(), None)) is not None:
+                return maybe_fart
+            case str(s):
+                raise ValueError(f"Unknown field in {cls.__name__}: {s!r}")
+            case int():
+                return cls(int)
+            case _ as wtf:
+                raise TypeError(f"Unrecognized type for {cls.__name__}: {wtf!r} (a {type(wtf)})")
+
+
+class ParameterKind(enum.Enum):
+    HIDE = None
+    POSITIONAL_OR_KEYWORD = inspect.Parameter.POSITIONAL_OR_KEYWORD
+    KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
+    POSITIONAL_ONLY = inspect.Parameter.POSITIONAL_ONLY
+    VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
+    VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
+
+
+@data_class
+class MutableItem:
+    id: int = -1
+    name: str = "default"
+    flags: Fart
+    config: dict[str, str] = {}
+
+    _.parameter_kind(
+        (id, name, config),
+        ParameterKind.POSITIONAL_ONLY,
+        ParameterKind.POSITIONAL_OR_KEYWORD,
+        ParameterKind.KEYWORD_ONLY,
+    )
+    _.parameter_kind(
+        flags,
+        ParameterKind.HIDE,
+    )
+    _.add_converter(flags, (int, str), Fart)
+    _.add_converter(id, str, int)
+
+    def __post_init__(self):
+        self.flags = Fart(0)
+
+    @_.add_event_listener(
+        (id, name),
+    )
+    def _mark_ready(self, new_id, new_name):
+        assert all((new_id, new_name))
+        self.flags |= Fart.BAZ
+
+
+a = MutableItem()
+assert type(a).__slots__ == ("id", "name", "flags", "config"), MutableItem.__slots__
+assert a.id == -1
+assert (a.id, a.name, a.flags, a.config) == (-1, "default", Fart(0), {})
+
+
+@data_class(immutable=True)
+class ImmutableItem(MutableItem):
+    flags: Fart = Fart(0)
+
+
+i = ImmutableItem()
+assert tuple(i) == (-1, "default", Fart(0), {})
+i2 = ImmutableItem(12, "foobar", config={"yay": "poop"})
+i3 = ImmutableItem(12, "foobar", config={"yay": "poop"})
+assert i2 != i
+assert i2 == i3 != i
+print(i, i2)
+print(i3._replace(id=2, name="yap", config={}))
+print(i2.__hash__)
+print(f"Fart: {i2[:1]}")
+cls = ImmutableItem - "id"
+print(cls)
 
 __all__ = [
     # Instruct utilities:
