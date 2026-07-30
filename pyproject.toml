@@ -22,10 +22,6 @@ exclude = '''
 )/
 '''
 
-[tool.isort]
-line_length=80
-multi_line_output=3
-
 [tool.git-changelog]
 input = 'CHANGES.rst'
 # in_place = true
@@ -41,9 +37,6 @@ versioning = "pep440"
 
 [tool.ruff.format]
 docstring-code-format = true
-
-[tool.ruff.lint]
-typing-modules = ["instruct.compat"]
 
 [tool.ruff]
 line-length = 100
@@ -73,4 +66,20 @@ exclude = [
     "venv",
     "python",
     "*.egg-info",
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint]
+typing-modules = ["instruct.compat"]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # isort
+    "I",
 ]
