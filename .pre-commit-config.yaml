@@ -32,7 +32,7 @@ repos:
     rev: v3.21.2
     hooks:
       - id: pyupgrade
-        args: [ --py38-plus ]
+        args: [ --py312-plus ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
@@ -46,14 +46,14 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
-        args: [  --target-version, py38, --fix ]
+        args: [  --target-version, py312, --fix ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
             )$
       - id: ruff
         alias: ruff-check
-        args: [  --target-version, py38 ]
+        args: [  --target-version, py312 ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
@@ -61,7 +61,7 @@ repos:
       # Run the formatter.
       - id: ruff-format
         alias: ruff-force-format
-        args: [  --target-version, py38 ]
+        args: [  --target-version, py312 ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py
@@ -82,7 +82,7 @@ repos:
             )$
       - id: ruff-format
         alias: ruff-format-check
-        args: [  --target-version, py38, --check ]
+        args: [  --target-version, py312, --check ]
         exclude: |
             (?x)^(
                 tests\/test_(.*)_([\d]+)\.py

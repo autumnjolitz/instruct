@@ -27,7 +27,7 @@ def print(*args, **kwargs) -> None:
     return builtins.print(s or prefix, *rest, **kwargs)
 
 
-def pytest_ignore_collect(collection_path: Path, path, config: pytest.Config) -> bool:
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     with suppress(ValueError):
         _, version = collection_path.stem.rsplit("_", 1)
         major, minor = int(version[:1], 10), int(version[1:], 10)

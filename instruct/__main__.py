@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import timeit
+import logging
 
 from instruct import SimpleBase, clear
 
@@ -143,6 +144,12 @@ if __name__ == "__main__":
     import argparse
     import random
 
+    logger = logging.getLogger(__package__)
+    handler = logging.StreamHandler(stream=sys.stderr)
+    logger.addHandler(handler)
+    handler.setLevel(logging.DEBUG)
+    del handler
+
     try:
         from pycallgraph import PyCallGraph  # type:ignore
         from pycallgraph.output import GraphvizOutput  # type:ignore
@@ -150,6 +157,7 @@ if __name__ == "__main__":
         PyCallGraph = None
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False)
     parser.set_defaults(mode=None)
     subparsers = parser.add_subparsers()
     benchmark = subparsers.add_parser("benchmark")
@@ -163,6 +171,9 @@ if __name__ == "__main__":
         callgraph.add_argument("filename", default="callgraph.png", nargs="?")
 
     args = parser.parse_args()
+    logger.setLevel(logging.INFO)
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
     if not args.mode:
         raise SystemExit("Use benchmark or callgraph")
     if args.mode == "benchmark":
