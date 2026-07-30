@@ -56,7 +56,11 @@ class MutableItem:
     def _mark_ready(self, new_id, new_name):
         if self.flags is None:
             return
-        self.flags |= Fart.BAZ
+        match (new_id, new_name):
+            case (-1, _):
+                pass
+            case (int(), str()):
+                self.flags |= Fart.BAZ
 
     assert __class_definition__["listeners"]  # noqa:F821
     assert isinstance(flags, instruct.Field)  # noqa:F821
@@ -74,7 +78,7 @@ def test_mutable_item():
     a = MutableItem()
     assert type(a).__slots__ == ("id", "name", "flags", "config"), MutableItem.__slots__
     assert a.id == -1
-    assert (a.id, a.name, a.flags, a.config) == (-1, "default", Fart(0) | Fart.BAZ, {})
+    assert (a.id, a.name, a.flags, a.config) == (-1, "default", Fart(0), {})
     b = MutableItem(10, "Foo Man", config={"Yes": "No"})
     assert (b.id, b.name, b.flags, b.config) == (10, "Foo Man", Fart.BAZ, {"Yes": "No"})
 
@@ -93,9 +97,10 @@ def test_class_subtraction():
 
 def test_immutable_item():
     i = ImmutableItem()
-    assert tuple(i) == (-1, "default", Fart.BAZ, {})
+    assert tuple(i) == (-1, "default", Fart(0), {})
     i2 = ImmutableItem(12, "foobar", config={"yay": "poop"})
     i3 = ImmutableItem(12, "foobar", config={"yay": "poop"})
+    assert i2.flags is Fart.BAZ
     assert i2 != i
     assert i2 == i3 != i
     print(i, i2)
