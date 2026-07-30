@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import copy
 import enum
 import functools
 import inspect
@@ -15,39 +16,42 @@ import types
 import typing
 import warnings
 import weakref
-from contextlib import suppress, contextmanager
-from contextvars import ContextVar
-from collections import abc, ChainMap
 from base64 import urlsafe_b64encode
+from collections import ChainMap, abc
 from collections.abc import (
-    Mapping as AbstractMapping,
-    Iterable as AbstractIterable,
-    KeysView as AbstractKeysView,
-    ValuesView as AbstractValuesView,
-    ItemsView as AbstractItemsView,
+    Callable,
     Callable as AbstractCallable,
+    Generator,
+    ItemsView as AbstractItemsView,
+    Iterable,
+    Iterable as AbstractIterable,
     Iterator,
+    KeysView as AbstractKeysView,
+    Mapping,
+    Mapping as AbstractMapping,
+    MutableMapping,
+    ValuesView as AbstractValuesView,
 )
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from enum import IntEnum
-from operator import itemgetter
 from importlib import import_module
 from itertools import chain, cycle
+from operator import itemgetter
 from types import CodeType, FunctionType
 from typing import (
+    TYPE_CHECKING,
     Any,
-    cast,
-    get_type_hints,
+    Generic,
     NamedTuple,
     Optional,
-    TYPE_CHECKING,
-    Union,
     TypeVar,
-    Generic,
-    overload,
-    Unpack,
+    Union,
     assert_never,
+    cast,
+    get_type_hints,
+    overload,
 )
-from collections.abc import Callable, Iterable, Mapping, Generator, MutableMapping
 from weakref import WeakValueDictionary
 
 import inflection
@@ -56,69 +60,68 @@ from jinja2 import Environment, PackageLoader
 from . import exceptions
 from .about import __version__, __version_info__
 from .compat import CellType
-from .constants import NoPickle, NoJSON, NoIterable, Range, NoHistory, RangeFlags, Undefined
+from .constants import NoHistory, NoIterable, NoJSON, NoPickle, Range, RangeFlags, Undefined
 from .exceptions import (
-    OrphanedListenersError,
-    MissingGetterSetterTemplateError,
-    InvalidPostCoerceAttributeNames,
-    CoerceMappingValueError,
     ClassCreationFailed,
-    RangeError,
+    CoerceMappingValueError,
     ExceptionJSONSerializable,
-    ValueError as InstructValueError,
+    InvalidPostCoerceAttributeNames,
+    MissingGetterSetterTemplateError,
+    OrphanedListenersError,
+    RangeError,
     TypeError as InstructTypeError,
+    ValueError as InstructValueError,
 )
 from .subtype import wrapper_for_type
-from .typing import (
-    Atomic,
-    TypeHint,
-    NoneType,
-    ClassMethod,
-    isclassmethod,
-    ParentCastType,
-    MutatedCastType,
-    CustomTypeCheck,
-    Self,
-    typevar_has_no_default,
-    T,
-    CoerceMapping,
-    make_union as _make_union,
-    make_tuple as _make_tuple,
-    resolve as _resolve_hint,
-    get_annotations as _get_annotations,
-    call_annotate_function as _call_annotate_function,
-    Format as _HintFormat,
-)
 from .typedef import (
-    parse_typedef,
-    ismetasubclass,
-    is_typing_definition,
-    find_class_in_definition,
-    get_origin,
-    get_args,
     Annotated,
+    Literal,
     Protocol,
     TypeGuard,
-    Literal,
     TypingDefinition,
+    find_class_in_definition,
+    get_args,
+    get_origin,
+    is_typing_definition,
+    ismetasubclass,
+    parse_typedef,
 )
 from .types import (
-    FrozenMapping,
-    AttrsDict,
-    BoundClassOrInstanceAttribute,
-    ClassOrInstanceFuncsDescriptor,
-    ClassOrInstanceFuncsDataDescriptor,
-    BaseAtomic,
-    ImmutableValue,
-    ImmutableMapping,
-    ImmutableCollection,
     AbstractAtomic,
-    InstanceCallable,
+    AttrsDict,
+    BaseAtomic,
+    BoundClassOrInstanceAttribute,
+    ClassOrInstanceFuncsDataDescriptor,
+    ClassOrInstanceFuncsDescriptor,
+    FrozenMapping,
     Genericizable,
+    ImmutableCollection,
+    ImmutableMapping,
+    ImmutableValue,
+    InstanceCallable,
     flatten_fields,
 )
-from .utils import invert_mapping, mark, getmarks, deduplicate
-
+from .typing import (
+    Atomic,
+    ClassMethod,
+    CoerceMapping,
+    CustomTypeCheck,
+    Format as _HintFormat,
+    MutatedCastType,
+    NoneType,
+    ParentCastType,
+    Self,
+    T,
+    TypeHint,
+    call_annotate_function as _call_annotate_function,
+    get_annotations as _get_annotations,
+    isclassmethod,
+    make_tuple as _make_tuple,
+    make_union as _make_union,
+    resolve as _resolve_hint,
+    typevar_has_no_default,
+)
+from .utils import deduplicate, getmarks, invert_mapping, mark
 
 __version__, __version_info__  # Silence unused import warning.
 
@@ -138,6 +141,7 @@ _GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hin
 _GET_TYPEHINTS_ALLOWS_FORMAT = "format" in inspect.signature(get_type_hints).parameters
 _NATIVE_CLOSURE_SUPPORT = "closure" in inspect.signature(exec).parameters
 _SUPPORTED_CELLTYPE = hasattr(types, "CellType")
+_INIT_IS_SPECIAL = sys.version_info < (3, 14)
 
 ctx: ContextVar[bool] = ContextVar("in_define_data_class")
 
@@ -2569,7 +2573,7 @@ class AtomicMeta(AbstractAtomic, type):
 
         support_cls_attrs["_column_types"] = ImmutableMapping[str, CustomTypeCheck](column_types)
         support_cls_attrs["_all_coercions"] = ImmutableMapping[
-            str, tuple[Union[TypingDefinition, type], Callable]
+            str, tuple[TypingDefinition | type, Callable]
         ](all_coercions)
 
         support_cls_attrs["_support_columns"] = tuple(support_columns)
@@ -3337,6 +3341,7 @@ def create_new_for(
     definitions: Mapping[str, Field],
     *,
     template=None,
+    **template_kwargs,
 ):
     if not template:
         template = general_new
@@ -3376,38 +3381,18 @@ def create_new_for(
     attr_type_map = typing.get_type_hints(Fake)
     for attr in attr_type_map:
         attr_type_map[attr] = parse_typedef(attr_type_map[attr])
-    thunk = functools.partial(template, {"signature": sig, "types": attr_type_map})
+    thunk = functools.partial(
+        template, {**template_kwargs, "signature": sig, "types": attr_type_map}
+    )
     thunk.__signature__ = sig
     return thunk
 
 
 def general_new(config, /, cls, *args, **kwargs):
-    print(cls, args, kwargs)
-    assert issubclass(cls, tuple)
-    sig = config["signature"]
-    type_map = config["types"]
-    type_fail = config.get("type_check_failure_exc")
-    definitions = cls.__definitions__
-    attr_indices = tuple(definitions)
-    bound = sig.bind(*args, **kwargs)
-    default_attrs = definitions.keys() - bound.arguments.keys()
-    args = [None] * len(definitions)
-    for attr in bound.arguments:
-        value = bound.arguments[attr]
-        index = attr_indices.index(attr)
-        args[index] = value
-    for attr in default_attrs:
-        index = attr_indices.index(attr)
-        definition = definitions[attr]
-        if (default := definition.default) is not Field._empty:
-            pass
-        elif definition.default_factory is not None:
-            default = definition.default_factory()
-        else:
-            continue
-        args[index] = default
-    o = super(cls, cls).__new__(cls, args)
-    validate(o, type_map=type_map, on_type_error=type_fail)
+    o = super(cls, cls).__new__(cls)
+    if config["force_init"]:
+        _, parent, *_ = cls.mro()
+        parent.__init__(o, *args, **kwargs)
     return o
 
 
@@ -3775,7 +3760,7 @@ class _DataTuple:
             raise ValueError(f"Unknown attributes for {cls.__name__}: {unknown_f}")
         names = tuple(cls.__definitions__)
         new_args = {}
-        # var_args = ()
+        errors = ()
         new_kwargs = {}
         for key in cls.__definitions__:
             index = names.index(key)
@@ -3795,6 +3780,8 @@ class _DataTuple:
                     if key in kwargs:
                         value = kwargs[key]
                     new_args[index] = value
+        if errors:
+            raise group_many_if("Unable to replace fields", list(errors))
         indices = sorted(new_args)
         args = [new_args[index] for index in indices]
         return cls(*args, **new_kwargs)
@@ -4001,6 +3988,16 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                         template=tuple_new,
                     )
                     dc_attrs["__init__"] = object.__init__
+                else:
+                    dc_attrs["__new__"] = create_new_for(
+                        cls.__module__,
+                        cls.__qualname__,
+                        attrs,
+                        template=general_new,
+                        force_init=_INIT_IS_SPECIAL,
+                    )
+                    if _INIT_IS_SPECIAL:
+                        dc_attrs["__init__"] = object.__init__
                 dc_attrs["__class__"] = p_cls
                 d_cls = SomeTypeFactory(
                     f"_{cls.__name__}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
@@ -4029,8 +4026,8 @@ class SomeTypeFactory(builtins.type):
 
     def __sub__(self, other):
         match other:
-            case str() as s:
-                other = (other,)
+            case str(s):
+                other = (s,)
             case (*other,):
                 pass
         keep = []
@@ -4087,7 +4084,7 @@ def _setup_class_attr_ns(ns):
     _not_set = object()
     errors = []
     class_definition = ns.setdefault("__class_definition__", {})
-    coerce_mappings = ns.setdefault("__coerce__", {})
+    # coerce_mappings = ns.setdefault("__coerce__", {})
     # ARJ: use weak references for listener functions are those are
     # typically held on the class itself already.
     class_definition.setdefault("listeners", {})
@@ -4252,13 +4249,13 @@ class SetupClassAttrProxy[T]:
             bind_value = "ns" in sig.parameters
         try:
             match caller_locals:
-                case {"__module__": _, "__qualname__": q, **rest}:
+                case {"__module__": _, "__qualname__": q}:
                     is_debug_mode("attr_proxy", o.__class__.__name__) and logger.debug(
                         f"calling in {q}"
                     )
                     _setup_class_attr_ns(caller_locals)
                     bind_value = True
-                case _ as wtf:
+                case _:
                     raise ValueError("Not called witin a class definition!")
             if bind_value:
                 value = functools.partial(value, ns=caller_locals)
@@ -4269,7 +4266,7 @@ class SetupClassAttrProxy[T]:
 
 def group_many_if(msg, *errors):
     match errors:
-        case ((*items,),):
+        case ((*_,),):
             e = TypeError(
                 f"errors must be tuple[Exception, ...], got {errors!r}",
             )
@@ -4279,6 +4276,14 @@ def group_many_if(msg, *errors):
     if rest:
         return ExceptionGroup(msg, list(errors))
     return e
+
+
+def _ns_get_map(o, key):
+    return o[key]
+
+
+def _ns_getattr(o, key):
+    return getattr(o, key)
 
 
 class ConfigSpace:
@@ -4340,16 +4345,6 @@ class ConfigSpace:
                     src_attr_indices.append(index)
             assert src_attr_indices
             assert src_attrs
-            if is_mapping:
-                try:
-                    ns = ns["__definitions__"]
-                except KeyError:
-                    pass
-            else:
-                try:
-                    ns = ns.__definitions__
-                except AttributeError:
-                    pass
             for index, attr in zip(src_attr_indices, src_attrs):
                 try:
                     field = ns[attr]
@@ -4417,7 +4412,7 @@ class ConfigSpace:
         assert isinstance(coerce_mappings, AbstractMapping)
 
         match converter:
-            case AbstractCallable() as c:
+            case AbstractCallable():
                 pass
             case _ as wtf:
                 raise TypeError(f"Expected Callable for {converter=!r} (a {type(wtf)})")
@@ -4464,9 +4459,9 @@ class ConfigSpace:
         if not isinstance(handler, Callable):
             raise TypeError(f"Expected handler to be Callable, got {handler!r} (a {type(handler)})")
         if isinstance(ns, AbstractMapping):
-            _ns_get = lambda o, key: o[key]
+            _ns_get = _ns_get_map
         else:
-            _ns_get = lambda o, name: getattr(o, name)
+            _ns_get = _ns_getattr
         match target:
             case str() | Field() as f:
                 if isinstance(f, str):
@@ -4502,11 +4497,11 @@ _empty = object()
 
 class Field[T](NamedTuple):
     name: str
-    hint: type[T] | TypeHint | Literal[_empty]
+    hint: type[T] | TypeHint | Literal[Field._empty]
     kind: ParameterKind
 
-    default: T | Literal[_empty]
-    default_factory: Callable[[], T] | Literal[_empty]
+    default: T | Literal[Field._empty]
+    default_factory: Callable[[], T] | Literal[Field._empty]
 
     @overload
     def new(
@@ -4562,7 +4557,7 @@ class Field[T](NamedTuple):
                     TypeError(f"Expected a string for name, got {name!r} (a {type(name)})")
                 )
             elif not name:
-                errors.append(value("Empty string not allowed for a name!"))
+                errors.append(ValueError("Empty string not allowed for a name!"))
         if not isinstance(kind, ParameterKind):
             errors.append(TypeError(f"Expected a ParameterKind for {kind=!r} (a {type(kind)})"))
         if not callable(default_factory) and default_factory is not Field._empty:

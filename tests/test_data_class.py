@@ -1,7 +1,9 @@
+from enum import IntFlag
+
 import pytest
 
-from instruct import data_class, _, ParameterKind, validate
-from enum import IntFlag
+import instruct
+from instruct import ParameterKind, _, data_class, validate
 
 
 class Fart(IntFlag):
@@ -42,7 +44,7 @@ class MutableItem:
         "flags",
         ParameterKind.HIDE,
     )
-    _.add_converter(flags, (int, str), Fart)
+    _.add_converter(flags, (int, str), Fart)  # noqa:F821
     _.add_converter(id, str, int)
 
     def __post_init__(self):
@@ -56,7 +58,8 @@ class MutableItem:
             return
         self.flags |= Fart.BAZ
 
-    assert __class_definition__["listeners"]
+    assert __class_definition__["listeners"]  # noqa:F821
+    assert isinstance(flags, instruct.Field)  # noqa:F821
 
 
 assert tuple(MutableItem.__class_definition__["listeners"])
@@ -72,6 +75,8 @@ def test_mutable_item():
     assert type(a).__slots__ == ("id", "name", "flags", "config"), MutableItem.__slots__
     assert a.id == -1
     assert (a.id, a.name, a.flags, a.config) == (-1, "default", Fart(0) | Fart.BAZ, {})
+    b = MutableItem(10, "Foo Man", config={"Yes": "No"})
+    assert (b.id, b.name, b.flags, b.config) == (10, "Foo Man", Fart.BAZ, {"Yes": "No"})
 
 
 def test_mutable_coerce():
