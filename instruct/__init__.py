@@ -335,8 +335,8 @@ def clear(instance: Atomic, fields: Iterable[str] | None = None) -> Atomic:
     return instance
 
 
-Errors = Union[tuple[Exception, ...], list[Exception]]
-ErroredNames = Union[tuple[str, ...], list[str], frozenset[str], set[str]]
+type Errors = tuple[Exception, ...] | list[Exception]
+type ErroredNames = tuple[str, ...] | list[str] | frozenset[str] | set[str]
 
 
 class ImplInitErrors(Protocol):
@@ -1424,7 +1424,8 @@ def unpack_coerce_mappings(mappings):
         value = mappings[key]
         if not isinstance(value, tuple) or len(value) != 2:
             raise CoerceMappingValueError(
-                f"Coerce mapping key {key} must be Tuple[Union[Type, Tuple[Type, ...]], Callable[[T], U]], not {value!r}"
+                f"Coerce mapping key {key} must be "
+                f"tuple[type | tuple[type, ...]], Callable[[T], U]]], not {value!r}"
             )
         if isinstance(key, tuple):
             for prop_name in key:
@@ -3524,7 +3525,7 @@ def create_init_for(
                 params.append(inspect.Parameter(attr, kind.value, **kwargs))
             case _ as wtf:
                 assert_never(wtf)
-    print(qualname, [(x.name, x.kind) for x in params])
+    # print(qualname, [(x.name, x.kind) for x in params])
     sig = inspect.Signature(params, return_annotation=None)
     self_params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD), *params]
     for index, param in enumerate(self_params):
@@ -3675,23 +3676,6 @@ def class_and(cls, fields):
     return data_class(t, immutable=True, ignore=skip_keys)
 
 
-class ClassAndDescriptor:
-    __slots__ = ("name",)
-
-    def __init__(self):
-        self.name = None
-
-    def __set_name__(self, owner, name):
-        print(owner, name)
-        assert self.name is None, f"{self.name!r}"
-        self.name = name
-
-    def __get__(self, obj, objtype=None):
-        print("a!!")
-        print(obj, objtype)
-        1 / 0
-
-
 class _DataTuple:
     def __getitem__(self, o):
         cls = self.__class__
@@ -3795,17 +3779,37 @@ def _get_null(self):
     return None
 
 
-def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[type[T]], type[T]]:
+def data_class(
+    o: type[T] | None = None,
+    /,
+    module_name: str | None = None,
+    class_qualname: str | None = None,
+    **kwargs,
+) -> type[T] | Callable[[type[T]], type[T]]:
 
     not_set = object()
     kwargs.setdefault("repr", True)
 
     def wrapper(cls: type[T]) -> type[T]:
-        is_dbg = is_debug_mode("codegen", cls.__name__, ("data_class",))
         me, *bases, _object = cls.mro()
         bases = tuple(bases)
+
+        module = module_name or cls.__module__
+        qualname = class_qualname or cls.__qualname__
+        class_name = qualname
+        if "." in qualname:
+            _, class_name = qualname.rsplit(".", 1)
+        doc = cls.__doc__
+        if _GET_TYPEHINTS_ALLOWS_FORMAT:
+            annotations = get_type_hints(cls, include_extras=True, format=3)
+        else:
+            annotations = get_type_hints(cls, include_extras=True)
+
         assert _object is object
         assert cls is me
+        del me, _object
+
+        is_dbg = is_debug_mode("codegen", class_name, ("data_class",))
         attrs: dict[str, Field] = {}
         base_listeners = {}
 
@@ -3831,21 +3835,14 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                     elif getattr(base, "__slots__", not_set) is not_set:
                         slots = False
         ns = {
-            "__module__": cls.__module__,
-            "__qualname__": cls.__qualname__,
-            "__doc__": cls.__doc__,
+            "__module__": module,
+            "__qualname__": qualname,
+            "__doc__": doc,
             **vars(cls),
         }
         if kwargs["repr"] and "__repr__" not in ns:
             ns["__repr__"] = default_repr
         _setup_class_attr_ns(ns)
-        for key in ns:
-            if isinstance(ns[key], Field):
-                setattr(cls, key, ns[key])
-        if _GET_TYPEHINTS_ALLOWS_FORMAT:
-            annotations = get_type_hints(cls, include_extras=True, format=3)
-        else:
-            annotations = get_type_hints(cls, include_extras=True)
         class_definition = ns["__class_definition__"]
         listeners = class_definition["listeners"]
         if base_listeners:
@@ -3875,9 +3872,7 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
             "__definitions__": attrs,
         }
         annotation_keys = tuple(annotations)
-        is_debug_mode("data_class", cls.__name__) and logger.debug(
-            f"annotation are: {annotations!r}"
-        )
+        is_debug_mode("data_class", class_name) and logger.debug(f"annotation are: {annotations!r}")
         iterable = list(inspect.classify_class_attrs(cls))
         iterable.sort(key=functools.partial(order_by, annotation_keys))
         for item in iterable:
@@ -3917,13 +3912,13 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                         )
                         continue
                     assert item.name in ns
-                    is_debug_mode("data_class", cls.__name__) and logger.debug(
+                    is_debug_mode("data_class", class_name) and logger.debug(
                         f"ignoring {item.name} (a function)"
                     )
                 case _:
                     print("wtf", item)
-        is_debug_mode("data_class", cls.__name__) and logger.debug(
-            f"definition sort for {cls.__name__}: {tuple(attrs)}"
+        is_debug_mode("data_class", class_name) and logger.debug(
+            f"definition sort for {class_name}: {tuple(attrs)}"
         )
         immutable = False
         match kwargs:
@@ -3944,6 +3939,8 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                     new_ns[attr] = property(fget=itemgetter(index))
         elif slots is True:
             slots = tuple(x for x in attrs)
+        elif slots is False:
+            slots = None
 
         match ns:
             case {"__init__": _}:
@@ -3952,16 +3949,18 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                 pass
             case _ if not immutable:
                 init_func = create_init_for(
-                    cls.__module__,
-                    cls.__qualname__,
+                    module,
+                    qualname,
                     attrs,
                     post_init=True,
                 )
                 new_ns["__init__"] = init_func
 
-        if slots is False:
-            p_cls = type(
-                cls.__name__,
+        if slots is None:
+            if "__slots__" in ns:
+                del ns["__slots__"]
+            p_cls = SomeTypeFactory(
+                class_name,
                 bases,
                 {
                     **ns,
@@ -3970,7 +3969,7 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
             )
         else:
             p_cls = SomeTypeFactory(
-                cls.__name__,
+                class_name,
                 bases,
                 {
                     **ns,
@@ -3982,16 +3981,16 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                 dc_attrs = {}
                 if immutable:
                     dc_attrs["__new__"] = create_new_for(
-                        cls.__module__,
-                        cls.__qualname__,
+                        module,
+                        qualname,
                         attrs,
                         template=tuple_new,
                     )
                     dc_attrs["__init__"] = object.__init__
                 else:
                     dc_attrs["__new__"] = create_new_for(
-                        cls.__module__,
-                        cls.__qualname__,
+                        module,
+                        qualname,
                         attrs,
                         template=general_new,
                         force_init=_INIT_IS_SPECIAL,
@@ -4000,7 +3999,7 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
                         dc_attrs["__init__"] = object.__init__
                 dc_attrs["__class__"] = p_cls
                 d_cls = SomeTypeFactory(
-                    f"_{cls.__name__}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
+                    f"_{class_name}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
                 )
                 p_cls.__new__ = functools.partial(detour_data_class_when, p_cls.__new__, d_cls)
                 sl = getattr(d_cls, "__slots__", None)
@@ -4020,6 +4019,10 @@ def data_class(o: type[T] | None = None, /, **kwargs) -> type[T] | Callable[[typ
 
 
 class SomeTypeFactory(builtins.type):
+    def __new__(self, class_name, bases, attrs):
+        cls = super().__new__(self, class_name, bases, attrs)
+        return cls
+
     def __and__(self, other):
         cls = class_and(self, other)
         return cls
