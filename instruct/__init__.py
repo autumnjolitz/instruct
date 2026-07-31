@@ -141,7 +141,7 @@ _GET_TYPEHINTS_ALLOWS_EXTRA = "include_extras" in inspect.signature(get_type_hin
 _GET_TYPEHINTS_ALLOWS_FORMAT = "format" in inspect.signature(get_type_hints).parameters
 _NATIVE_CLOSURE_SUPPORT = "closure" in inspect.signature(exec).parameters
 _SUPPORTED_CELLTYPE = hasattr(types, "CellType")
-_INIT_IS_SPECIAL = sys.version_info < (3, 14)
+_INIT_IS_SPECIAL = sys.version_info < (3, 13)
 
 ctx: ContextVar[bool] = ContextVar("in_define_data_class")
 
@@ -1443,7 +1443,7 @@ def transform_typing_to_coerce(
     """
     if isinstance(type_hints, tuple):
         assert all(is_typing_definition(item) or isinstance(item, type) for item in type_hints)
-        type_hints = Union[type_hints]
+        type_hints = Union[type_hints]  # noqa:UP007
     assert is_typing_definition(type_hints) or isinstance(type_hints, type)
 
     return type_hints, wrapper_for_type(type_hints, class_mapping, AtomicMeta)
@@ -3391,9 +3391,6 @@ def create_new_for(
 
 def general_new(config, /, cls, *args, **kwargs):
     o = super(cls, cls).__new__(cls)
-    if config["force_init"]:
-        _, parent, *_ = cls.mro()
-        parent.__init__(o, *args, **kwargs)
     return o
 
 
@@ -3502,6 +3499,7 @@ def create_init_for(
     elif not callable(template):
         raise TypeError(f"{template!r} is not a valid __init__ function!")
     params = []
+    class_name = qualname.rpartition(".")[-1]
     attr_type_map = {}
     for attr in definitions:
         field = definitions[attr]
@@ -3543,10 +3541,26 @@ def create_init_for(
     attr_type_map = typing.get_type_hints(Fake)
     for attr in attr_type_map:
         attr_type_map[attr] = parse_typedef(attr_type_map[attr])
-    thunk = functools.partial(
-        template, {"post_init": post_init, "signature": sig, "types": attr_type_map}
-    )
+    config = {
+        "post_init": post_init,
+        "signature": sig,
+        "types": attr_type_map,
+        "module": module,
+        "qualname": qualname,
+    }
+    thunk = functools.partial(template, config)
     thunk.__signature__ = sig_with_self
+    if _INIT_IS_SPECIAL:
+        init_template = thunk
+
+        def __init__(self, *args, **kwargs):
+            init_template(self, *args, **kwargs)
+
+        thunk = __init__
+        del __init__
+
+    thunk.__qualname__ = f"{class_name}.__init__"
+    thunk.__module__ = module
     return thunk
 
 
@@ -3587,10 +3601,12 @@ def validate(
 def general_init(config, /, self, *args, **kwargs):
     cls = self.__class__
     # class_definition = cls.__class_definition__
+
     sig = config["signature"]
     type_map = config["types"]
     post_init = config["post_init"]
     type_fail = config.get("type_check_failure_exc")
+
     definitions = cls.__definitions__
     bound = sig.bind(*args, **kwargs)
     errors = ()
@@ -3993,10 +4009,7 @@ def data_class(
                         qualname,
                         attrs,
                         template=general_new,
-                        force_init=_INIT_IS_SPECIAL,
                     )
-                    if _INIT_IS_SPECIAL:
-                        dc_attrs["__init__"] = object.__init__
                 dc_attrs["__class__"] = p_cls
                 d_cls = SomeTypeFactory(
                     f"_{class_name}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
