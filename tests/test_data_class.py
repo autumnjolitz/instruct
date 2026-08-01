@@ -74,6 +74,10 @@ class ImmutableItem(MutableItem):
     pass
 
 
+class AnotherImmutableItem(MutableItem, immutable=True):
+    pass
+
+
 def test_mutable_item():
     a = MutableItem()
     assert type(a).__slots__ == ("id", "name", "flags", "config"), MutableItem.__slots__
@@ -97,12 +101,19 @@ def test_class_subtraction():
 
 def test_immutable_item():
     i = ImmutableItem()
+    ip = AnotherImmutableItem()
     assert tuple(i) == (-1, "default", Fart(0), {})
     i2 = ImmutableItem(12, "foobar", config={"yay": "poop"})
     i3 = ImmutableItem(12, "foobar", config={"yay": "poop"})
+    i2p = AnotherImmutableItem(12, "foobar", config={"yay": "poop"})
+    i3p = AnotherImmutableItem(12, "foobar", config={"yay": "poop"})
     assert i2.flags is Fart.BAZ
+    assert i2p.flags is Fart.BAZ
     assert i2 != i
     assert i2 == i3 != i
+    assert i2p == i3p != ip
+    assert i2 != i2p
+    assert tuple(i2) == tuple(i2p)
     print(i, i2)
     print(i3._replace(id=2, name="yap", config={}))
     print(i2.__hash__)

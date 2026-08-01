@@ -38,7 +38,7 @@ from enum import IntEnum
 from importlib import import_module
 from itertools import chain, cycle
 from operator import itemgetter
-from types import CodeType, FunctionType
+from types import BuiltinFunctionType as _BuiltinFunctionType, CodeType, FunctionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -3526,7 +3526,7 @@ def create_init_for(
                 params.append(inspect.Parameter(attr, kind.value, **kwargs))
             case _ as wtf:
                 assert_never(wtf)
-    # print(qualname, [(x.name, x.kind) for x in params])
+    # print(qualname, [(x.name, x.default) for x in params])
     sig = inspect.Signature(params, return_annotation=None)
     self_params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD), *params]
     for index, param in enumerate(self_params):
@@ -3691,8 +3691,9 @@ def class_and(cls, fields):
     if errors:
         raise group_many_if(f"Cannot &-{cls}: encountered {len(errors)} errors", *errors)
     attrs["__qualname__"] = qualname
-    t = type(name, (cls,), attrs)
-    return data_class(t, immutable=True, ignore=skip_keys)
+    new_cls = type(name, (cls,), attrs, immutable=True, ignore=skip_keys)
+    assert len(new_cls.__definitions__) + len(skip_keys) == len(cls.__definitions__)
+    return new_cls
 
 
 class _DataTuple:
@@ -3804,58 +3805,151 @@ def diritems(o, /):
         yield key, getattr(o, key)
 
 
+class PendingType(NamedTuple):
+    qualname: str
+    module: str
+
+    bases: tuple[type, ...]
+    doc: str | None
+    attrs: dict[str, Any]
+    annotations: dict[str, TypeHint]
+
+    @property
+    def name(self):
+        return self.qualname.rpartition(".")[-1]
+
+
+bare_ctx: ContextVar[bool] = ContextVar("in_create_bare_class")
+
+
+@contextmanager
+def define_bare_class():
+    tkn = bare_ctx.set(True)
+    try:
+        yield
+    finally:
+        bare_ctx.reset(tkn)
+
+
+def in_bare_class():
+    return bare_ctx.get(False)
+
+
+class DataClassTypeFactory(builtins.type):
+    @classmethod
+    def create_bare_class(cls, class_name, bases, attrs):
+        with define_bare_class():
+            return cls(class_name, bases, attrs)
+
+    def __new__(self, class_name, bases, attrs, **kwargs):
+        if not in_bare_class():
+            match attrs:
+                case {"__annotate_func__": athunk}:
+                    attrs["__annotations__"] = ann = _call_annotate_function(
+                        athunk, _HintFormat.FORWARDREF
+                    )
+                    del attrs["__annotate_func__"]
+                case {"__annotations__": ann}:
+                    pass
+                case _:
+                    ann = {}
+            pt = PendingType(
+                attrs["__qualname__"],
+                attrs["__module__"],
+                bases,
+                attrs.get("__doc__"),
+                attrs,
+                ann,
+            )
+            return data_class(**kwargs)(pt)
+        elif kwargs:
+            bad_kwargs_f = ", ".join(repr(key) for key in kwargs)
+            raise ValueError(f"Unexpected keyword arguments given: {bad_kwargs_f}")
+        cls = super().__new__(self, class_name, bases, attrs)
+        return cls
+
+    def __and__(self, other):
+        cls = class_and(self, other)
+        return cls
+
+    def __sub__(self, other):
+        match other:
+            case str(s):
+                other = (s,)
+            case (*other,):
+                pass
+        keep = []
+        for attr in self.__definitions__:
+            if attr not in other:
+                keep.append(attr)
+        return class_and(self, tuple(keep))
+
+
 def data_class(
     o: type[T] | None = None,
     /,
     module_name: str | None = None,
     class_qualname: str | None = None,
+    class_doc: str | None = None,
+    class_factory=DataClassTypeFactory.create_bare_class,
     **kwargs,
 ) -> type[T] | Callable[[type[T]], type[T]]:
-    import types
-
     not_set = object()
     kwargs.setdefault("repr", True)
 
-    def wrapper(cls: type[T]) -> type[T]:
-        me, *bases, _object = cls.mro()
-        bases = tuple(bases)
+    def wrapper(o: type[T] | PendingType, /) -> type[T]:
+        match o:
+            case PendingType() as pt:
+                bases = pt.bases
+                module = module_name or pt.module
+                qualname = class_qualname or pt.qualname
+                doc = class_doc or pt.doc
+                class_attrs = pt.attrs
+                annotations = pt.annotations
+            case type() as cls:
+                me, *bases, _object = cls.mro()
+                bases = tuple(bases)
 
-        module = module_name or cls.__module__
-        qualname = class_qualname or cls.__qualname__
+                module = module_name or cls.__module__
+                qualname = class_qualname or cls.__qualname__
+                doc = class_doc or cls.__doc__
+                if _GET_TYPEHINTS_ALLOWS_FORMAT:
+                    annotations = get_type_hints(cls, include_extras=True, format=3)
+                else:
+                    annotations = get_type_hints(cls, include_extras=True)
+
+                class_attrs = {
+                    attr_name: attr_value
+                    for attr_name, attr_value in diritems(cls)
+                    if attr_name
+                    not in (
+                        "__dict__",
+                        "__weakref__",
+                    )
+                    and not isinstance(attr_value, _BuiltinFunctionType)
+                    and attr_value
+                    not in (
+                        getattr(object, attr_name, not_set),
+                        getattr(type, attr_name, not_set),
+                    )
+                }
+                assert _object is object
+                assert cls is me
+                del cls
+                del me, _object
+            case _ as wtf:
+                assert_never(wtf)
+
         class_name = qualname
         if "." in qualname:
             _, class_name = qualname.rsplit(".", 1)
-        doc = cls.__doc__
-        class_attrs = {
-            attr_name: attr_value
-            for attr_name, attr_value in diritems(cls)
-            if attr_name
-            not in (
-                "__dict__",
-                "__weakref__",
-            )
-            and not isinstance(attr_value, types.BuiltinFunctionType)
-            and attr_value
-            not in (
-                getattr(object, attr_name, not_set),
-                getattr(type, attr_name, not_set),
-            )
-        }
+
         match class_attrs:
             case {"__annotations__": a} if not a:
                 del class_attrs["__annotations__"]
 
-        if _GET_TYPEHINTS_ALLOWS_FORMAT:
-            annotations = get_type_hints(cls, include_extras=True, format=3)
-        else:
-            annotations = get_type_hints(cls, include_extras=True)
-
-        assert _object is object
-        assert cls is me
-        del cls
-        del me, _object
-
         is_dbg = is_debug_mode("codegen", class_name, ("data_class",))
+        base_attrs: dict[str, Field] = {}
         attrs: dict[str, Field] = {}
         base_listeners = {}
 
@@ -3868,13 +3962,13 @@ def data_class(
                 raise TypeError(f"Expected True or False for slots, got a {wtf!r} (a {type(wtf)})")
             case {}:
                 slots = True
-                for base in bases[::1]:
+                for base in bases:
                     if getattr(base, "__definitions__", not_set) is not not_set:
                         assert isinstance(base.__definitions__, dict)
                         assert all(isinstance(f, Field) for f in base.__definitions__.values())
                         # data_classes are automatically slottable lol
                         for key in base.__definitions__:
-                            attrs[key] = base.__definitions__[key]
+                            base_attrs.setdefault(key, base.__definitions__[key])
                         base_class_def = getattr(base, "__class_definition__")
                         if base_class_def:
                             base_listeners.update(base_class_def["listeners"])
@@ -3902,6 +3996,7 @@ def data_class(
                 ignore = ()
         if ignore:
             class_definition["skipped_fields"] = ignore
+        # print("ignore", ignore)
         ignore = (
             "__dict__",
             "__weakref__",
@@ -3913,9 +4008,9 @@ def data_class(
 
         for key in ignore:
             ns.pop(key, True)
-            if key in attrs:
+            if key in base_attrs:
                 ns[key] = property(_get_null, _set_null)
-                del attrs[key]
+                del base_attrs[key]
         new_ns = {
             "__definitions__": attrs,
         }
@@ -3935,6 +4030,9 @@ def data_class(
                     assert f.hint == ns["__annotations__"][attr_name]
                     attrs[f.name] = f
                     del ns[f.name]
+        for key in base_attrs:
+            assert key not in ignore
+            attrs.setdefault(key, base_attrs[key])
 
         is_debug_mode("data_class", class_name) and logger.debug(
             f"definition sort for {class_name}: {tuple(attrs)}"
@@ -3975,28 +4073,29 @@ def data_class(
                 )
                 new_ns["__init__"] = init_func
 
-        if slots is None:
-            if "__slots__" in ns:
-                del ns["__slots__"]
-            p_cls = DataClassTypeFactory(
-                class_name,
-                bases,
-                {
-                    **ns,
-                    **new_ns,
-                },
-            )
-        else:
-            p_cls = DataClassTypeFactory(
-                class_name,
-                bases,
-                {
-                    **ns,
-                    **new_ns,
-                    "__slots__": (),
-                },
-            )
-            if slots or data_bases:
+        match slots:
+            case None:
+                if "__slots__" in ns:
+                    del ns["__slots__"]
+                pub_cls = class_factory(
+                    class_name,
+                    bases,
+                    {
+                        **ns,
+                        **new_ns,
+                    },
+                )
+            case _ if slots or data_bases:
+                pub_cls = class_factory(
+                    class_name,
+                    bases,
+                    {
+                        **ns,
+                        **new_ns,
+                        "__slots__": (),
+                    },
+                )
+
                 dc_attrs = {}
                 if immutable:
                     dc_attrs["__new__"] = create_new_for(
@@ -4006,54 +4105,46 @@ def data_class(
                         template=tuple_new,
                     )
                     dc_attrs["__init__"] = object.__init__
-                else:
-                    dc_attrs["__new__"] = create_new_for(
-                        module,
-                        qualname,
-                        attrs,
-                        template=general_new,
-                    )
-                dc_attrs["__class__"] = p_cls
-                d_cls = DataClassTypeFactory(
-                    f"_{class_name}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
+                dc_attrs["__class__"] = pub_cls
+                dc_attrs["__qualname__"] = f"{qualname}._{class_name}"
+                d_cls = class_factory(
+                    f"_{class_name}", (pub_cls, *data_bases), {"__slots__": slots, **dc_attrs}
                 )
-                p_cls.__new__ = functools.partial(detour_data_class_when, p_cls.__new__, d_cls)
+                if pub_cls.__new__ is object.__new__:
+                    new_template = create_data_instance_argless_new
+                else:
+                    new_template = create_data_instance_for_complex_new
+                pub_cls.__new__ = functools.partial(
+                    new_template,
+                    {
+                        "data_class": d_cls,
+                        "data_class_parent": pub_cls,
+                        "__new__": pub_cls.__new__,
+                    },
+                )
                 sl = getattr(d_cls, "__slots__", None)
                 assert sl is not None
                 is_dbg and logger.debug(
-                    f"created {p_cls.__qualname__} with data class {d_cls.__qualname__}{sl}"
+                    f"created {pub_cls.__qualname__} with data class {d_cls.__qualname__}{sl}"
                 )
-            else:
+            case ():
+                pub_cls = class_factory(
+                    class_name,
+                    bases,
+                    {
+                        **ns,
+                        **new_ns,
+                        "__slots__": (),
+                    },
+                )
                 is_dbg and logger.debug(
-                    f"created {p_cls.__qualname__}{getattr(p_cls, '__slots__', ())}"
+                    f"created {pub_cls.__qualname__}{getattr(pub_cls, '__slots__', ())}"
                 )
-        return p_cls
+        return pub_cls
 
     if o is None:
         return wrapper
     return wrapper(o)
-
-
-class DataClassTypeFactory(builtins.type):
-    def __new__(self, class_name, bases, attrs):
-        cls = super().__new__(self, class_name, bases, attrs)
-        return cls
-
-    def __and__(self, other):
-        cls = class_and(self, other)
-        return cls
-
-    def __sub__(self, other):
-        match other:
-            case str(s):
-                other = (s,)
-            case (*other,):
-                pass
-        keep = []
-        for attr in self.__definitions__:
-            if attr not in other:
-                keep.append(attr)
-        return class_and(self, tuple(keep))
 
 
 def default_repr(self):
@@ -4075,14 +4166,35 @@ def ignore_init(config, /, self, *args, **kwargs):
     validate(self, type_map=type_map, on_type_error=type_fail)
 
 
-def detour_data_class_when(__new__, data_cls, /, cls, *args, **kwargs):
+def create_data_instance_argless_new[T, **P](
+    config,
+    /,
+    cls: type[T],
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    data_cls = config["data_class"]
+    parent = config["data_class_parent"]
+    __new__ = config["__new__"]
+    if cls is parent:
+        o = data_cls(*args, **kwargs)
+    else:
+        o = __new__(cls)
+    return o
+
+
+def create_data_instance_for_complex_new[T, **P](config, /, cls, *args, **kwargs) -> T:
+    data_cls = config["data_class"]
+    parent = config["data_class_parent"]
+    __new__ = config["__new__"]
     _, parent, *_ = data_cls.mro()
     if cls is parent:
         is_debug_mode("data_class", cls.__name__, "__new__") and logger.debug(
             f"detour new for {cls} -> {data_cls}"
         )
         return data_cls(*args, **kwargs)
-    return __new__(cls, *args, **kwargs)
+    o = __new__(cls, *args, **kwargs)
+    return o
 
 
 def overlaps(a, b):
