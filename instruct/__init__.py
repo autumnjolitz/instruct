@@ -44,7 +44,6 @@ from typing import (
     Any,
     Generic,
     NamedTuple,
-    Optional,
     TypeVar,
     Union,
     assert_never,
@@ -1452,7 +1451,7 @@ def transform_typing_to_coerce(
 if TYPE_CHECKING:
     SomeAtomic = TypeVar("SomeAtomic")
 
-    class ModifiedSkipTypes(NamedTuple, Generic[SomeAtomic]):
+    class ModifiedSkipTypes[SomeAtomic](NamedTuple):
         replacement_type_definition: TypeHint
         replacement_coerce_definition: tuple[Any, Callable] | None
         mutant_classes: frozenset[tuple[type[SomeAtomic], type[SomeAtomic]]]
@@ -1466,14 +1465,14 @@ else:
 
 
 @overload
-def create_union_coerce_function(
+def create_union_coerce_function[T](
     prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
 ) -> tuple[TypingDefinition, Callable[[Any], T]]: ...
 
 
 @overload
-def create_union_coerce_function(
+def create_union_coerce_function[T](
     prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: None = None,
@@ -1482,7 +1481,7 @@ def create_union_coerce_function(
 
 
 @overload
-def create_union_coerce_function(
+def create_union_coerce_function[T, U](
     prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: type[U] | tuple[type[U], ...],
@@ -1490,7 +1489,7 @@ def create_union_coerce_function(
 ) -> tuple[TypingDefinition, Callable[[Any, T, U], T | U]]: ...
 
 
-def create_union_coerce_function(
+def create_union_coerce_function[T, U](
     prior_complex_type_path: type[T] | TypingDefinition,
     complex_type_cast: Callable[[Any], T],
     custom_cast_types: type[U] | tuple[type[U], ...] | None = None,
@@ -1523,13 +1522,13 @@ def create_union_coerce_function(
     cast_values.__union_subtypes__ = (new_cast_types, custom_cast_function)
     if isinstance(new_cast_types, tuple):
         return (
-            cast(TypingDefinition, Union[(prior_complex_type_path,) + new_cast_types]),
+            cast(TypingDefinition, Union[(prior_complex_type_path,) + new_cast_types]),  # noqa:UP007
             cast_values,
         )
-    return cast(TypingDefinition, Union[prior_complex_type_path, new_cast_types]), cast_values
+    return cast(TypingDefinition, Union[prior_complex_type_path, new_cast_types]), cast_values  # noqa:UP007
 
 
-def apply_skip_keys(
+def apply_skip_keys[T, U](
     skip_key_fields: frozenset[str] | set[str] | dict[str, Any],
     current_definition: type[Atomic] | TypeHint,
     current_coerce: tuple[type[T], Callable[[T], U]] | None,
@@ -1549,7 +1548,8 @@ def apply_skip_keys(
 
     if current_coerce is not None:
         current_coerce_types, current_coerce_cast_function = current_coerce
-        # Unpack to the original cast type, coerce function (in case we're subtracting a subtraction)
+        # Unpack to the original cast type, coerce function
+        # (in case we're subtracting a subtraction)
 
         if hasattr(current_coerce_cast_function, "__only_parent_cast__"):
             # If this is only for casting a parent typecls function, kill it.
@@ -2345,7 +2345,8 @@ class AtomicMeta(AbstractAtomic, type):
             if disabled_derived and derived_class is not None:
                 if is_debug_mode("derived"):
                     logger.debug(
-                        f"Disabling derived for {key} on {class_name}, failsafe to __coerce__[{coerce_types}]"
+                        f"Disabling derived for {key} on {class_name}, "
+                        f"failsafe to __coerce__[{coerce_types}]"
                     )
                 derived_class = None
             if get_origin(raw_typedef) is Annotated:
@@ -2388,7 +2389,7 @@ class AtomicMeta(AbstractAtomic, type):
             "exceptions": exceptions,
             "builtins": builtins,
         }
-        dataclass_attrs[class_name] = ImmutableValue[Optional[type[BaseAtomic]]](None)
+        dataclass_attrs[class_name] = ImmutableValue[type[BaseAtomic] | None](None)
 
         init_subclass = None
 
@@ -2564,7 +2565,8 @@ class AtomicMeta(AbstractAtomic, type):
 
         if dataclass_attrs:
             logger.debug(
-                f"Did not add the following to {class_name} attributes: {tuple(dataclass_attrs.keys())}"
+                f"Did not add the following to {class_name} attributes: "
+                f"{tuple(dataclass_attrs.keys())}"
             )
 
         support_cls_attrs["_columns"] = ImmutableMapping[str, CustomTypeCheck](combined_columns)
@@ -3241,7 +3243,8 @@ class SimpleBase(metaclass=AtomicMeta):
         class_keys = keys(self.__class__)
         if len(args) > len(class_keys):
             raise TypeError(
-                f"__init__() takes {len(class_keys)} positional arguments but {len(args)} were given"
+                f"__init__() takes {len(class_keys)} "
+                f"positional arguments but {len(args)} were given"
             )
         # Set by argument position
         for key, value in zip(class_keys, args):
@@ -4152,7 +4155,9 @@ def _setup_class_attr_ns(ns):
                 else:
                     errors.append(
                         TypeError(
-                            f"{default!r} is not hashable (i.e. immutable) or copy()-able. Please initialize it as Field()"
+                            f"{default!r} is not hashable "
+                            "(i.e. immutable) or copy()-able. "
+                            "Please initialize it as Field()"
                         )
                     )
     for key in ns:
@@ -4322,11 +4327,11 @@ class ConfigSpace:
                         case Field() | str():
                             pass
                         case _ as wtf:
-                            errors.append(
-                                TypeError(
-                                    f"Unrecognized type for attrs[{index}]: {wtf!r} (a {type(wtf)!r})"
-                                )
+                            exc = TypeError(
+                                f"Unrecognized type for attrs[{index}]: {wtf!r} (a {type(wtf)!r})"
                             )
+                            errors.append(exc)
+                            del exc
                 if errors:
                     raise group_many_if("Multiple attributes failed!", *errors)
                 if kinds and (count := len(kinds) + 1) != len(attrs):
@@ -4563,7 +4568,8 @@ class Field[T](NamedTuple):
                 named = False
             case ():
                 raise TypeError(
-                    f"{cls.new}() missing at least 1 required keyword-only argument: 'default_factory' or 'default'!"
+                    f"{cls.new}() missing at least 1 required "
+                    "keyword-only argument: 'default_factory' or 'default'!"
                 )
             case _ if args:
                 raise TypeError(f"{cls.new}() expected at most 3 arguments, got {len(args)}")
@@ -4578,7 +4584,8 @@ class Field[T](NamedTuple):
             errors.append(TypeError(f"Expected a ParameterKind for {kind=!r} (a {type(kind)})"))
         if not callable(default_factory) and default_factory is not Field._empty:
             errors.append(
-                f"Expected {default_factory=!r} to be callable or Field._empty, not a {type(default_factory)}"
+                f"Expected {default_factory=!r} to be callable or "
+                f"Field._empty, not a {type(default_factory)}"
             )
         if errors:
             e, *errors = errors
