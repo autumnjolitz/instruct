@@ -3975,7 +3975,7 @@ def data_class(
         if slots is None:
             if "__slots__" in ns:
                 del ns["__slots__"]
-            p_cls = SomeTypeFactory(
+            p_cls = DataClassTypeFactory(
                 class_name,
                 bases,
                 {
@@ -3984,7 +3984,7 @@ def data_class(
                 },
             )
         else:
-            p_cls = SomeTypeFactory(
+            p_cls = DataClassTypeFactory(
                 class_name,
                 bases,
                 {
@@ -4011,7 +4011,7 @@ def data_class(
                         template=general_new,
                     )
                 dc_attrs["__class__"] = p_cls
-                d_cls = SomeTypeFactory(
+                d_cls = DataClassTypeFactory(
                     f"_{class_name}", (p_cls, *data_bases), {"__slots__": slots, **dc_attrs}
                 )
                 p_cls.__new__ = functools.partial(detour_data_class_when, p_cls.__new__, d_cls)
@@ -4031,7 +4031,7 @@ def data_class(
     return wrapper(o)
 
 
-class SomeTypeFactory(builtins.type):
+class DataClassTypeFactory(builtins.type):
     def __new__(self, class_name, bases, attrs):
         cls = super().__new__(self, class_name, bases, attrs)
         return cls
