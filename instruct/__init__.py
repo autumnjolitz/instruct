@@ -185,7 +185,7 @@ def schema_for(possible_cls):
             if origin_cls and origin_cls.__module__ in ("typing", "typing_extensions"):
                 m = get_origin(origin_cls)
                 if m:
-                    print(m)
+                    # print(m)
                     origin_cls = m
             if origin_cls in (Union,):
                 return {"oneof": [schema_for(x) for x in args]}
@@ -3302,7 +3302,7 @@ AbstractMapping.register(Base)  # pytype: disable=attribute-error
 
 def order_by(items, o):
     try:
-        return items.index(o.name)
+        return items.index(o)
     except ValueError:
         return float("inf")
 
@@ -3447,7 +3447,7 @@ def _process_events_for(o, *, cls=None, ignore=()):
         values = tuple(getattr(o, x) for x in attr_names)
         assert listener_map[attr_names]
         for listener_func in listener_map[attr_names]:
-            print("calling", listener_func, "for", o)
+            logger.debug(f"calling {listener_func} for {o}")
             listener_func(o, *values)
 
 
@@ -3795,6 +3795,12 @@ def _get_null(self):
     return None
 
 
+def diritems(o, /):
+    keys = dir(o)
+    for key in keys:
+        yield key, getattr(o, key)
+
+
 def data_class(
     o: type[T] | None = None,
     /,
@@ -3802,6 +3808,7 @@ def data_class(
     class_qualname: str | None = None,
     **kwargs,
 ) -> type[T] | Callable[[type[T]], type[T]]:
+    import types
 
     not_set = object()
     kwargs.setdefault("repr", True)
@@ -3816,6 +3823,25 @@ def data_class(
         if "." in qualname:
             _, class_name = qualname.rsplit(".", 1)
         doc = cls.__doc__
+        class_attrs = {
+            attr_name: attr_value
+            for attr_name, attr_value in diritems(cls)
+            if attr_name
+            not in (
+                "__dict__",
+                "__weakref__",
+            )
+            and not isinstance(attr_value, types.BuiltinFunctionType)
+            and attr_value
+            not in (
+                getattr(object, attr_name, not_set),
+                getattr(type, attr_name, not_set),
+            )
+        }
+        match class_attrs:
+            case {"__annotations__": a} if not a:
+                del class_attrs["__annotations__"]
+
         if _GET_TYPEHINTS_ALLOWS_FORMAT:
             annotations = get_type_hints(cls, include_extras=True, format=3)
         else:
@@ -3823,6 +3849,7 @@ def data_class(
 
         assert _object is object
         assert cls is me
+        del cls
         del me, _object
 
         is_dbg = is_debug_mode("codegen", class_name, ("data_class",))
@@ -3851,10 +3878,10 @@ def data_class(
                     elif getattr(base, "__slots__", not_set) is not_set:
                         slots = False
         ns = {
+            **class_attrs,
             "__module__": module,
             "__qualname__": qualname,
             "__doc__": doc,
-            **vars(cls),
         }
         if kwargs["repr"] and "__repr__" not in ns:
             ns["__repr__"] = default_repr
@@ -3880,59 +3907,32 @@ def data_class(
             "__slots__",
             *ignore,
         )
-        import types
 
         for key in ignore:
             ns.pop(key, True)
+            if key in attrs:
+                ns[key] = property(_get_null, _set_null)
+                del attrs[key]
         new_ns = {
             "__definitions__": attrs,
         }
         annotation_keys = tuple(annotations)
         is_debug_mode("data_class", class_name) and logger.debug(f"annotation are: {annotations!r}")
-        iterable = list(inspect.classify_class_attrs(cls))
-        iterable.sort(key=functools.partial(order_by, annotation_keys))
-        for item in iterable:
-            if item.name in ns:
-                item = item._replace(object=ns[item.name], defining_class=cls)
-            match item.object:
-                case _ if item.name in ignore:
-                    if item.name in attrs:
-                        new_ns[item.name] = property(_get_null, _set_null)
-                        del attrs[item.name]
-                    continue
+
+        for attr_name in sorted(ns, key=functools.partial(order_by, annotation_keys)):
+            attr_value = ns[attr_name]
+            match attr_value:
                 case Field() as f:
-                    assert item.name == f.name
-                    if item.name not in ns["__annotations__"]:
+                    assert attr_name == f.name
+                    if attr_name not in ns["__annotations__"]:
                         assert f.hint is not None
-                        ns["__annotations__"][item.name] = f.hint
+                        ns["__annotations__"][attr_name] = f.hint
                     elif f.name in ns["__annotations__"] and f.hint is Field._empty:
                         f = f._replace(hint=ns["__annotations__"][f.name])
-                    assert f.hint == ns["__annotations__"][item.name]
+                    assert f.hint == ns["__annotations__"][attr_name]
                     attrs[f.name] = f
                     del ns[f.name]
-                case _ if item.defining_class is object:
-                    continue
-                case types.MemberDescriptorType():
-                    assert item.name in attrs
-                    assert item.name not in ns
-                case _ if item.kind == "data" and item.defining_class is cls:
-                    if item.name not in ns:
-                        ns[item.name] = getattr(cls, item.name)
-                    continue
-                case _ if item.kind == "data":
-                    continue
-                case _ if item.kind == "method":
-                    if item.defining_class is not cls:
-                        assert item.name not in ns, (
-                            f"{item.name} is in ns {item.defining_class} != {cls}?"
-                        )
-                        continue
-                    assert item.name in ns
-                    is_debug_mode("data_class", class_name) and logger.debug(
-                        f"ignoring {item.name} (a function)"
-                    )
-                case _:
-                    print("wtf", item)
+
         is_debug_mode("data_class", class_name) and logger.debug(
             f"definition sort for {class_name}: {tuple(attrs)}"
         )
@@ -4501,10 +4501,10 @@ class ConfigSpace:
         try:
             handlers = listener_map[key]
         except KeyError:
-            print("init", key)
+            # print("init", key)
             listener_map[key] = handlers = set()  # weakref.WeakSet()
         handlers.add(handler)
-        print("adding to", listener_map)
+        # print("adding to", listener_map)
         return handler
 
 
