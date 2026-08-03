@@ -3322,9 +3322,9 @@ def definition_types_for(o: type, /):
     attr_type_map = {}
     for attr in definitions:
         field = definitions[attr]
-        has_typehint = field.hint is not None and field.hint is not Field._empty
+        has_typehint = field.type is not None and field.type is not Field._empty
         if has_typehint:
-            attr_type_map[attr] = field.hint
+            attr_type_map[attr] = field.type
         else:
             attr_type_map[attr] = object
 
@@ -3370,6 +3370,44 @@ class ParameterVisibility(enum.Flag):
             raise e from None
 
 
+def create_hash_for(
+    module: str,
+    qualname: str,
+    definitions: Mapping[str, Field],
+    *,
+    template=None,
+    **template_kwargs,
+):
+    if not template:
+        template = general_hash
+    elif not callable(template):
+        raise TypeError(f"{template=!r} is not a valid __hash__ function!")
+    fields = []
+    for field in definitions:
+        match field:
+            case str() as field_name:
+                fields.append(field_name)
+            case Field() as f if coalesce(f.hash, f.compare):
+                fields.append(f.name)
+    thunk = functools.partial(template, {"fields": tuple(fields)})
+    if _INIT_IS_SPECIAL:
+        hash_template = thunk
+
+        def __hash__(self):
+            return hash_template(self)
+
+        thunk = __hash__
+        del __hash__
+    return thunk
+
+
+def general_hash(config, /, self):
+    cls = self.__class__
+    fields = config["fields"]
+    values = tuple(getattr(self, name) for name in fields)
+    return hash((cls, *values))
+
+
 ParameterKind = inspect._ParameterKind
 
 
@@ -3385,19 +3423,22 @@ def create_new_for(
     if not template:
         template = general_new
     elif not callable(template):
-        raise TypeError(f"{template!r} is not a valid __init__ function!")
+        raise TypeError(f"{template=!r} is not a valid __init__ function!")
     params = []
     attr_type_map = {}
     for attr in definitions:
         field = definitions[attr]
-        has_typehint = field.hint is not None and field.hint is not Field._empty
+        has_typehint = field.type is not None and field.type is not Field._empty
         if has_typehint:
-            attr_type_map[attr] = field.hint
+            attr_type_map[attr] = field.type
         else:
             attr_type_map[attr] = object
+        var_kw = []
         match field.kind:
             case _ if field.visibility is ParameterVisibility.HIDDEN:
                 continue
+            case ParameterKind.VAR_KEYWORD:
+                var_kw.append(field.name)
             case ParameterKind() as kind:
                 kwargs = {}
                 if field.default is not Field._empty:
@@ -3405,8 +3446,10 @@ def create_new_for(
                 elif (func := field.default_factory) is not Field._empty:
                     kwargs["default"] = func()
                 if has_typehint:
-                    kwargs["annotation"] = field.hint
+                    kwargs["annotation"] = field.type
                 params.append(inspect.Parameter(attr, kind.value, **kwargs))
+        if var_kw:
+            params.append(inspect.Parameter("kwargs", ParameterKind.VAR_KEYWORD))
     try:
         sig = inspect.Signature(params, return_annotation=None)
     except ValueError as e:
@@ -3459,6 +3502,7 @@ def tuple_new(config, /, cls, *args, **kwargs):
     post_init = config["post_init"]
     type_fail = config.get("type_check_failure_exc")
     definitions = cls.__definitions__
+    rem_kwargs = {}
     # class_definition = cls.__class_definition__
     ignore = cls.__class_definition__.get("skipped_fields") or ()
     attr_indices = tuple(definitions)
@@ -3468,6 +3512,10 @@ def tuple_new(config, /, cls, *args, **kwargs):
     dirty_list = [0 for _ in range(len(definitions))]
     for attr in bound.arguments:
         value = bound.arguments[attr]
+        param_spec = sig.parameters[attr]
+        if param_spec.kind is ParameterKind.VAR_KEYWORD:
+            rem_kwargs = value
+            continue
         index = attr_indices.index(attr)
         args[index] = value
         dirty_list[index] |= 1
@@ -3489,7 +3537,7 @@ def tuple_new(config, /, cls, *args, **kwargs):
             continue
         unset_args.append(attr_indices[index])
     if post_init:
-        cls.__post_init__(o_proxy)
+        cls.__post_init__(o_proxy, **rem_kwargs)
     _process_events_for(o_proxy, cls=cls, ignore=tuple(unset_args))
     o = tuple.__new__(cls, args)
     validate(o, type_map=type_map, on_type_error=type_fail)
@@ -3561,16 +3609,19 @@ def create_init_for(
     params = []
     class_name = qualname.rpartition(".")[-1]
     attr_type_map = {}
+    var_kw = []
     for attr in definitions:
         field = definitions[attr]
-        has_typehint = field.hint is not None and field.hint is not Field._empty
+        has_typehint = field.type is not None and field.type is not Field._empty
         if has_typehint:
-            attr_type_map[attr] = field.hint
+            attr_type_map[attr] = field.type
         else:
             attr_type_map[attr] = object
         match field.kind:
             case _ if field.visibility is ParameterVisibility.HIDDEN:
                 continue
+            case ParameterKind.VAR_KEYWORD:
+                var_kw.append(field.name)
             case ParameterKind() as kind:
                 kwargs = {}
                 if field.default is not Field._empty:
@@ -3579,10 +3630,13 @@ def create_init_for(
                     assert callable(func), f"{field.default_factory=!r} is not callable!?"
                     kwargs["default"] = func()
                 if has_typehint:
-                    kwargs["annotation"] = field.hint
+                    kwargs["annotation"] = field.type
                 params.append(inspect.Parameter(attr, kind.value, **kwargs))
             case _ as wtf:
                 assert_never(wtf)
+    if var_kw:
+        params.append(inspect.Parameter("kwargs", ParameterKind.VAR_KEYWORD))
+
     # print(qualname, [(x.name, x.default) for x in params])
     sig = inspect.Signature(params, return_annotation=None)
     self_params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD), *params]
@@ -3669,9 +3723,14 @@ def general_init(config, /, self, *args, **kwargs):
 
     definitions = cls.__definitions__
     bound = sig.bind(*args, **kwargs)
+    rem_kwargs = {}
     errors = ()
     for attr_name in bound.arguments:
         value = bound.arguments[attr_name]
+        param_spec = sig.parameters[attr_name]
+        if param_spec.kind is ParameterKind.VAR_KEYWORD:
+            rem_kwargs = value
+            continue
         try:
             setattr(self, attr_name, value)
         except (TypeError, ValueError) as e:
@@ -3687,20 +3746,21 @@ def general_init(config, /, self, *args, **kwargs):
             default = definition.default_factory()
         else:
             uninit_attrs.append(attr)
+            continue
         setattr(self, attr, default)
     missing_attributes = uninit_attrs
     if post_init:
-        self.__post_init__()
-        for index in range(len(uninit_attrs) - 1, -1, -1):
-            attr = uninit_attrs[index]
-            if hasattr(self, attr):
-                del missing_attributes[index]
+        self.__post_init__(**rem_kwargs)
+    for index in range(len(uninit_attrs) - 1, -1, -1):
+        attr = uninit_attrs[index]
+        if hasattr(self, attr):
+            del missing_attributes[index]
     if missing_attributes:
         for attr_name in missing_attributes:
             e = AttributeError(f"{attr_name!r} is not set!")
             e.add_note(f"Define a default for {cls.__qualname__}.{attr_name}")
             errors = (*errors, e)
-        raise group_many_if
+        raise group_many_if("Missing attributes!", *errors)
     _process_events_for(self, cls=cls, ignore=tuple(missing_attributes))
     validate(self, type_map=type_map, on_type_error=type_fail)
 
@@ -3725,9 +3785,9 @@ def class_and(cls, fields):
             continue
         definition = definitions[field]
         assert field in ann
-        assert definition.hint == ann[field]
-        # if definition.hint is not Field._empty:
-        #     ann[field] = definition.hint
+        assert definition.type == ann[field]
+        # if definition.type is not Field._empty:
+        #     ann[field] = definition.type
         attrs[field] = definition
     skip_keys = []
     for field in definitions:
@@ -3784,7 +3844,8 @@ class _DataTuple:
                 return NotImplemented
 
     def __hash__(self):
-        return hash(tuple(self))
+        cls = self.__class__
+        return hash((cls, tuple(self)))
 
     def __add__(self, other):
         return NotImplemented
@@ -3975,6 +4036,18 @@ class DataClassOptions(TypedDict, total=False):
     # )
 
 
+def coalesce(*args):
+    for arg in args:
+        if arg is not None:
+            return arg
+    return None
+
+
+def _merge_ns(mapping, /, ns):
+    for key in mapping:
+        ns[key] = mapping[key]
+
+
 def data_class(
     o: type[T] | None = None,
     /,
@@ -3985,10 +4058,17 @@ def data_class(
     **kwargs: Unpack[DataClassOptions],
 ) -> type[T] | Callable[[type[T]], type[T]]:
     not_set = object()
+    kwargs.setdefault("init", True)
     kwargs.setdefault("repr", True)
+    kwargs.setdefault("eq", True)
+    kwargs.setdefault("order", False)
+    # kwargs.setdefault("frozen", False)
+    kwargs.setdefault("match_args", True)
+    import types
 
     def wrapper(o: type[T] | PendingType, /) -> type[T]:
         warnings = []
+        slot_attrs = ()
         match o:
             case PendingType() as pt:
                 bases = pt.bases
@@ -3996,6 +4076,7 @@ def data_class(
                 qualname = class_qualname or pt.qualname
                 doc = class_doc or pt.doc
                 class_attrs = pt.attrs
+                slot_attrs = class_attrs.pop("__slots__", None)
                 annotations = pt.annotations
             case type() as cls:
                 me, *bases, _object = cls.mro()
@@ -4024,6 +4105,14 @@ def data_class(
                         getattr(type, attr_name, not_set),
                     )
                 }
+                try:
+                    slots = cls.__slots__
+                except AttributeError:
+                    slots = None
+                else:
+                    slot_attrs = slots
+                    del slots
+
                 assert _object is object
                 assert cls is me
                 del cls
@@ -4088,9 +4177,11 @@ def data_class(
             "__qualname__": qualname,
             "__doc__": doc,
         }
+
         if kwargs["repr"] and "__repr__" not in ns:
             ns["__repr__"] = default_repr
         _setup_class_attr_ns(ns)
+
         class_definition = ns["__class_definition__"]
         listeners = class_definition["listeners"]
         if base_listeners:
@@ -4130,12 +4221,13 @@ def data_class(
             match attr_value:
                 case Field() as f:
                     assert attr_name == f.name
-                    if attr_name not in ns["__annotations__"]:
-                        assert f.hint is not None
-                        ns["__annotations__"][attr_name] = f.hint
-                    elif f.name in ns["__annotations__"] and f.hint is Field._empty:
-                        f = f._replace(hint=ns["__annotations__"][f.name])
-                    assert f.hint == ns["__annotations__"][attr_name]
+                    if f.type is not Field._empty:
+                        if attr_name not in ns["__annotations__"]:
+                            assert f.type is not None
+                            ns["__annotations__"][attr_name] = f.type
+                        elif f.name in ns["__annotations__"] and f.type is Field._empty:
+                            f = f._replace(hint=ns["__annotations__"][f.name])
+                        assert f.type == ns["__annotations__"][attr_name]
                     attrs[f.name] = f
                     del ns[f.name]
         for key in tuple(base_attrs):
@@ -4160,6 +4252,21 @@ def data_class(
         del kw_only_attrs
         new_ns["__definitions__"] = attrs
 
+        match kwargs:
+            case {"hash": True} if "__hash__" not in ns and any(
+                comparable := tuple(f for f in attrs if coalesce(attrs[f].hash, attrs[f].compare))
+            ):
+                new_ns["__hash__"] = create_hash_for(
+                    module,
+                    qualname,
+                    {key: attrs[key] for key in comparable},
+                )
+            case {"hash": True} if "__hash__" not in ns:
+                new_ns["__hash__"] = None
+                print(class_name, attrs)
+            case {"hash": None}:
+                new_ns["__hash__"] = None
+
         is_debug_mode("data_class", class_name) and logger.debug(
             f"definition sort for {class_name}: {tuple(attrs)}"
         )
@@ -4169,6 +4276,17 @@ def data_class(
                 frozen = v
             case {"frozen": wtf}:
                 raise TypeError(wtf)
+        match kwargs:
+            case {"frozen": frozen, "eq": True}:
+                kwargs.setdefault("hash", frozen)
+            case {"eq": False}:
+                kwargs.setdefault("hash", None)
+        for untyped_attr in slot_attrs or ():
+            assert untyped_attr not in attrs
+            attrs[untyped_attr] = field(
+                visibility=ParameterVisibility.INIT_VAR,
+                kind=ParameterKind.VAR_KEYWORD,
+            )
         data_bases = ()
         if frozen:
             if not isinstance(slots, tuple):  # auto slots are nulled
@@ -4184,13 +4302,36 @@ def data_class(
             slots = tuple(x for x in attrs)
         elif slots is False:
             slots = None
-
+        if slots:
+            assert "__slots__" not in ns
         if has_post_init is None:
             has_post_init = "__post_init__" in ns
 
+        rebind_class_closures = ()
+        dc_ns = {}
+
         match ns:
-            case {"__init__": _}:
+            case {"__init__": simple_func} if not simple_func.__closure__:
                 pass
+            case {"__init__": bound_func}:
+                for name, cell in zip(bound_func.__code__.co_freevars, bound_func.__closure__):
+                    if name == "__class__":
+                        rebind_class_closures = (*rebind_class_closures, ("__init__", bound_func))
+                    else:
+                        print("ignoring", qualname, name)
+                        is_debug_mode("data_class", class_name) and logger.debug(
+                            f"ignoring {qualname}.__init__ closure variable {name}"
+                        )
+                if slots or data_bases:
+                    dc_ns["__init__"] = bound_func
+                    del ns["__init__"]
+                    init_func = create_init_for(
+                        module,
+                        qualname,
+                        attrs,
+                        post_init=has_post_init,
+                    )
+                    new_ns["__init__"] = init_func
             case _ if frozen:
                 pass
             case _ if not frozen:
@@ -4206,73 +4347,102 @@ def data_class(
             **kwargs,
             "slots": slots,
         }
+        extra = {}
+        if slots is None:
+            if "__slots__" in ns:
+                del ns["__slots__"]
+        elif slots or data_bases:
+            extra = {"__slots__": ()}
+        with define_bare_class():
+            pub_cls = types.new_class(
+                class_name,
+                bases,
+                {
+                    "metaclass": class_factory,
+                },
+                functools.partial(
+                    _merge_ns,
+                    {
+                        **ns,
+                        **new_ns,
+                        **extra,
+                    },
+                ),
+            )
+        for attr_name, attr_value in vars(pub_cls).items():
+            if isinstance(attr_value, property):
+                fset = attr_value.fset
+                changed = False
+                if isinstance(fset := attr_value.fset, types.FunctionType):
+                    fset = insert_class_closure(pub_cls, fset)
+                    changed = True
+                if isinstance(fget := attr_value.fget, types.FunctionType):
+                    fget = insert_class_closure(pub_cls, fget)
+                    changed = True
+                if isinstance(fdel := attr_value.fdel, types.FunctionType):
+                    fdel = insert_class_closure(pub_cls, fdel)
+                    changed = True
+                if not changed:
+                    continue
+                attr_value = property(
+                    fget,
+                    fset,
+                    fdel,
+                    attr_value.__doc__,
+                )
+            elif isinstance(attr_value, FunctionType):
+                attr_value = insert_class_closure(pub_cls, attr_value)
+            else:
+                continue
+            setattr(pub_cls, attr_name, attr_value)
 
-        match slots:
-            case None:
-                if "__slots__" in ns:
-                    del ns["__slots__"]
-                pub_cls = class_factory(
-                    class_name,
-                    bases,
-                    {
-                        **ns,
-                        **new_ns,
-                    },
+        del new_ns, extra
+        if slots or data_bases:
+            if frozen:
+                dc_ns["__new__"] = create_new_for(
+                    module,
+                    qualname,
+                    attrs,
+                    template=tuple_new,
+                    post_init=has_post_init,
                 )
-            case _ if slots or data_bases:
-                pub_cls = class_factory(
-                    class_name,
-                    bases,
-                    {
-                        **ns,
-                        **new_ns,
-                        "__slots__": (),
-                    },
+                dc_ns["__init__"] = object.__init__
+            dc_ns["__class__"] = pub_cls
+            dc_ns["__qualname__"] = f"{qualname}._{class_name}"
+            dc_ns["__module__"] = ns["__module__"]
+            with define_bare_class():
+                d_cls = types.new_class(
+                    f"_{class_name}",
+                    (pub_cls, *data_bases),
+                    exec_body=functools.partial(_merge_ns, {"__slots__": slots, **dc_ns}),
                 )
+            if pub_cls.__new__ is object.__new__:
+                new_template = create_data_instance_argless_new
+            else:
+                new_template = create_data_instance_for_complex_new
+            pub_cls.__new__ = functools.partial(
+                new_template,
+                {
+                    "data_class": d_cls,
+                    "data_class_parent": pub_cls,
+                    "__new__": pub_cls.__new__,
+                },
+            )
+            sl = getattr(d_cls, "__slots__", None)
+            assert sl is not None
+            for name, func in rebind_class_closures:
+                func = insert_class_closure(d_cls, func)
+                setattr(d_cls, name, func)
+            rebind_class_closures = ()
 
-                dc_attrs = {}
-                if frozen:
-                    dc_attrs["__new__"] = create_new_for(
-                        module, qualname, attrs, template=tuple_new, post_init=has_post_init
-                    )
-                    dc_attrs["__init__"] = object.__init__
-                dc_attrs["__class__"] = pub_cls
-                dc_attrs["__qualname__"] = f"{qualname}._{class_name}"
-                d_cls = class_factory(
-                    f"_{class_name}", (pub_cls, *data_bases), {"__slots__": slots, **dc_attrs}
-                )
-                if pub_cls.__new__ is object.__new__:
-                    new_template = create_data_instance_argless_new
-                else:
-                    new_template = create_data_instance_for_complex_new
-                pub_cls.__new__ = functools.partial(
-                    new_template,
-                    {
-                        "data_class": d_cls,
-                        "data_class_parent": pub_cls,
-                        "__new__": pub_cls.__new__,
-                    },
-                )
-                sl = getattr(d_cls, "__slots__", None)
-                assert sl is not None
-                is_dbg and logger.debug(
-                    f"created {pub_cls.__qualname__} with data class {d_cls.__qualname__}{sl}"
-                )
-            case ():
-                pub_cls = class_factory(
-                    class_name,
-                    bases,
-                    {
-                        **ns,
-                        **new_ns,
-                        "__slots__": (),
-                    },
-                )
-                is_dbg and logger.debug(
-                    f"created {pub_cls.__qualname__}{getattr(pub_cls, '__slots__', ())}"
-                )
+            is_dbg and logger.debug(
+                f"created {pub_cls.__qualname__} with data class {d_cls.__qualname__}{sl}"
+            )
+        else:
+            is_dbg and logger.debug(f"created {pub_cls.__qualname__}")
         if warnings:
             class_definition["warnings"] = tuple(warnings)
+        assert not rebind_class_closures
         return pub_cls
 
     if o is None:
@@ -4362,8 +4532,8 @@ def _setup_class_attr_ns(ns):
                 assert field.name == attr
                 if attr not in ns:
                     ns[attr] = field
-                if attr not in annotations and field.hint is not Field._empty:
-                    annotations[attr] = field.hint
+                if attr not in annotations and field.type is not Field._empty:
+                    annotations[attr] = field.type
     match ns:
         case {"__annotations__": {**annotations}}:
             for key in annotations:
@@ -4373,9 +4543,9 @@ def _setup_class_attr_ns(ns):
                     continue
                 if isinstance(field := ns[key], Field):
                     if field.name != key:
-                        ns[key] = Field._replace(
+                        ns[key] = field._replace(
                             name=key,
-                            hint=hint,
+                            type=hint,
                         )
                     continue
                 default = ns[key]
@@ -4394,9 +4564,19 @@ def _setup_class_attr_ns(ns):
                 else:
                     copyable = True
                 if hashable:
-                    ns[key] = Field.new(key, hint, default=default)
+                    ns[key] = Field.new(
+                        key,
+                        hint,
+                        default=default,
+                        hashable=hashable,
+                    )
                 elif copyable:
-                    ns[key] = Field.new(key, hint, default_factory=default.copy)
+                    ns[key] = Field.new(
+                        key,
+                        hint,
+                        default_factory=default.copy,
+                        hashable=hashable,
+                    )
                 else:
                     errors.append(
                         TypeError(
@@ -4405,7 +4585,10 @@ def _setup_class_attr_ns(ns):
                             "Please initialize it as Field()"
                         )
                     )
-    for key in ns:
+    import types
+
+    slots = ns.get("__slots__") or ()
+    for key in tuple(ns):
         if not key.isidentifier():
             continue
         value = ns[key]
@@ -4441,12 +4624,12 @@ def _setup_class_attr_ns(ns):
             case (_, Field() as f):
                 if f.name is None:
                     f = f._replace(name=key)
-                if f.hint is Field._empty and key in annotations:
+                if f.type is Field._empty and key in annotations:
                     f = f._replace(hint=annotations[key])
                 ns[key] = f
                 assert f.name == key
                 if f.name in annotations:
-                    assert f.hint == annotations[f.name]
+                    assert f.type == annotations[f.name]
             case (_, func) if callable(func) and key in annotations:
                 ns[key] = Field.new(key, annotations[key], default=func)
             case (_, func) if callable(func):
@@ -4481,16 +4664,20 @@ def _setup_class_attr_ns(ns):
                     else:
                         alt_copyable = True
                 if hashable:
-                    value = Field.new(key, default=value)
+                    value = Field.new(key, default=value, hash=True)
                 elif copyable:
-                    value = Field.new(key, default_factory=default.copy)
+                    value = Field.new(key, default_factory=default.copy, hash=False)
                 elif alt_copyable:
-                    value = Field.new(key, default_factory=copy.copy)
+                    value = Field.new(key, default_factory=copy.copy, hash=False)
                 else:
-                    value = Field.new(key, default_factory=lambda: default)
+                    value = Field.new(key, default_factory=lambda: default, hash=False)
+                assert value.hash == hashable
                 ns[key] = value
+            case (_, types.MemberDescriptorType()):
+                assert key in slots
+                del ns[key]
             case _:
-                print("reg", key, value)
+                print("reg", key, value, type(value).__qualname__)
                 1 / 0
     if errors:
         name = ns["__qualname__"]
@@ -4845,15 +5032,116 @@ class ConfigSpace:
 _empty = object()
 
 
-class Field[T](NamedTuple):
-    name: str
-    hint: type[T] | TypeHint | Literal[Field._empty]
+class FieldConfig[T](NamedTuple):
+    type: type[T] | TypeHint | Literal[Field._empty]
     kind: ParameterKind
-
     visibility: ParameterVisibility
 
     default: T | Literal[Field._empty]
     default_factory: Callable[[], T] | Literal[Field._empty]
+
+    init: bool
+    repr: bool
+    hash: bool | None
+    compare: bool
+    metadata: dict[str, Any]
+
+    @classmethod
+    def new(
+        cls,
+        type=_empty,
+        kind=_empty,
+        visibility=_empty,
+        default=_empty,
+        default_factory=_empty,
+        init=True,
+        repr=True,
+        hash=None,
+        compare=True,
+        metadata=None,
+    ):
+        if metadata is None:
+            metadata = {}
+        errors = ()
+        if (
+            type is not Field._empty
+            and not is_typing_definition(type)
+            and not isinstance(type, builtins.type)
+        ):
+            errors = (
+                *errors,
+                TypeError(
+                    f"Expected a type hint, type or Field._empty for {type=!r} "
+                    f"(a {builtins.type(type)})"
+                ),
+            )
+        if kind is not Field._empty and not isinstance(kind, ParameterKind):
+            errors = (*errors, TypeError(f"Expected ParameterKind for {kind=!r} (a {type(kind)})"))
+        if visibility is not Field._empty and not isinstance(visibility, ParameterVisibility):
+            errors = (
+                *errors,
+                TypeError(
+                    f"Expected ParameterVisibility for {visibility=!r} (a {type(visibility)})"
+                ),
+            )
+        if default_factory is not Field._empty and not callable(default_factory):
+            errors = (
+                *errors,
+                TypeError(
+                    f"Expected callable for {default_factory=!r} (a {type(default_factory)})"
+                ),
+            )
+        if not isinstance(metadata, Mapping):
+            errors = (
+                *errors,
+                TypeError(f"Expected Mapping for {metadata=!r} (a {type(metadata)})"),
+            )
+        if errors:
+            raise group_many_if(f"Multipe issues in {cls.__qualname__}", *errors)
+        return cls(
+            type, kind, visibility, default, default_factory, init, repr, hash, compare, metadata
+        )
+
+
+class FieldConfigOptions(TypedDict):
+    init: bool = True
+    repr: bool = True
+    compare: bool = True
+    metadata: dict[str, Any] | None = None
+
+
+class _Field[T](NamedTuple):
+    name: str
+    config: FieldConfig
+
+
+def _forward_to_config(field_name):
+    def wrapper(self):
+        return getattr(self.config, field_name)
+
+    wrapper.__name__ = field_name
+    return property(wrapper)
+
+
+class Field(_Field):
+    __slots__ = ()
+
+    for field in FieldConfig._fields:
+        locals()[field] = _forward_to_config(field)
+    del field
+
+    def _replace(self, **kwargs):
+        config = self.config
+        conf_changed = False
+        for key in tuple(kwargs):
+            f_kwarg = {key: kwargs[key]}
+            if key in FieldConfig._fields:
+                new_conf = config._replace(**f_kwarg)
+                conf_changed = new_conf != config
+                del kwargs[key]
+        if conf_changed:
+            kwargs["config"] = new_conf
+        return super()._replace(**kwargs)
 
     @overload
     def new(
@@ -4885,11 +5173,17 @@ class Field[T](NamedTuple):
         default_factory=_empty,
         default=_empty,
         visibility=_empty,
+        **kwargs: Unpack[FieldConfigOptions],
     ):
+        metadata = kwargs.get("metadata")
+        if metadata is None:
+            metadata = {}
         errors = []
         named = True
         kind = ParameterKind.POSITIONAL_OR_KEYWORD
         match args:
+            case (name, hint, kind, visibility):
+                pass
             case (name, hint, kind):
                 pass
             case (name, hint):
@@ -4897,8 +5191,9 @@ class Field[T](NamedTuple):
             case (name,):
                 hint = Field._empty
             case () if any(x is not Field._empty for x in (default_factory, default, visibility)):
-                name = None
-                hint = Field._empty
+                name = kwargs.get("name")
+                hint = kwargs.get("type", Field._empty)
+                kind = kwargs.get("kind", kind)
                 named = False
             case ():
                 raise TypeError(
@@ -4942,11 +5237,52 @@ class Field[T](NamedTuple):
                     f"Unable to construct {cls.__name___} due to {len(errors)}", list(errors)
                 )
             raise e
-        return cls(name, hint, kind, visibility, default, default_factory)
+        config = FieldConfig.new(
+            type=hint,
+            kind=kind,
+            visibility=visibility,
+            default=default,
+            default_factory=default_factory,
+            init=kwargs.get("init", True),
+            repr=kwargs.get("repr", True),
+            hash=kwargs.get("hash", None),
+            compare=kwargs.get("compare", True),
+            metadata=kwargs.get("metadata"),
+        )
+        return cls(name, config)
 
 
 Field._empty = _empty
 del _empty
+
+
+def field(
+    *,
+    type=Field._empty,
+    kind=Field._empty,
+    visibility=Field._empty,
+    default=Field._empty,
+    default_factory=Field._empty,
+    init=True,
+    repr=True,
+    hash=None,
+    compare=True,
+    metadata=None,
+):
+    if kind is Field._empty:
+        kind = ParameterKind.POSITIONAL_OR_KEYWORD
+    return Field.new(
+        type=type,
+        kind=kind,
+        visibility=visibility,
+        default=default,
+        default_factory=default_factory,
+        init=init,
+        repr=repr,
+        hash=hash,
+        compare=compare,
+        metadata=metadata,
+    )
 
 
 _ = SetupClassAttrProxy(ConfigSpace())

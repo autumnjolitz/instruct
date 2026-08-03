@@ -3,7 +3,7 @@ from enum import IntFlag
 import pytest
 
 import instruct
-from instruct import ParameterKind, ParameterVisibility, _, data_class, validate
+from instruct import ParameterKind, ParameterVisibility, _, data_class, field, validate
 
 
 class Fart(IntFlag):
@@ -79,8 +79,10 @@ class ImmutableItem(MutableItem):
 assert tuple(ImmutableItem.__definitions__) == ("id", "name", "flags", "config")
 
 
-class AnotherImmutableItem(MutableItem, frozen=True):
-    pass
+class AnotherImmutableItem(MutableItem, frozen=True): ...
+
+
+assert AnotherImmutableItem.__class_definition__["options"]["frozen"]
 
 
 class ImmutableBeta(AnotherImmutableItem):
@@ -171,6 +173,114 @@ def test_frozen_item():
 def test_frozen_slicing():
     i2 = ImmutableItem(12, "foobar", config={"yay": "poop"})
     print(f"Fart: {i2[:1]}")
+
+
+def test_with_field():
+    @data_class(frozen=True)
+    class A:
+        id: int
+        name: str
+
+    assert hasattr(A, "__hash__")
+    assert callable(A.__hash__)
+
+    class A_Tagged(A):
+        tags: list[str] = field(default_factory=(lambda: ["first tag"]), hash=False, compare=False)
+        assert tags.hash is False
+
+    assert A_Tagged.__class_definition__["options"]["frozen"]
+    assert not A_Tagged.__definitions__["tags"].hash
+    assert callable(A_Tagged.__hash__)
+    a = A(1, "Mx. Foo")
+    a_2 = A(2, "Mx. Bar")
+    b = A_Tagged(1, "Mx. Foo")
+    c = A_Tagged(1, "Mx. Foo")
+    assert a != a_2
+    assert b == c
+    assert hash(a) != hash(b)
+    assert hash(b) == hash(c)
+    b.tags.append("ignored")
+    c.tags.append("not that")
+    assert hash(a) != hash(b)
+    assert hash(b) == hash(c)
+    assert b != c
+
+
+def test_with_custom_super():
+    @data_class
+    class A:
+        __slots__ = ("_db",)
+
+        id: int
+        name: str
+
+        def __init__(self, *args, db, **kwargs):
+            self._db = db
+            super().__init__(*args, **kwargs)
+
+    fake_db = object()
+    a = A(1, "foo", db=fake_db)
+    assert a._db is fake_db
+
+
+@pytest.mark.xfail
+def test_with_custom_super_inherit():
+    @data_class
+    class A:
+        __slots__ = ("_db",)
+
+        id: int
+        name: str
+
+        def __init__(self, *args, db, **kwargs):
+            self._db = db
+            super().__init__(*args, **kwargs)
+
+    fake_db = object()
+    a = A(1, "foo", db=fake_db)
+    assert a._db is fake_db
+
+    class B(A, frozen=True):
+        pass
+
+    b = B(1, "a", db=fake_db)
+    assert tuple(b) == (1, "a", fake_db)
+
+
+def test_with_custom_slots():
+    @data_class(frozen=False)
+    class A:
+        __slots__ = ("_db",)
+
+        id: int
+        name: str
+
+        def __post_init__(self, *, db, **kwargs):
+            self._db = db
+
+    @data_class(frozen=False)
+    class B:
+        __slots__ = ("_db",)
+
+        id: int
+        name: str
+
+        def __post_init__(self, *, db, **kwargs):
+            self._db = db
+
+    class C(A, frozen=True): ...
+
+    fake_db = object()
+    a = A(1, "foo", db=fake_db)
+    c = C(1, "foo", db=fake_db)
+    assert a._db is fake_db
+    assert "_db" not in A.__annotations__
+    b = B(1, "foo", db=fake_db)
+    assert b._db is fake_db
+    assert "_db" not in B.__annotations__
+    assert c._db is fake_db
+    assert c.__definitions__ == b.__definitions__ == c.__definitions__
+    assert c.__class_definition__["options"]["frozen"]
 
 
 if __name__ == "__main__":
