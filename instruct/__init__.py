@@ -44,8 +44,10 @@ from typing import (
     Any,
     Generic,
     NamedTuple,
+    TypedDict,
     TypeVar,
     Union,
+    Unpack,
     assert_never,
     cast,
     get_type_hints,
@@ -3339,6 +3341,38 @@ def definition_types_for(o: type, /):
     return attr_type_map
 
 
+class ParameterVisibility(enum.Flag):
+    """
+    DEFAULT: Appears in keys(...), dir(...), et al
+    HIDDEN: Excludes from constructor parameters but part of definition otherwise
+    INIT_ONLY: Marks field as *only* set by the constructor/post_init and excludes
+               from keys(...), et al
+    """
+
+    DEFAULT = 0
+    HIDDEN = HIDE = enum.auto()
+    INIT_ONLY = INIT_VAR = enum.auto()
+
+    @classmethod
+    def _missing_(cls, value):
+        match value:
+            case str(s) if (
+                s_u := inflection.underscore(s.replace(" ", "-")).upper()
+            ) in cls.__members__:
+                return getattr(cls, s_u)
+        try:
+            return super()._missing_(value)
+        except ValueError as e:
+            cls_attrs = ("DEFAULT (0)", *(f"{x.name} ({x.value!r})" for x in cls))
+            if " is not a valid " in str(e):
+                values_f = ", ".join(cls_attrs)
+                e.add_note(f"Possible values: {values_f}")
+            raise e from None
+
+
+ParameterKind = inspect._ParameterKind
+
+
 def create_new_for(
     module: str,
     qualname: str,
@@ -3362,7 +3396,7 @@ def create_new_for(
         else:
             attr_type_map[attr] = object
         match field.kind:
-            case ParameterKind.HIDE:
+            case _ if field.visibility is ParameterVisibility.HIDDEN:
                 continue
             case ParameterKind() as kind:
                 kwargs = {}
@@ -3535,7 +3569,7 @@ def create_init_for(
         else:
             attr_type_map[attr] = object
         match field.kind:
-            case ParameterKind.HIDE:
+            case _ if field.visibility is ParameterVisibility.HIDDEN:
                 continue
             case ParameterKind() as kind:
                 kwargs = {}
@@ -3714,7 +3748,7 @@ def class_and(cls, fields):
     if errors:
         raise group_many_if(f"Cannot &-{cls}: encountered {len(errors)} errors", *errors)
     attrs["__qualname__"] = qualname
-    new_cls = type(name, (cls,), attrs, immutable=True, ignore=skip_keys)
+    new_cls = type(name, (cls,), attrs, frozen=True, ignore=skip_keys)
     assert len(new_cls.__definitions__) + len(skip_keys) == len(cls.__definitions__)
     return new_cls
 
@@ -3739,7 +3773,7 @@ class _DataTuple:
                     field = cls.__definitions__[attr]
                     parent_index = parent_keys.index(attr)
                     match field.kind:
-                        case ParameterKind.HIDE:
+                        case _ if field.visibility is ParameterVisibility.HIDDEN:
                             continue
                         case ParameterKind.KEYWORD_ONLY | ParameterKind.VAR_KEYWORD:
                             kwargs[attr] = self[parent_index]
@@ -3794,8 +3828,11 @@ class _DataTuple:
             field = cls.__definitions__[key]
             current = getattr(self, key)
             match field.kind:
-                case ParameterKind.HIDE if key in kwargs:
-                    errors = (*errors, ValueError(f"Not able to set hidden parameter: {key!r}"))
+                case _ if field.visibility is ParameterVisibility.HIDDEN:
+                    if key in kwargs:
+                        errors.append(
+                            ValueError(f"{cls.__qualname__}.{field.name} is marked as hidden")
+                        )
                     continue
                 case ParameterKind.KEYWORD_ONLY | ParameterKind.VAR_KEYWORD:
                     value = current
@@ -3811,7 +3848,9 @@ class _DataTuple:
             raise group_many_if("Unable to replace fields", list(errors))
         indices = sorted(new_args)
         args = [new_args[index] for index in indices]
-        return cls(*args, **new_kwargs)
+        i = cls(*args, **new_kwargs)
+        assert isinstance(i, cls)
+        return i
 
 
 def _set_null(self, val):
@@ -3908,6 +3947,34 @@ class DataClassTypeFactory(builtins.type):
         return class_and(self, tuple(keep))
 
 
+class DataClassOptions(TypedDict, total=False):
+    """
+    repr: whether to generate a __repr__ function. Defaults to True.
+    slots: Generate the class with slots. Defaults to None which becomes
+           False if any parent classes lack ``__slots__`` and True if
+           all parent classes are either data_classes or possess slots.
+           May also be a list of attribute names to control which fields
+           are slotted.
+    ignore: Attribute names to ignore from inheritance.
+    frozen: Assigning to fields will generate an exception after the object
+            is constructed.
+    """
+
+    repr: bool = True
+    slots: bool | None | tuple[str, ...] = None
+    ignore: tuple[str, ...]
+    frozen: bool | tuple[str, ...] = False
+
+    # not yet implemented:
+    # eq: bool = True  # generate an __eq__ method
+    # order: bool | tuple[str, ...] = False  # generate __lt__, __lte__ et al
+    # match_args: tuple[str, ...] | bool = True
+    # weakref: bool | None = None
+    # parameter_kind: ParameterKind | tuple[ParameterKind, ...] | Mapping[str, ParameterKind] = (
+    #     ParameterKind.POSITIONAL_OR_KEYWORD
+    # )
+
+
 def data_class(
     o: type[T] | None = None,
     /,
@@ -3915,7 +3982,7 @@ def data_class(
     class_qualname: str | None = None,
     class_doc: str | None = None,
     class_factory=DataClassTypeFactory.create_bare_class,
-    **kwargs,
+    **kwargs: Unpack[DataClassOptions],
 ) -> type[T] | Callable[[type[T]], type[T]]:
     not_set = object()
     kwargs.setdefault("repr", True)
@@ -4096,14 +4163,14 @@ def data_class(
         is_debug_mode("data_class", class_name) and logger.debug(
             f"definition sort for {class_name}: {tuple(attrs)}"
         )
-        immutable = False
+        frozen = False
         match kwargs:
-            case {"immutable": True | False as v}:
-                immutable = v
-            case {"immutable": wtf}:
+            case {"frozen": True | False as v}:
+                frozen = v
+            case {"frozen": wtf}:
                 raise TypeError(wtf)
         data_bases = ()
-        if immutable:
+        if frozen:
             if not isinstance(slots, tuple):  # auto slots are nulled
                 slots = ()
             data_bases = (
@@ -4124,9 +4191,9 @@ def data_class(
         match ns:
             case {"__init__": _}:
                 pass
-            case _ if immutable:
+            case _ if frozen:
                 pass
-            case _ if not immutable:
+            case _ if not frozen:
                 init_func = create_init_for(
                     module,
                     qualname,
@@ -4164,7 +4231,7 @@ def data_class(
                 )
 
                 dc_attrs = {}
-                if immutable:
+                if frozen:
                     dc_attrs["__new__"] = create_new_for(
                         module, qualname, attrs, template=tuple_new, post_init=has_post_init
                     )
@@ -4334,7 +4401,7 @@ def _setup_class_attr_ns(ns):
                     errors.append(
                         TypeError(
                             f"{default!r} is not hashable "
-                            "(i.e. immutable) or copy()-able. "
+                            "(i.e. frozen) or copy()-able. "
                             "Please initialize it as Field()"
                         )
                     )
@@ -4486,6 +4553,91 @@ def _ns_getattr(o, key):
 
 
 class ConfigSpace:
+    def parameter_visibility(
+        self,
+        attrs: str | Field | tuple[str, ...] | tuple[Field, ...],
+        visibility: ParameterVisibility,
+        *visibilities: ParameterVisibility,
+        ns,
+    ):
+        errors = []
+        match attrs:
+            case str(attr) | (Field() as attr) | (str(attr),) | (Field() as attr,):
+                if visibilities:
+                    raise ValueError(
+                        f"Expected 1 kind, not {len(visibilities) + 1}: {visibilities!r}"
+                    )
+                attrs = [attr]
+            case [*attrs] if attrs:
+                for index, item in enumerate(attrs):
+                    match item:
+                        case Field() | str():
+                            pass
+                        case _ as wtf:
+                            exc = TypeError(
+                                f"Unrecognized type for attrs[{index}]: {wtf!r} (a {type(wtf)!r})"
+                            )
+                            errors.append(exc)
+                            del exc
+                if errors:
+                    raise group_many_if("Multiple attributes failed!", *errors)
+                if visibilities and (count := len(visibilities) + 1) != len(attrs):
+                    raise ValueError(
+                        f"Expected 1 or {len(attrs)} visibilities, got {count} instead"
+                    )
+            case ():
+                raise ValueError("Expected at least 1 attribute name, got 0 for attrs")
+            case _ as wtf:
+                raise TypeError(f"Unrecognized type for attrs: {wtf!r} (a {type(wtf)})")
+        attr_visibilities = [visibility, *visibilities]
+        for index, visibility in enumerate(attr_visibilities):
+            match visibility:
+                case ParameterVisibility():
+                    pass
+                case str(s):
+                    visibility = getattr(
+                        ParameterVisibility, inflection.underscore(s).upper().replace(" ", "_")
+                    )
+                case _ as wtf:
+                    raise TypeError(f"{visibility=!r} (a {type(wtf)})")
+            assert isinstance(visibility, ParameterVisibility)
+            attr_visibilities[index] = visibility
+        visibility, *visibilities = attr_visibilities
+        is_mapping = isinstance(ns, AbstractMapping)
+        if any(x for x in attrs if isinstance(x, str)):
+            src_attrs = []
+            src_attr_indices = []
+            for index, attr in enumerate(attrs):
+                if isinstance(attr, str):
+                    src_attrs.append(attr)
+                    src_attr_indices.append(index)
+            assert src_attr_indices
+            assert src_attrs
+            for index, attr in zip(src_attr_indices, src_attrs):
+                try:
+                    field = ns[attr]
+                except KeyError:
+                    ns[attr] = field = Field.new(attr)
+                if not isinstance(field, Field):
+                    raise TypeError(f"Unexpected type for ns[{attr}] = {field} (a {type(field)})!")
+                attrs[index] = field
+        assert all(isinstance(x, Field) for x in attrs)
+        if visibilities:
+            visibility_iterable = (visibility, *visibilities)
+        else:
+            visibility_iterable = cycle((visibility,))
+        iterable = zip(attrs, visibility_iterable)
+        if is_mapping:
+            for attr, visibility in iterable:
+                assert isinstance(ns[attr.name], Field)
+                assert ns[attr.name].name == attr.name
+                ns[attr.name] = ns[attr.name]._replace(visibility=visibility)
+        else:
+            for attr, visibility in iterable:
+                value = getattr(ns, attr.name)
+                assert isinstance(value, Field)
+                setattr(ns, attr.name, value._replace(visibility=visibility))
+
     def parameter_kind(
         self,
         attrs: str | Field | tuple[str, ...] | tuple[Field, ...],
@@ -4698,6 +4850,8 @@ class Field[T](NamedTuple):
     hint: type[T] | TypeHint | Literal[Field._empty]
     kind: ParameterKind
 
+    visibility: ParameterVisibility
+
     default: T | Literal[Field._empty]
     default_factory: Callable[[], T] | Literal[Field._empty]
 
@@ -4710,6 +4864,7 @@ class Field[T](NamedTuple):
         *,
         default_factory=_empty,
         default=_empty,
+        visibility=ParameterVisibility.DEFAULT,
     ):
         pass
 
@@ -4719,6 +4874,7 @@ class Field[T](NamedTuple):
         *,
         default_factory=_empty,
         default=_empty,
+        visibility=ParameterVisibility.DEFAULT,
     ):
         pass
 
@@ -4728,6 +4884,7 @@ class Field[T](NamedTuple):
         *args: *tuple[str, TypeHint, ParameterKind] | tuple[str, TypeHint] | tuple[str],
         default_factory=_empty,
         default=_empty,
+        visibility=_empty,
     ):
         errors = []
         named = True
@@ -4739,17 +4896,19 @@ class Field[T](NamedTuple):
                 pass
             case (name,):
                 hint = Field._empty
-            case () if default_factory is not None or default is not Field._empty:
+            case () if any(x is not Field._empty for x in (default_factory, default, visibility)):
                 name = None
                 hint = Field._empty
                 named = False
             case ():
                 raise TypeError(
                     f"{cls.new}() missing at least 1 required "
-                    "keyword-only argument: 'default_factory' or 'default'!"
+                    "keyword-only argument: 'default_factory', 'default', 'visibility'!"
                 )
             case _ if args:
                 raise TypeError(f"{cls.new}() expected at most 3 arguments, got {len(args)}")
+        if visibility in (Field._empty, None, ""):
+            visibility = ParameterVisibility.DEFAULT
         if named:
             if not isinstance(name, str):
                 errors.append(
@@ -4764,6 +4923,17 @@ class Field[T](NamedTuple):
                 f"Expected {default_factory=!r} to be callable or "
                 f"Field._empty, not a {type(default_factory)}"
             )
+        if not isinstance(visibility, ParameterVisibility):
+            try:
+                visibility = ParameterVisibility(visibility)
+            except ValueError:
+                try:
+                    visibility = ParameterVisibility[visibility]
+                except KeyError:
+                    raise TypeError(
+                        "Expected a ParameterVisibility for visibility, "
+                        f"got {visibility!r} (a {type(visibility)})"
+                    )
         if errors:
             e, *errors = errors
             if errors:
@@ -4772,7 +4942,7 @@ class Field[T](NamedTuple):
                     f"Unable to construct {cls.__name___} due to {len(errors)}", list(errors)
                 )
             raise e
-        return cls(name, hint, kind, default, default_factory)
+        return cls(name, hint, kind, visibility, default, default_factory)
 
 
 Field._empty = _empty
@@ -4780,15 +4950,6 @@ del _empty
 
 
 _ = SetupClassAttrProxy(ConfigSpace())
-
-
-class ParameterKind(enum.Enum):
-    HIDE = None
-    POSITIONAL_OR_KEYWORD = inspect.Parameter.POSITIONAL_OR_KEYWORD
-    KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
-    POSITIONAL_ONLY = inspect.Parameter.POSITIONAL_ONLY
-    VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
-    VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
 
 
 __all__ = [

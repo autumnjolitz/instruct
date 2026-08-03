@@ -3,7 +3,7 @@ from enum import IntFlag
 import pytest
 
 import instruct
-from instruct import ParameterKind, _, data_class, validate
+from instruct import ParameterKind, ParameterVisibility, _, data_class, validate
 
 
 class Fart(IntFlag):
@@ -40,10 +40,12 @@ class MutableItem:
         ParameterKind.POSITIONAL_OR_KEYWORD,
         ParameterKind.KEYWORD_ONLY,
     )
-    _.parameter_kind(
-        "flags",
-        ParameterKind.HIDE,
+    _.parameter_visibility(
+        flags,  # noqa: F821
+        ParameterVisibility.HIDDEN,
     )
+
+    assert isinstance(flags, instruct.Field)  # noqa: F821
     _.add_converter(flags, (int, str), Fart)  # noqa:F821
     _.add_converter(id, str, int)
 
@@ -69,12 +71,15 @@ class MutableItem:
 assert tuple(MutableItem.__class_definition__["listeners"])
 
 
-@data_class(immutable=True)
+@data_class(frozen=True)
 class ImmutableItem(MutableItem):
     pass
 
 
-class AnotherImmutableItem(MutableItem, immutable=True):
+assert tuple(ImmutableItem.__definitions__) == ("id", "name", "flags", "config")
+
+
+class AnotherImmutableItem(MutableItem, frozen=True):
     pass
 
 
@@ -82,11 +87,11 @@ class ImmutableBeta(AnotherImmutableItem):
     c: int = -1
 
 
-assert ImmutableBeta.__class_definition__["options"]["immutable"]
+assert ImmutableBeta.__class_definition__["options"]["frozen"]
 
 
 def test_suggest_default_value():
-    @data_class(immutable=True)
+    @data_class(frozen=True)
     class A:
         id: int = -1
 
@@ -105,13 +110,13 @@ def test_suggest_default_value():
     class B(A):
         value: int = -1
 
-    assert B.__class_definition__["options"]["immutable"]
+    assert B.__class_definition__["options"]["frozen"]
 
     assert tuple(B()) == (-1, -1)
     assert tuple(b := B(1, 2)) == (1, 2)
     assert (b.id, b.value) == (1, 2)
 
-    class Bmut(B, immutable=False):
+    class Bmut(B, frozen=False):
         pass
 
     b = Bmut(1, 2)
@@ -143,7 +148,7 @@ def test_class_subtraction():
     assert len(cls.__definitions__) + 1 == len(ImmutableItem.__definitions__)
 
 
-def test_immutable_item():
+def test_frozen_item():
     i = ImmutableItem()
     ip = AnotherImmutableItem()
     assert tuple(i) == (-1, "default", Fart(0), {})
@@ -163,7 +168,7 @@ def test_immutable_item():
     print(i2.__hash__)
 
 
-def test_immutable_slicing():
+def test_frozen_slicing():
     i2 = ImmutableItem(12, "foobar", config={"yay": "poop"})
     print(f"Fart: {i2[:1]}")
 
@@ -172,5 +177,5 @@ if __name__ == "__main__":
     test_mutable_item()
     test_mutable_coerce()
     test_class_subtraction()
-    test_immutable_item()
-    test_immutable_slicing()
+    test_frozen_item()
+    test_frozen_slicing()
