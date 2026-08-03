@@ -111,6 +111,16 @@ def test_suggest_default_value():
     assert tuple(b := B(1, 2)) == (1, 2)
     assert (b.id, b.value) == (1, 2)
 
+    class Bmut(B, immutable=False):
+        pass
+
+    b = Bmut(1, 2)
+    assert type(b).__slots__ == ("id", "value")
+    b.id = -1
+    b.value = "str"
+    with pytest.raises(TypeError):
+        validate(b)
+
 
 def test_mutable_item():
     a = MutableItem()
