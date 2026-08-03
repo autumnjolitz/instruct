@@ -3345,6 +3345,7 @@ def create_new_for(
     definitions: Mapping[str, Field],
     *,
     template=None,
+    post_init=False,
     **template_kwargs,
 ):
     if not template:
@@ -3367,13 +3368,32 @@ def create_new_for(
                 kwargs = {}
                 if field.default is not Field._empty:
                     kwargs["default"] = field.default
-                elif (func := field.default_factory) is not None:
+                elif (func := field.default_factory) is not Field._empty:
                     kwargs["default"] = func()
                 if has_typehint:
                     kwargs["annotation"] = field.hint
                 params.append(inspect.Parameter(attr, kind.value, **kwargs))
+    try:
+        sig = inspect.Signature(params, return_annotation=None)
+    except ValueError as e:
+        if str(e).startswith("wrong parameter order"):
+            param_f = ", ".join(f"{param.name} ({param.kind})" for param in params)
+            e.add_note(f"params: {param_f}")
+        elif str(e).lower().startswith("non-default argument follows default argument"):
+            prev_params = []
+            for param, next_param in zip(params, params[1:] + [None]):
+                if (
+                    param.default is not inspect.Parameter.empty
+                    and next_param.default is inspect.Parameter.empty
+                ):
+                    params_prev_f = ", ".join(prev_params)
+                    if params_prev_f:
+                        params_prev_f = f"{params_prev_f}, "
+                    e.add_note(f"Assign a default value to {qualname}.{next_param.name}")
+                    break
+                prev_params.append(param.name)
 
-    sig = inspect.Signature(params, return_annotation=None)
+        raise
 
     class Fake:
         pass
@@ -3386,7 +3406,8 @@ def create_new_for(
     for attr in attr_type_map:
         attr_type_map[attr] = parse_typedef(attr_type_map[attr])
     thunk = functools.partial(
-        template, {**template_kwargs, "signature": sig, "types": attr_type_map}
+        template,
+        {**template_kwargs, "signature": sig, "types": attr_type_map, "post_init": post_init},
     )
     thunk.__signature__ = sig
     return thunk
@@ -3401,6 +3422,7 @@ def tuple_new(config, /, cls, *args, **kwargs):
     assert issubclass(cls, tuple), f"{cls.__qualname__} must be a subclass of tuple!"
     sig = config["signature"]
     type_map = config["types"]
+    post_init = config["post_init"]
     type_fail = config.get("type_check_failure_exc")
     definitions = cls.__definitions__
     # class_definition = cls.__class_definition__
@@ -3432,7 +3454,8 @@ def tuple_new(config, /, cls, *args, **kwargs):
         if state & 1 == 1:
             continue
         unset_args.append(attr_indices[index])
-    cls.__post_init__(o_proxy)
+    if post_init:
+        cls.__post_init__(o_proxy)
     _process_events_for(o_proxy, cls=cls, ignore=tuple(unset_args))
     o = tuple.__new__(cls, args)
     validate(o, type_map=type_map, on_type_error=type_fail)
@@ -3898,6 +3921,7 @@ def data_class(
     kwargs.setdefault("repr", True)
 
     def wrapper(o: type[T] | PendingType, /) -> type[T]:
+        warnings = []
         match o:
             case PendingType() as pt:
                 bases = pt.bases
@@ -3960,20 +3984,37 @@ def data_class(
                 slots = f
             case {"slots": wtf}:
                 raise TypeError(f"Expected True or False for slots, got a {wtf!r} (a {type(wtf)})")
-            case {}:
-                slots = True
-                for base in bases:
-                    if getattr(base, "__definitions__", not_set) is not not_set:
-                        assert isinstance(base.__definitions__, dict)
-                        assert all(isinstance(f, Field) for f in base.__definitions__.values())
-                        # data_classes are automatically slottable lol
-                        for key in base.__definitions__:
-                            base_attrs.setdefault(key, base.__definitions__[key])
-                        base_class_def = getattr(base, "__class_definition__")
-                        if base_class_def:
-                            base_listeners.update(base_class_def["listeners"])
-                    elif getattr(base, "__slots__", not_set) is not_set:
-                        slots = False
+            case _:
+                slots = None
+        has_post_init = None
+        if slots is None:
+            for base in bases:
+                if getattr(base, "__definitions__", not_set) is not not_set:
+                    assert isinstance(base.__definitions__, dict)
+                    assert all(isinstance(f, Field) for f in base.__definitions__.values())
+                    # data_classes are automatically slottable lol
+                    for key in base.__definitions__:
+                        base_attrs.setdefault(key, base.__definitions__[key])
+                    for base_opt in base.__class_definition__["options"]:
+                        base_opt_value = base.__class_definition__["options"][base_opt]
+                        kwargs.setdefault(base_opt, base_opt_value)
+                    base_class_def = getattr(base, "__class_definition__")
+                    if base_class_def:
+                        base_listeners.update(base_class_def["listeners"])
+                    if (
+                        has_post_init is None
+                        and (maybe_pi := inspect.getattr_static(base, "__post_init__", not_set))
+                        is not not_set
+                    ):
+                        has_post_init = callable(maybe_pi)
+                elif getattr(base, "__slots__", not_set) is not_set:
+                    if slots is None:
+                        warnings.append(
+                            f"{class_name}: {base.__qualname__} lacks __slots__, disabling slots."
+                        )
+                        kwargs["slots"] = slots = False
+            else:
+                kwargs["slots"] = slots = True
         ns = {
             **class_attrs,
             "__module__": module,
@@ -4030,9 +4071,27 @@ def data_class(
                     assert f.hint == ns["__annotations__"][attr_name]
                     attrs[f.name] = f
                     del ns[f.name]
-        for key in base_attrs:
+        for key in tuple(base_attrs):
             assert key not in ignore
-            attrs.setdefault(key, base_attrs[key])
+            if key in attrs:
+                del base_attrs[key]
+        attrs = {
+            key: mapping[key]
+            for mapping in (
+                base_attrs,
+                attrs,
+            )
+            for key in mapping
+        }
+        kw_only_attrs = {
+            key: attrs[key] for key in attrs if attrs[key].kind is ParameterKind.KEYWORD_ONLY
+        }
+        for key in kw_only_attrs:
+            del attrs[key]
+        for key in kw_only_attrs:
+            attrs[key] = kw_only_attrs[key]
+        del kw_only_attrs
+        new_ns["__definitions__"] = attrs
 
         is_debug_mode("data_class", class_name) and logger.debug(
             f"definition sort for {class_name}: {tuple(attrs)}"
@@ -4059,6 +4118,9 @@ def data_class(
         elif slots is False:
             slots = None
 
+        if has_post_init is None:
+            has_post_init = "__post_init__" in ns
+
         match ns:
             case {"__init__": _}:
                 pass
@@ -4069,9 +4131,14 @@ def data_class(
                     module,
                     qualname,
                     attrs,
-                    post_init=True,
+                    post_init=has_post_init,
                 )
                 new_ns["__init__"] = init_func
+
+        class_definition["options"] = {
+            **kwargs,
+            "slots": slots,
+        }
 
         match slots:
             case None:
@@ -4099,10 +4166,7 @@ def data_class(
                 dc_attrs = {}
                 if immutable:
                     dc_attrs["__new__"] = create_new_for(
-                        module,
-                        qualname,
-                        attrs,
-                        template=tuple_new,
+                        module, qualname, attrs, template=tuple_new, post_init=has_post_init
                     )
                     dc_attrs["__init__"] = object.__init__
                 dc_attrs["__class__"] = pub_cls
@@ -4140,6 +4204,8 @@ def data_class(
                 is_dbg and logger.debug(
                     f"created {pub_cls.__qualname__}{getattr(pub_cls, '__slots__', ())}"
                 )
+        if warnings:
+            class_definition["warnings"] = tuple(warnings)
         return pub_cls
 
     if o is None:
@@ -4511,15 +4577,14 @@ class ConfigSpace:
         converter: Callable[[T], U],
         ns,
     ):
+        _sentinel = object()
         is_mapping = isinstance(ns, AbstractMapping)
         if is_mapping:
             coerce_mappings = ns.setdefault("__coerce__", {})
         else:
-            o = object()
-            coerce_mappings = getattr(ns, "__coerce__", o)
-            if coerce_mappings is o:
+            coerce_mappings = getattr(ns, "__coerce__", _sentinel)
+            if coerce_mappings is _sentinel:
                 coerce_mappings = ns.__coerce__ = {}
-        o = object()
         fields = []
         match attrs:
             case str() | Field() as f:

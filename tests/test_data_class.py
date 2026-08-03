@@ -78,6 +78,36 @@ class AnotherImmutableItem(MutableItem, immutable=True):
     pass
 
 
+class ImmutableBeta(AnotherImmutableItem):
+    c: int = -1
+
+
+assert ImmutableBeta.__class_definition__["options"]["immutable"]
+
+
+def test_suggest_default_value():
+    @data_class(immutable=True)
+    class A:
+        id: int = -1
+
+    with pytest.raises(
+        ValueError, match="non-default argument follows default argument"
+    ) as exc_info:
+
+        class B(A):
+            value: int
+
+    assert exc_info.value.__notes__
+    hint, *rest = exc_info.value.__notes__
+    assert hint.startswith("Assign a default value to")
+    assert hint.endswith("B.value")
+
+    class B(A):
+        value: int = -1
+
+    assert tuple(B()) == (-1, -1)
+
+
 def test_mutable_item():
     a = MutableItem()
     assert type(a).__slots__ == ("id", "name", "flags", "config"), MutableItem.__slots__
