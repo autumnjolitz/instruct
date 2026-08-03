@@ -105,7 +105,11 @@ def test_suggest_default_value():
     class B(A):
         value: int = -1
 
+    assert B.__class_definition__["options"]["immutable"]
+
     assert tuple(B()) == (-1, -1)
+    assert tuple(b := B(1, 2)) == (1, 2)
+    assert (b.id, b.value) == (1, 2)
 
 
 def test_mutable_item():
