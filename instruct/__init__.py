@@ -3777,7 +3777,6 @@ def general_init(config, /, self, *args, **kwargs):
         next_cls = cls.mro()[1:][0]
         # print(f"{cls} calling super on {cls} -> {next_cls}")
         super(next_cls, self).__init__(*args, **kwargs)
-        return
 
     definitions = cls.__definitions__
     # print(f"{cls} rebinding from {args!r}, {kwargs!r}")
