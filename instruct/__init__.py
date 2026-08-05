@@ -3500,13 +3500,17 @@ def tuple_new(config, /, cls, *args, **kwargs):
     sig = config["signature"]
     type_map = config["types"]
     post_init = config["post_init"]
+    init_func = config.get("init")
     type_fail = config.get("type_check_failure_exc")
+    call_super = config.get("call_super")
     definitions = cls.__definitions__
     rem_kwargs = {}
     # class_definition = cls.__class_definition__
     ignore = cls.__class_definition__.get("skipped_fields") or ()
     attr_indices = tuple(definitions)
     bound = sig.bind(*args, **kwargs)
+    orig_args = args
+    orig_kwargs = kwargs.copy()
     default_attrs = definitions.keys() - bound.arguments.keys()
     args = [None for _ in range(len(definitions))]
     dirty_list = [0 for _ in range(len(definitions))]
@@ -3530,16 +3534,28 @@ def tuple_new(config, /, cls, *args, **kwargs):
             continue
         args[index] = default
         dirty_list[index] |= 1
-    o_proxy = AttrListProxy(attr_indices, args, ignore, __class__=cls)
+    fake_attrs = {
+        "__class__": cls,
+        "__definitions__": definitions,
+    }
+    if post_init:
+        fake_attrs["__post_init__"] = cls.__post_init__
+    o_proxy = AttrListProxy(attr_indices, args, ignore, **fake_attrs)
     unset_args = []
     for index, (arg, state) in enumerate(zip(args, dirty_list)):
         if state & 1 == 1:
             continue
         unset_args.append(attr_indices[index])
-    if post_init:
+    if init_func:
+        init_func(o_proxy, *orig_args, **orig_kwargs)
+    elif call_super:
+        for init_func in call_super:
+            init_func = insert_class_closure(cls, init_func)
+            init_func(o_proxy, *orig_args, **orig_kwargs)
+    elif post_init:
         cls.__post_init__(o_proxy, **rem_kwargs)
     _process_events_for(o_proxy, cls=cls, ignore=tuple(unset_args))
-    o = tuple.__new__(cls, args)
+    o = super(cls, cls).__new__(cls, args)
     validate(o, type_map=type_map, on_type_error=type_fail)
     return o
 
@@ -3572,6 +3588,15 @@ class AttrListProxy[T]:
         object.__setattr__(self, "_attrs", proxy_overrides)
         object.__setattr__(self, "_ignore", ignore)
 
+        for key, value in proxy_overrides.items():
+            match key:
+                case "__init__" | "__post_init__" if not isinstance(value, types.MethodType):
+                    proxy_overrides[key] = types.MethodType(value, self)
+
+    def __repr__(self):
+        attrs_f = ", ".join(f"{key}={value!r}" for key, value in zip(self._names, self._values))
+        return f"{type(self).__name__}<{self.__class__.__name__}({attrs_f})>"
+
     def __getattribute__(self, name):
         if name in ("_names", "_attrs", "_values", "_ignore", "__slots__"):
             return object.__getattribute__(self, name)
@@ -3582,7 +3607,7 @@ class AttrListProxy[T]:
             return self._values[index]
         if name in self._ignore:
             return None
-        return super().__getattr__(name)
+        return object.__getattribute__(self, name)
 
     def __setattr__(self, name, value):
         if name in self._names:
@@ -3591,7 +3616,7 @@ class AttrListProxy[T]:
             return
         if name in self._ignore:
             return
-        raise AttributeError(name)
+        self._attrs[name] = value
 
 
 def create_init_for(
@@ -3601,6 +3626,7 @@ def create_init_for(
     *,
     template=None,
     post_init=False,
+    **template_kwargs,
 ):
     if not template:
         template = general_init
@@ -3638,11 +3664,36 @@ def create_init_for(
         params.append(inspect.Parameter("kwargs", ParameterKind.VAR_KEYWORD))
 
     # print(qualname, [(x.name, x.default) for x in params])
-    sig = inspect.Signature(params, return_annotation=None)
+    try:
+        sig = inspect.Signature(params, return_annotation=None)
+    except ValueError as e:
+        if str(e).startswith("wrong parameter order"):
+            param_f = ", ".join(f"{param.name} ({param.kind})" for param in params)
+            e.add_note(f"params: {param_f}")
+        elif str(e).lower().startswith("non-default argument follows default argument"):
+            prev_params = []
+            for param, next_param in zip(params, params[1:] + [None]):
+                if (
+                    param.default is not inspect.Parameter.empty
+                    and next_param.default is inspect.Parameter.empty
+                ):
+                    params_prev_f = ", ".join(prev_params)
+                    if params_prev_f:
+                        params_prev_f = f"{params_prev_f}, "
+                    e.add_note(
+                        f"After {param.name} which has default of {param.default}, "
+                        f"{next_param.name} lacks one!"
+                    )
+                    e.add_note(f"Assign a default value to {qualname}.{next_param.name}")
+                    break
+                prev_params.append(param.name)
+        raise
+
     self_params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD), *params]
     for index, param in enumerate(self_params):
         if param.kind in (inspect.Parameter.POSITIONAL_ONLY,):
             self_params[index] = param.replace(kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
+
     sig_with_self = inspect.Signature(self_params, return_annotation=None)
 
     class Fake:
@@ -3656,6 +3707,7 @@ def create_init_for(
     for attr in attr_type_map:
         attr_type_map[attr] = parse_typedef(attr_type_map[attr])
     config = {
+        **template_kwargs,
         "post_init": post_init,
         "signature": sig,
         "types": attr_type_map,
@@ -3694,7 +3746,7 @@ def validate(
     errors = ()
     if not on_type_error:
         on_type_error = _default_type_error
-    cls = type(data)
+    cls = data.__class__
     if not type_map:
         type_map = definition_types_for(cls)
     for attr_name in cls.__definitions__:
@@ -3719,9 +3771,16 @@ def general_init(config, /, self, *args, **kwargs):
     sig = config["signature"]
     type_map = config["types"]
     post_init = config["post_init"]
+    call_super = config["call_super"]
     type_fail = config.get("type_check_failure_exc")
+    if call_super:
+        next_cls = cls.mro()[1:][0]
+        # print(f"{cls} calling super on {cls} -> {next_cls}")
+        super(next_cls, self).__init__(*args, **kwargs)
+        return
 
     definitions = cls.__definitions__
+    # print(f"{cls} rebinding from {args!r}, {kwargs!r}")
     bound = sig.bind(*args, **kwargs)
     rem_kwargs = {}
     errors = ()
@@ -3736,6 +3795,9 @@ def general_init(config, /, self, *args, **kwargs):
         except (TypeError, ValueError) as e:
             e.add_note(f"occurred in {cls.__name__}.{attr_name}")
             errors = (*errors, e)
+        else:
+            pass
+            # print(f"set {self.__class__.__qualname__}.{attr_name} = {value}")
     default_attrs = definitions.keys() - bound.arguments.keys()
     uninit_attrs = []
     for attr in default_attrs:
@@ -3747,6 +3809,7 @@ def general_init(config, /, self, *args, **kwargs):
         else:
             uninit_attrs.append(attr)
             continue
+        # print("set default", attr, default)
         setattr(self, attr, default)
     missing_attributes = uninit_attrs
     if post_init:
@@ -3762,6 +3825,7 @@ def general_init(config, /, self, *args, **kwargs):
             errors = (*errors, e)
         raise group_many_if("Missing attributes!", *errors)
     _process_events_for(self, cls=cls, ignore=tuple(missing_attributes))
+    # print(f"pre-validate: {self!r}")
     validate(self, type_map=type_map, on_type_error=type_fail)
 
 
@@ -3808,12 +3872,23 @@ def class_and(cls, fields):
     if errors:
         raise group_many_if(f"Cannot &-{cls}: encountered {len(errors)} errors", *errors)
     attrs["__qualname__"] = qualname
-    new_cls = type(name, (cls,), attrs, frozen=True, ignore=skip_keys)
+    new_cls = types.new_class(
+        name,
+        (cls,),
+        {"frozen": True, "ignore": skip_keys},
+        functools.partial(
+            _merge_ns,
+            attrs,
+        ),
+    )
+    # new_cls = type(name, (cls,), attrs, frozen=True, ignore=skip_keys)
     assert len(new_cls.__definitions__) + len(skip_keys) == len(cls.__definitions__)
     return new_cls
 
 
 class _DataTuple:
+    __slots__ = ()
+
     def __getitem__(self, o):
         cls = self.__class__
         match o:
@@ -4048,6 +4123,21 @@ def _merge_ns(mapping, /, ns):
         ns[key] = mapping[key]
 
 
+def make_init(cls):
+    __class__ = cls
+
+    def __init__(self, *args, **kwargs):
+        nonlocal __class__
+        super().__init__(*args, **kwargs)
+
+    __init__.__module__ = cls.__module__
+    __init__.__qualname__ = f"{cls.__qualname__}.__init__"
+    return __init__
+
+
+_data_class_lookup = weakref.WeakKeyDictionary()
+
+
 def data_class(
     o: type[T] | None = None,
     /,
@@ -4071,7 +4161,7 @@ def data_class(
         slot_attrs = ()
         match o:
             case PendingType() as pt:
-                bases = pt.bases
+                bases = types.resolve_bases(pt.bases)
                 module = module_name or pt.module
                 qualname = class_qualname or pt.qualname
                 doc = class_doc or pt.doc
@@ -4142,35 +4232,79 @@ def data_class(
                 raise TypeError(f"Expected True or False for slots, got a {wtf!r} (a {type(wtf)})")
             case _:
                 slots = None
-        has_post_init = None
-        if slots is None:
-            for base in bases:
-                if getattr(base, "__definitions__", not_set) is not not_set:
-                    assert isinstance(base.__definitions__, dict)
-                    assert all(isinstance(f, Field) for f in base.__definitions__.values())
-                    # data_classes are automatically slottable lol
-                    for key in base.__definitions__:
-                        base_attrs.setdefault(key, base.__definitions__[key])
-                    for base_opt in base.__class_definition__["options"]:
-                        base_opt_value = base.__class_definition__["options"][base_opt]
-                        kwargs.setdefault(base_opt, base_opt_value)
-                    base_class_def = getattr(base, "__class_definition__")
-                    if base_class_def:
-                        base_listeners.update(base_class_def["listeners"])
-                    if (
-                        has_post_init is None
-                        and (maybe_pi := inspect.getattr_static(base, "__post_init__", not_set))
+        has_post_init = ()
+        has_new = ()
+        parent_inits = ()
+
+        for base in bases:
+            if inspect.getattr_static(base, "__definitions__", not_set) is not not_set:
+                base_definitions = base.__definitions__
+                assert isinstance(base_definitions, AbstractMapping)
+                assert all(isinstance(f, Field) for f in base.__definitions__.values())
+                for key in base_definitions:
+                    base_attrs.setdefault(key, base_definitions[key])
+                for base_opt in base.__class_definition__["options"]:
+                    base_opt_value = base.__class_definition__["options"][base_opt]
+                    kwargs.setdefault(base_opt, base_opt_value)
+                base_class_def = getattr(base, "__class_definition__")
+                if base_class_def:
+                    base_listeners.update(base_class_def["listeners"])
+                if (
+                    (maybe_pi := inspect.getattr_static(base, "__post_init__", not_set))
+                    is not not_set
+                ) and callable(maybe_pi):
+                    has_post_init = (*has_post_init, maybe_pi)
+                target = base
+                try:
+                    target = _data_class_lookup[base]
+                except KeyError:
+                    pass
+                if (
+                    (
+                        (maybe_new := inspect.getattr_static(target, "__new__", not_set))
                         is not not_set
-                    ):
-                        has_post_init = callable(maybe_pi)
-                elif getattr(base, "__slots__", not_set) is not_set:
-                    if slots is None:
+                    )
+                    and callable(maybe_new)
+                    and not (
+                        getattr(maybe_new, "__self__", None) is not None
+                        and maybe_new.__self__.__module__ == "builtins"
+                        or maybe_new is getattr(object, "__new__")
+                    )
+                ):
+                    has_new = (*has_new, maybe_new)
+                if (
+                    (
+                        (maybe_init := inspect.getattr_static(target, "__init__", not_set))
+                        is not not_set
+                    )
+                    and callable(maybe_init)
+                    and not (
+                        getattr(maybe_init, "__self__", None) is not None
+                        and maybe_init.__self__.__module__ == "builtins"
+                        or maybe_init is getattr(object, "__init__")
+                    )
+                ):
+                    parent_inits = (*parent_inits, maybe_init)
+            elif (base_slots := inspect.getattr_static(base, "__slots__", not_set)) is not not_set:
+                if base_slots:
+                    if slots:
+                        e = TypeError("multiple bases have instance lay-out conflict")
+                        e.add_note(f"{base.__qualname__} has __slots__ = {base_slots!r}")
+                        raise e
+                    elif slots is None:
                         warnings.append(
                             f"{class_name}: {base.__qualname__} lacks __slots__, disabling slots."
                         )
                         kwargs["slots"] = slots = False
-            else:
+                elif base_slots is None and slots is None:
+                    warnings.append(
+                        f"{class_name}: {base.__qualname__} lacks __slots__, disabling slots."
+                    )
+                    kwargs["slots"] = slots = False
+        else:
+            if slots is None:
                 kwargs["slots"] = slots = True
+
         ns = {
             **class_attrs,
             "__module__": module,
@@ -4263,7 +4397,7 @@ def data_class(
                 )
             case {"hash": True} if "__hash__" not in ns:
                 new_ns["__hash__"] = None
-                print(class_name, attrs)
+                # print(class_name, attrs)
             case {"hash": None}:
                 new_ns["__hash__"] = None
 
@@ -4304,8 +4438,15 @@ def data_class(
             slots = None
         if slots:
             assert "__slots__" not in ns
-        if has_post_init is None:
-            has_post_init = "__post_init__" in ns
+        if "__post_init__" in ns:
+            assert callable(ns["__post_init__"])
+            has_post_init = (ns["__post_init__"], *has_post_init)
+        if "__new__" in ns:
+            assert callable(ns["__new__"])
+            has_new = (ns["__new__"], *has_new)
+        if "__init__" in ns:
+            assert callable(ns["__init__"])
+            # has_init = (ns["__init__"], *parent_inits)
 
         rebind_class_closures = ()
         dc_ns = {}
@@ -4318,7 +4459,7 @@ def data_class(
                     if name == "__class__":
                         rebind_class_closures = (*rebind_class_closures, ("__init__", bound_func))
                     else:
-                        print("ignoring", qualname, name)
+                        # print("ignoring", qualname, name)
                         is_debug_mode("data_class", class_name) and logger.debug(
                             f"ignoring {qualname}.__init__ closure variable {name}"
                         )
@@ -4330,16 +4471,18 @@ def data_class(
                         qualname,
                         attrs,
                         post_init=has_post_init,
+                        call_super=parent_inits,
                     )
                     new_ns["__init__"] = init_func
-            case _ if frozen:
-                pass
-            case _ if not frozen:
+            # case _ if frozen:
+            #     print("No new init for", class_name)
+            case _:
                 init_func = create_init_for(
                     module,
                     qualname,
                     attrs,
                     post_init=has_post_init,
+                    call_super=parent_inits,
                 )
                 new_ns["__init__"] = init_func
 
@@ -4353,6 +4496,28 @@ def data_class(
                 del ns["__slots__"]
         elif slots or data_bases:
             extra = {"__slots__": ()}
+        public_namespace = {
+            **ns,
+            **new_ns,
+            **extra,
+        }
+        public_namespace["__definitions__"] = types.MappingProxyType(
+            public_namespace["__definitions__"]
+        )
+        class_definition["options"] = types.MappingProxyType(class_definition["options"])
+        if "skipped_fields" in class_definition:
+            class_definition["skipped_fields"] = tuple(class_definition["skipped_fields"])
+        public_namespace["__class_definition__"] = types.MappingProxyType(class_definition)
+        if has_new:
+            new_template = create_data_instance_for_complex_new
+        else:
+            new_template = create_data_instance_argless_new
+        new_template_attrs = {}
+        public_namespace["__new__"] = functools.partial(
+            new_template,
+            new_template_attrs,
+        )
+
         with define_bare_class():
             pub_cls = types.new_class(
                 class_name,
@@ -4362,11 +4527,7 @@ def data_class(
                 },
                 functools.partial(
                     _merge_ns,
-                    {
-                        **ns,
-                        **new_ns,
-                        **extra,
-                    },
+                    public_namespace,
                 ),
             )
         for attr_name, attr_value in vars(pub_cls).items():
@@ -4399,12 +4560,15 @@ def data_class(
         del new_ns, extra
         if slots or data_bases:
             if frozen:
+                dc_init = dc_ns.pop("__init__", None)
                 dc_ns["__new__"] = create_new_for(
                     module,
                     qualname,
                     attrs,
                     template=tuple_new,
                     post_init=has_post_init,
+                    init=dc_init,
+                    call_super=parent_inits,
                 )
                 dc_ns["__init__"] = object.__init__
             dc_ns["__class__"] = pub_cls
@@ -4416,18 +4580,13 @@ def data_class(
                     (pub_cls, *data_bases),
                     exec_body=functools.partial(_merge_ns, {"__slots__": slots, **dc_ns}),
                 )
-            if pub_cls.__new__ is object.__new__:
-                new_template = create_data_instance_argless_new
-            else:
-                new_template = create_data_instance_for_complex_new
-            pub_cls.__new__ = functools.partial(
-                new_template,
-                {
-                    "data_class": d_cls,
-                    "data_class_parent": pub_cls,
-                    "__new__": pub_cls.__new__,
-                },
-            )
+            new_template_attrs["data_class"] = d_cls
+            new_template_attrs["data_class_parent"] = pub_cls
+            _data_class_lookup[pub_cls] = d_cls
+            effective_new = super(pub_cls, pub_cls).__new__
+            if effective_new is object.__new__ and frozen:
+                effective_new = tuple.__new__
+            new_template_attrs["__new__"] = effective_new
             sl = getattr(d_cls, "__slots__", None)
             assert sl is not None
             for name, func in rebind_class_closures:
@@ -4478,11 +4637,23 @@ def create_data_instance_argless_new[T, **P](
 ) -> T:
     data_cls = config["data_class"]
     parent = config["data_class_parent"]
-    __new__ = config["__new__"]
+    # __new__ = config["__new__"]
+    assert isinstance(cls, type), f"{cls=!r} (a {type(cls)})"
     if cls is parent:
         o = data_cls(*args, **kwargs)
+    elif cls.__class_definition__["options"].get("frozen", False):
+        o = tuple.__new__(cls, *args, **kwargs)
     else:
-        o = __new__(cls)
+        o = object.__new__(cls)
+    if hasattr(o, "__dict__"):
+        bad = []
+        for cls in type(o).mro():
+            if not hasattr(cls, "__slots__"):
+                bad.append(cls)
+        e = TypeError(f"{type(o)} has a dict!")
+        if bad:
+            e.add_note(f"these classes have __dict__ due to lacking slots: {bad}")
+        raise e
     return o
 
 
@@ -4496,6 +4667,7 @@ def create_data_instance_for_complex_new[T, **P](config, /, cls, *args, **kwargs
             f"detour new for {cls} -> {data_cls}"
         )
         return data_cls(*args, **kwargs)
+    # print(__new__)
     o = __new__(cls, *args, **kwargs)
     return o
 
@@ -4518,6 +4690,14 @@ def _setup_class_attr_ns(ns):
     _not_set = object()
     errors = []
     class_definition = ns.setdefault("__class_definition__", {})
+    if not isinstance(class_definition, MutableMapping):
+        class_definition = {
+            key: dict(value)
+            if isinstance(value, AbstractMapping) and not isinstance(value, MutableMapping)
+            else value
+            for key, value in class_definition.items()
+        }
+        ns["__class_definition__"] = class_definition
     # coerce_mappings = ns.setdefault("__coerce__", {})
     # ARJ: use weak references for listener functions are those are
     # typically held on the class itself already.

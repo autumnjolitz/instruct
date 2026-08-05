@@ -104,8 +104,11 @@ def test_suggest_default_value():
         class B(A):
             value: int
 
-    assert exc_info.value.__notes__
-    hint, *rest = exc_info.value.__notes__
+    assert getattr(exc_info.value, "__notes__", None)
+    (
+        *rest,
+        hint,
+    ) = exc_info.value.__notes__
     assert hint.startswith("Assign a default value to")
     assert hint.endswith("B.value")
 
@@ -113,6 +116,7 @@ def test_suggest_default_value():
         value: int = -1
 
     assert B.__class_definition__["options"]["frozen"]
+    print(B.__new__, "XXX")
 
     assert tuple(B()) == (-1, -1)
     assert tuple(b := B(1, 2)) == (1, 2)
@@ -223,7 +227,6 @@ def test_with_custom_super():
     assert a._db is fake_db
 
 
-@pytest.mark.xfail
 def test_with_custom_super_inherit():
     @data_class
     class A:
@@ -233,7 +236,10 @@ def test_with_custom_super_inherit():
         name: str
 
         def __init__(self, *args, db, **kwargs):
+            print("inside A init")
             self._db = db
+            print(f"calling super on {__class__} for istance {self!r}")
+            assert isinstance(self, __class__)
             super().__init__(*args, **kwargs)
 
     fake_db = object()
@@ -243,8 +249,9 @@ def test_with_custom_super_inherit():
     class B(A, frozen=True):
         pass
 
+    print("create a b plz")
     b = B(1, "a", db=fake_db)
-    assert tuple(b) == (1, "a", fake_db)
+    assert tuple(b) == (1, "a", fake_db), f"{tuple(b)} != {(1, 'a', fake_db)}"
 
 
 def test_with_custom_slots():
@@ -284,8 +291,7 @@ def test_with_custom_slots():
 
 
 if __name__ == "__main__":
-    test_mutable_item()
-    test_mutable_coerce()
-    test_class_subtraction()
-    test_frozen_item()
-    test_frozen_slicing()
+    for attr in tuple(locals()):
+        value = locals()[attr]
+        if attr.startswith("test_") and callable(value):
+            value()
