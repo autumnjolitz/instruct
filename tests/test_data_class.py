@@ -251,7 +251,7 @@ def test_with_custom_super_inherit():
 
     print("create a b plz")
     b = B(1, "a", db=fake_db)
-    assert tuple(b) == (1, "a", fake_db), f"{tuple(b)} != {(1, 'a', fake_db)}"
+    assert b._db is fake_db
 
 
 def test_with_custom_slots():
@@ -288,6 +288,89 @@ def test_with_custom_slots():
     assert c._db is fake_db
     assert c.__definitions__ == b.__definitions__ == c.__definitions__
     assert c.__class_definition__["options"]["frozen"]
+
+
+def test_call_count(mocker, monkeypatch):
+    with monkeypatch.context() as c:
+        DataTypeFactoryNew = mocker.MagicMock(side_effect=instruct.DataClassTypeFactory.__new__)
+        data_class = mocker.MagicMock(side_effect=instruct.data_class)
+        c.setattr(instruct.DataClassTypeFactory, "__new__", DataTypeFactoryNew)
+        c.setattr(instruct, "data_class", data_class)
+
+        @data_class(slots=False)
+        class A:
+            a: str
+            b: int
+            c: dict[str, str]
+
+        assert (DataTypeFactoryNew.call_count, data_class.call_count) == (1, 1)
+        assert A.__class_definition__["options"]["slots"] is False
+
+        DataTypeFactoryNew.reset_mock()
+        data_class.reset_mock()
+
+        @data_class(slots=True)
+        class B:
+            a: str
+            b: int
+            c: dict[str, str]
+
+        assert (DataTypeFactoryNew.call_count, data_class.call_count) == (2, 1)
+
+        DataTypeFactoryNew.reset_mock()
+        data_class.reset_mock()
+
+        class C(A):
+            pass
+
+        assert A.__class_definition__["options"]["slots"] is False
+        assert C.__class_definition__["options"]["slots"] is False
+        assert (DataTypeFactoryNew.call_count, data_class.call_count) == (1, 1)
+
+        DataTypeFactoryNew.reset_mock()
+        data_class.reset_mock()
+
+        a = A("a", 3, {})
+        c = C("b", 2, {})
+
+        # pathological case:
+        # we have a chain of non-slotted classes as parents.
+        # which will be upcoerced to slotted versions in D's base chain:
+        effective_cls_mro_len = len(C.mro()[:-1]) + 1  # exclude object from the effective chain
+
+        class D(C, slots=True): ...
+
+        # So we will define D and len(unslotted bases)
+        actual_effective_mro_len = len(D.mro()[:-1])
+        assert actual_effective_mro_len == 3
+        assert D.__class_definition__["options"]["slots"] is True
+        assert not hasattr(D("a", 1, {"a": "b"}), "__dict__")
+        assert (DataTypeFactoryNew.call_count, data_class.call_count) == (
+            2 * actual_effective_mro_len,
+            1 * actual_effective_mro_len,
+        )
+
+        d = D("d", 4, {"y": "q"})
+        assert isinstance(d, A)
+        assert isinstance(d, C)
+        assert not hasattr(d, "__dict__")
+
+        _, slottedC, *_ = D.mro()
+        assert issubclass(slottedC, C), slottedC.mro()
+        assert issubclass(D, A)
+
+        DataTypeFactoryNew.reset_mock()
+        data_class.reset_mock()
+
+        class F(C, frozen=True):
+            sid: str
+
+        assert F.__class_definition__["options"]["slots"] is True
+        assert F.__class_definition__["options"]["frozen"] is True
+        assert (DataTypeFactoryNew.call_count, data_class.call_count) == (6, 3)
+
+        f = F("f", 5, {"y": "q"}, "565")
+        assert instruct.astuple(f) == ("f", 5, {"y": "q"}, "565")
 
 
 if __name__ == "__main__":

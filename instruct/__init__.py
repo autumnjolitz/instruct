@@ -3549,7 +3549,17 @@ def tuple_new(config, /, cls, *args, **kwargs):
     if init_func:
         init_func(o_proxy, *orig_args, **orig_kwargs)
     elif call_super:
+        # ARJ: A and B are mutually exclusive and
+        # break different tests:
+        #    A breaks test_data_class::test_with_custom_super_inherit
+        #    B breaks test_data_class::test_call_count
+        # A:
+        super(cls, o_proxy).__init__(*orig_args, **orig_kwargs)
+        # B:
         for init_func in call_super:
+            print(
+                f"calling {init_func}",
+            )
             init_func = insert_class_closure(cls, init_func)
             init_func(o_proxy, *orig_args, **orig_kwargs)
     elif post_init:
@@ -3571,7 +3581,7 @@ def _process_events_for(o, *, cls=None, ignore=()):
         values = tuple(getattr(o, x) for x in attr_names)
         assert listener_map[attr_names]
         for listener_func in listener_map[attr_names]:
-            logger.debug(f"calling {listener_func} for {o}")
+            logger.debug(f"events: calling {listener_func} for {o}")
             listener_func(o, *values)
 
 
@@ -3774,9 +3784,14 @@ def general_init(config, /, self, *args, **kwargs):
     call_super = config["call_super"]
     type_fail = config.get("type_check_failure_exc")
     if call_super:
-        next_cls = cls.mro()[1:][0]
-        # print(f"{cls} calling super on {cls} -> {next_cls}")
-        super(next_cls, self).__init__(*args, **kwargs)
+        _, next_cls, *_ = cls.mro()
+        thunk = super(next_cls, self).__init__
+        if thunk.__qualname__ == "object.__init__":
+            thunk()
+        else:
+            print(cls, "calling", next_cls, thunk.__qualname__)
+            thunk(*args, **kwargs)
+            print(f"called {cls}:{next_cls}::{thunk.__qualname__}({args}, {kwargs})")
 
     definitions = cls.__definitions__
     # print(f"{cls} rebinding from {args!r}, {kwargs!r}")
@@ -4033,10 +4048,25 @@ def in_bare_class():
 
 
 class DataClassTypeFactory(builtins.type):
-    @classmethod
-    def create_bare_class(cls, class_name, bases, attrs):
-        with define_bare_class():
-            return cls(class_name, bases, attrs)
+    _registry = weakref.WeakKeyDictionary()
+
+    def __instancecheck__(self, instance):
+        if super().__instancecheck__(instance):
+            return True
+        for maybe_cls in (x for x in self.mro()[:-1] if x in self._registry):
+            registered_overrides = self._registry[maybe_cls]
+            if isinstance(instance, tuple(registered_overrides)):
+                return True
+        return False
+
+    def __subclasscheck__(self, subclass):
+        if super().__subclasscheck__(subclass):
+            return True
+        for maybe_cls in (x for x in self.mro()[:-1] if x in self._registry):
+            registered_overrides = self._registry[maybe_cls]
+            if issubclass(subclass, tuple(registered_overrides)):
+                return True
+        return False
 
     def __new__(self, class_name, bases, attrs, **kwargs):
         if not in_bare_class():
@@ -4058,12 +4088,24 @@ class DataClassTypeFactory(builtins.type):
                 attrs,
                 ann,
             )
-            return data_class(**kwargs)(pt)
+            return data_class(
+                class_factory=types.MethodType(super().__new__, self),
+                **kwargs,
+            )(pt)
         elif kwargs:
             bad_kwargs_f = ", ".join(repr(key) for key in kwargs)
             raise ValueError(f"Unexpected keyword arguments given: {bad_kwargs_f}")
         cls = super().__new__(self, class_name, bases, attrs)
         return cls
+
+    def register(cls, implementor):
+        self = type(cls)
+        try:
+            dest = self._registry[cls]
+        except KeyError:
+            dest = self._registry[cls] = weakref.WeakSet()
+        dest.add(implementor)
+        return implementor
 
     def __and__(self, other):
         cls = class_and(self, other)
@@ -4137,13 +4179,18 @@ def make_init(cls):
 _data_class_lookup = weakref.WeakKeyDictionary()
 
 
+class RawFunction(NamedTuple):
+    name: str
+    thunk: Callable
+
+
 def data_class(
     o: type[T] | None = None,
     /,
     module_name: str | None = None,
     class_qualname: str | None = None,
     class_doc: str | None = None,
-    class_factory=DataClassTypeFactory.create_bare_class,
+    class_factory=DataClassTypeFactory,
     **kwargs: Unpack[DataClassOptions],
 ) -> type[T] | Callable[[type[T]], type[T]]:
     not_set = object()
@@ -4229,23 +4276,46 @@ def data_class(
                 slots = f
             case {"slots": wtf}:
                 raise TypeError(f"Expected True or False for slots, got a {wtf!r} (a {type(wtf)})")
+            case {"frozen": True}:
+                slots = True
+                kwargs["slots"] = True
             case _:
                 slots = None
+                kwargs.pop("slots", None)
         has_post_init = ()
         has_new = ()
         parent_inits = ()
+        print(f"{class_name}: slots: {slots}, {'slots' in kwargs}")
 
-        for base in bases:
+        bases = list(bases)
+
+        for index, base in enumerate(bases):
             if inspect.getattr_static(base, "__definitions__", not_set) is not not_set:
                 base_definitions = base.__definitions__
                 assert isinstance(base_definitions, AbstractMapping)
                 assert all(isinstance(f, Field) for f in base.__definitions__.values())
+                base_class_def = getattr(base, "__class_definition__")
                 for key in base_definitions:
                     base_attrs.setdefault(key, base_definitions[key])
-                for base_opt in base.__class_definition__["options"]:
-                    base_opt_value = base.__class_definition__["options"][base_opt]
-                    kwargs.setdefault(base_opt, base_opt_value)
-                base_class_def = getattr(base, "__class_definition__")
+                base_options = base_class_def["options"]
+
+                if slots is True and base_options["slots"] is False:
+                    prev_base = base
+                    bases[index] = base = data_class(
+                        slots=True, class_qualname=f"{base.__qualname__}._slotted"
+                    )(base)
+                    if isinstance(class_factory, builtins.type):
+                        class_factory.register(prev_base, base)
+
+                for base_opt in base_class_def["options"]:
+                    base_opt_value = base_class_def["options"][base_opt]
+                    d = kwargs.setdefault(base_opt, base_opt_value)
+                    if is_dbg and d is base_opt_value:
+                        logger.debug(
+                            f"{qualname}: inherited kwargs from {base.__qualname__}: "
+                            f"{base_opt}={d!r}"
+                        )
+
                 if base_class_def:
                     base_listeners.update(base_class_def["listeners"])
                 if (
@@ -4300,9 +4370,17 @@ def data_class(
                         f"{class_name}: {base.__qualname__} lacks __slots__, disabling slots."
                     )
                     kwargs["slots"] = slots = False
-        else:
-            if slots is None:
-                kwargs["slots"] = slots = True
+        match kwargs:
+            case {"slots": None} as wtf:
+                assert_never(wtf)
+            case {"slots": val} if slots is None:
+                slots = val
+        if slots is None:
+            kwargs["slots"] = slots = True
+        assert "slots" in kwargs
+        assert isinstance(kwargs["slots"], bool | tuple)
+
+        bases = tuple(bases)
 
         ns = {
             **class_attrs,
@@ -4487,8 +4565,17 @@ def data_class(
 
         class_definition["options"] = {
             **kwargs,
-            "slots": slots,
         }
+        match class_definition["options"]["slots"]:
+            case None:
+                assert_never(None)
+            case True | False:
+                pass
+            case tuple() as t:
+                assert t == slots
+                class_definition["options"] = slots
+            case _ as wtf:
+                assert_never(wtf)
         extra = {}
         if slots is None:
             if "__slots__" in ns:
@@ -4557,6 +4644,11 @@ def data_class(
             setattr(pub_cls, attr_name, attr_value)
 
         del new_ns, extra
+        effective_new = super(pub_cls, pub_cls).__new__
+        if effective_new is object.__new__ and frozen:
+            effective_new = tuple.__new__
+        new_template_attrs["__new__"] = effective_new
+
         if slots or data_bases:
             if frozen:
                 dc_init = dc_ns.pop("__init__", None)
@@ -4582,10 +4674,6 @@ def data_class(
             new_template_attrs["data_class"] = d_cls
             new_template_attrs["data_class_parent"] = pub_cls
             _data_class_lookup[pub_cls] = d_cls
-            effective_new = super(pub_cls, pub_cls).__new__
-            if effective_new is object.__new__ and frozen:
-                effective_new = tuple.__new__
-            new_template_attrs["__new__"] = effective_new
             sl = getattr(d_cls, "__slots__", None)
             assert sl is not None
             for name, func in rebind_class_closures:
@@ -4634,19 +4722,25 @@ def create_data_instance_argless_new[T, **P](
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> T:
-    data_cls = config["data_class"]
-    parent = config["data_class_parent"]
-    # __new__ = config["__new__"]
     assert isinstance(cls, type), f"{cls=!r} (a {type(cls)})"
-    if cls is parent:
-        o = data_cls(*args, **kwargs)
-    elif cls.__class_definition__["options"].get("frozen", False):
-        o = tuple.__new__(cls, *args, **kwargs)
+    o = NOT_SET
+    class_opts = cls.__class_definition__["options"]
+    try:
+        data_cls = config["data_class"]
+    except KeyError:
+        pass
     else:
-        o = object.__new__(cls)
-    if hasattr(o, "__dict__"):
+        parent = config["data_class_parent"]
+        if cls is parent:
+            o = data_cls(*args, **kwargs)
+    if o is NOT_SET:
+        if class_opts.get("frozen", False):
+            o = tuple.__new__(cls, *args, **kwargs)
+        else:
+            o = object.__new__(cls)
+    if class_opts["slots"] is True and hasattr(o, "__dict__"):
         bad = []
-        for cls in type(o).mro():
+        for cls in type(o).mro()[:-1]:
             if not hasattr(cls, "__slots__"):
                 bad.append(cls)
         e = TypeError(f"{type(o)} has a dict!")
@@ -4657,16 +4751,28 @@ def create_data_instance_argless_new[T, **P](
 
 
 def create_data_instance_for_complex_new[T, **P](config, /, cls, *args, **kwargs) -> T:
-    data_cls = config["data_class"]
-    parent = config["data_class_parent"]
     __new__ = config["__new__"]
+    import types
+
+    try:
+        data_cls = config["data_class"]
+    except KeyError:
+        o = __new__(cls, *args, **kwargs)
+        return o
+    parent = config["data_class_parent"]
     _, parent, *_ = data_cls.mro()
     if cls is parent:
         is_debug_mode("data_class", cls.__name__, "__new__") and logger.debug(
             f"detour new for {cls} -> {data_cls}"
         )
         return data_cls(*args, **kwargs)
-    # print(__new__)
+    if (
+        isinstance(__new__, types.MethodType | types.BuiltinMethodType)
+        and __new__.__self__ is object
+    ):
+        if cls.__class_definition__["options"].get("frozen"):
+            return tuple.__new__(cls, *args)
+        return __new__(cls)
     o = __new__(cls, *args, **kwargs)
     return o
 
@@ -4883,7 +4989,7 @@ class SetupClassAttrProxy[T]:
             match caller_locals:
                 case {"__module__": _, "__qualname__": q}:
                     is_debug_mode("attr_proxy", o.__class__.__name__) and logger.debug(
-                        f"calling in {q}"
+                        f"attr_proxy: calling in {q}"
                     )
                     _setup_class_attr_ns(caller_locals)
                     bind_value = True
