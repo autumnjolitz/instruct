@@ -62,6 +62,9 @@ Next Goals:
 
 =======
 
+- Replace Jinja with t'' strings
+- Evaluate classes within their module context property
+- Allow subtraction of ``property`` accessors
 - ``CStruct``-Base class that operates on an ``_cvalue`` cffi struct ?
 - Cython compatibility ?
 - Recursive ``TypeAliasType`` / ``ForwardRef`` ?
